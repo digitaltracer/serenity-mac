@@ -23,6 +23,17 @@ struct SerenityCloudConfiguration: Equatable, Sendable {
 
     return SerenityCloudConfiguration(baseURL: baseURL, accessToken: accessToken)
   }
+
+  static func fromStoredOrEnvironment(
+    store: BackendConfigurationStore = BackendConfigurationStore(),
+    processInfo: ProcessInfo = .processInfo
+  ) -> SerenityCloudConfiguration? {
+    if let stored = store.loadSerenityCloudConfiguration() {
+      return stored
+    }
+
+    return fromEnvironment(processInfo: processInfo)
+  }
 }
 
 struct SerenityCloudDiagnostics: Equatable, Sendable {

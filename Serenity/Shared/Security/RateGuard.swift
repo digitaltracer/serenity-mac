@@ -1,6 +1,7 @@
 import Foundation
 
 enum SensitiveOperation: String, CaseIterable, Sendable {
+  case signIn
   case backendSwitch
   case localLockToggle
   case passwordUnlock
@@ -57,6 +58,7 @@ actor SensitiveOperationRateGuard {
   }
 
   static let defaultPolicies: [SensitiveOperation: RateGuardPolicy] = [
+    .signIn: RateGuardPolicy(maxAttempts: 8, window: 120),
     .backendSwitch: RateGuardPolicy(maxAttempts: 5, window: 120),
     .localLockToggle: RateGuardPolicy(maxAttempts: 6, window: 120),
     .passwordUnlock: RateGuardPolicy(maxAttempts: 10, window: 120),

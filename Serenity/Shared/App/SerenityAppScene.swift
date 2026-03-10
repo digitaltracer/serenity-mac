@@ -1,104 +1,104 @@
 import SwiftUI
+#if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
-@main
-struct SerenityMacApp: App {
-  @StateObject private var appState = AppState()
+struct SerenityAppScene: View {
+  @ObservedObject var appState: AppState
 
-  var body: some Scene {
-    WindowGroup {
-      NavigationSplitView {
-        SerenitySidebar(selectedSection: Binding(
-          get: { appState.selectedSection },
-          set: { appState.setSection($0) }
-        ))
-        .navigationSplitViewColumnWidth(min: 214, ideal: 228, max: 246)
-      } detail: {
-        ZStack {
-          SerenityDetailBackground()
+  var body: some View {
+    Group {
+      if appState.isLockOverlayVisible {
+        LocalLockOverlayView()
+      } else {
+        appContent
+      }
+    }
+    .environmentObject(appState)
+    .groupBoxStyle(SerenityPanelGroupBoxStyle())
+    .tint(SerenityPalette.accent)
+    .preferredColorScheme(appState.themePreference.colorScheme)
+    .overlay(alignment: .top) {
+      if let toast = appState.activeToast {
+        ToastBanner(message: toast.message)
+          .padding(.top, 12)
+      }
+    }
+    .alert(item: $appState.activeAlert) { alert in
+      Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
+    }
+    .sheet(isPresented: $appState.isGlobalSearchPresented, onDismiss: {
+      appState.closeGlobalSearch()
+    }) {
+      GlobalSearchSheet()
+        .environmentObject(appState)
+    }
+    .sheet(isPresented: $appState.isHelpCenterPresented, onDismiss: {
+      appState.closeHelpCenter()
+    }) {
+      HelpCenterSheet()
+        .environmentObject(appState)
+    }
+    .task {
+      await bootstrap()
+    }
+    .onAppear {
+      activateApplicationIfNeeded()
+      AppLogger.info("Native shell loaded")
+    }
+  }
 
-          VStack(spacing: 0) {
-            SerenityTopBar()
+  @MainActor
+  private func bootstrap() async {
+    await appState.bootstrapAuthSession()
+    await appState.bootstrapLocalLockState()
+    await appState.loadBackendSelectionState()
+    await appState.refreshActiveBackendValidation()
+    await appState.bootstrapLocalDatabaseIfNeeded()
+    await appState.refreshCoreWorkflowData()
+    await appState.bootstrapIntegrations()
+    await appState.bootstrapAIWorkflows()
+    await appState.refreshDatabaseManagement()
+  }
 
-            NavigationStack {
-              if let selectedSection = appState.selectedSection {
-                SectionView(section: selectedSection)
-                  .environmentObject(appState)
-              } else {
-                ContentUnavailableView("Select a section", systemImage: "sidebar.left")
-              }
+  private func activateApplicationIfNeeded() {
+#if os(macOS)
+    NSApp.setActivationPolicy(.regular)
+    NSApp.activate(ignoringOtherApps: true)
+#endif
+  }
+
+  private var appContent: some View {
+    NavigationSplitView {
+      SerenitySidebar(selectedSection: Binding(
+        get: { appState.selectedSection },
+        set: { appState.setSection($0) }
+      ))
+      .navigationSplitViewColumnWidth(min: 214, ideal: 228, max: 246)
+    } detail: {
+      ZStack {
+        SerenityDetailBackground()
+
+        VStack(spacing: 0) {
+          SerenityTopBar()
+
+          NavigationStack {
+            if let selectedSection = appState.selectedSection {
+              SectionView(section: selectedSection)
+                .environmentObject(appState)
+            } else {
+              ContentUnavailableView("Select a section", systemImage: "sidebar.left")
             }
           }
         }
       }
-      .environmentObject(appState)
-      .frame(minWidth: 1080, minHeight: 680)
-      .navigationSplitViewStyle(.balanced)
-      .groupBoxStyle(SerenityPanelGroupBoxStyle())
-      .tint(SerenityPalette.accent)
-      .preferredColorScheme(appState.themePreference.colorScheme)
-      .overlay(alignment: .top) {
-        if let toast = appState.activeToast {
-          ToastBanner(message: toast.message)
-            .padding(.top, 12)
-        }
-      }
-      .alert(item: $appState.activeAlert) { alert in
-        Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
-      }
-      .sheet(isPresented: $appState.isGlobalSearchPresented, onDismiss: {
-        appState.closeGlobalSearch()
-      }) {
-        GlobalSearchSheet()
-          .environmentObject(appState)
-      }
-      .sheet(isPresented: $appState.isHelpCenterPresented, onDismiss: {
-        appState.closeHelpCenter()
-      }) {
-        HelpCenterSheet()
-          .environmentObject(appState)
-      }
-      .onAppear {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-
-        AppLogger.info("Native macOS shell loaded")
-        Task {
-          await appState.bootstrapAuthSession()
-          await appState.bootstrapLocalLockState()
-          await appState.loadBackendSelectionState()
-          await appState.refreshActiveBackendValidation()
-          await appState.bootstrapLocalDatabaseIfNeeded()
-          await appState.refreshCoreWorkflowData()
-          await appState.bootstrapIntegrations()
-          await appState.bootstrapAIWorkflows()
-          await appState.refreshDatabaseManagement()
-        }
-      }
     }
-    .windowStyle(.hiddenTitleBar)
-    .commands {
-      CommandGroup(after: .newItem) {
-        Button("Global Search") {
-          appState.openGlobalSearch()
-        }
-        .keyboardShortcut("k", modifiers: [.command])
-
-        Button("Help Center") {
-          appState.openHelpCenter()
-        }
-        .keyboardShortcut("/", modifiers: [.command])
-
-        Divider()
-
-        Button("Quick Add Task") {
-          Task {
-            await appState.quickAddTaskFromCommand()
-          }
-        }
-        .keyboardShortcut("n", modifiers: [.command, .shift])
-      }
-    }
+    .navigationSplitViewStyle(.balanced)
+#if os(macOS)
+    .toolbar(removing: .sidebarToggle)
+#endif
   }
 }
 
@@ -126,16 +126,23 @@ private extension AppThemePreference {
   }
 }
 
+private enum SerenityCursor {
+  case arrow
+  case iBeam
+  case pointingHand
+}
+
 private struct HoverCursorModifier: ViewModifier {
-  let cursor: NSCursor
+  let cursor: SerenityCursor
 
   func body(content: Content) -> some View {
+#if os(macOS)
     if #available(macOS 13.0, *) {
       content
         .onContinuousHover { phase in
           switch phase {
           case .active:
-            cursor.set()
+            cursor.nativeCursor.set()
           case .ended:
             NSCursor.arrow.set()
           }
@@ -144,20 +151,38 @@ private struct HoverCursorModifier: ViewModifier {
       content
         .onHover { hovering in
           if hovering {
-            cursor.set()
+            cursor.nativeCursor.set()
           } else {
             NSCursor.arrow.set()
           }
         }
     }
+#else
+    content
+#endif
   }
 }
 
 private extension View {
-  func hoverCursor(_ cursor: NSCursor) -> some View {
+  func hoverCursor(_ cursor: SerenityCursor) -> some View {
     modifier(HoverCursorModifier(cursor: cursor))
   }
 }
+
+#if os(macOS)
+private extension SerenityCursor {
+  var nativeCursor: NSCursor {
+    switch self {
+    case .arrow:
+      return .arrow
+    case .iBeam:
+      return .iBeam
+    case .pointingHand:
+      return .pointingHand
+    }
+  }
+}
+#endif
 
 private struct SerenityDetailBackground: View {
   var body: some View {
@@ -756,6 +781,7 @@ private struct SectionView: View {
   }
 }
 
+#if os(macOS)
 private final class QuickCaptureTextView: NSTextView {
   var focusChanged: ((Bool) -> Void)?
 
@@ -841,9 +867,9 @@ private struct QuickCaptureEditor: NSViewRepresentable {
     textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
     textView.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
     textView.font = .systemFont(ofSize: fontSize, weight: .regular)
-    textView.textColor = SerenityPalette.editorTextNSColor
-    textView.insertionPointColor = SerenityPalette.editorTextNSColor
-    textView.typingAttributes[.foregroundColor] = SerenityPalette.editorTextNSColor
+    textView.textColor = NSColor(SerenityPalette.textPrimary)
+    textView.insertionPointColor = NSColor(SerenityPalette.textPrimary)
+    textView.typingAttributes[.foregroundColor] = NSColor(SerenityPalette.textPrimary)
 
     scrollView.documentView = textView
     context.coordinator.textView = textView
@@ -866,9 +892,9 @@ private struct QuickCaptureEditor: NSViewRepresentable {
     }
 
     textView.font = .systemFont(ofSize: fontSize, weight: .regular)
-    textView.textColor = SerenityPalette.editorTextNSColor
-    textView.insertionPointColor = SerenityPalette.editorTextNSColor
-    textView.typingAttributes[.foregroundColor] = SerenityPalette.editorTextNSColor
+    textView.textColor = NSColor(SerenityPalette.textPrimary)
+    textView.insertionPointColor = NSColor(SerenityPalette.textPrimary)
+    textView.typingAttributes[.foregroundColor] = NSColor(SerenityPalette.textPrimary)
 
     if isFocused {
       if nsView.window?.firstResponder !== textView {
@@ -903,6 +929,32 @@ private struct QuickCaptureEditor: NSViewRepresentable {
     }
   }
 }
+#else
+private struct QuickCaptureEditor: View {
+  @Binding var text: String
+  @Binding var isFocused: Bool
+  let fontSize: CGFloat
+
+  @FocusState private var editorFocused: Bool
+
+  var body: some View {
+    TextEditor(text: $text)
+      .font(.system(size: fontSize, weight: .regular))
+      .foregroundStyle(SerenityPalette.textPrimary)
+      .scrollContentBackground(.hidden)
+      .focused($editorFocused)
+      .onAppear {
+        editorFocused = isFocused
+      }
+      .onChange(of: editorFocused) { _, newValue in
+        isFocused = newValue
+      }
+      .onChange(of: isFocused) { _, newValue in
+        editorFocused = newValue
+      }
+  }
+}
+#endif
 
 private struct HomeSectionView: View {
   let density: SerenityContentDensity
@@ -1244,9 +1296,17 @@ struct IntegrationsSectionView: View {
           Divider()
 
           TextField("Google OAuth Client ID", text: $googleClientID)
+            .textFieldStyle(.plain)
+            .serenityInputField()
           SecureField("Google OAuth Client Secret", text: $googleClientSecret)
+            .textFieldStyle(.plain)
+            .serenityInputField()
           TextField("Redirect URI", text: $googleRedirectURI)
+            .textFieldStyle(.plain)
+            .serenityInputField()
           TextField("Scopes (comma-separated)", text: $googleScopes)
+            .textFieldStyle(.plain)
+            .serenityInputField()
           Button("Update OAuth Configuration") {
             Task {
               await appState.configureGoogleOAuth(
@@ -1273,6 +1333,8 @@ struct IntegrationsSectionView: View {
           }
 
           TextField("Authorization code", text: $googleAuthorizationCode)
+            .textFieldStyle(.plain)
+            .serenityInputField()
           Button("Exchange Authorization Code") {
             Task {
               await appState.connectGoogleWithAuthorizationCode(googleAuthorizationCode)
@@ -1287,9 +1349,17 @@ struct IntegrationsSectionView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
           SecureField("Access token", text: $googleAccessToken)
+            .textFieldStyle(.plain)
+            .serenityInputField()
           SecureField("Refresh token (optional)", text: $googleRefreshToken)
+            .textFieldStyle(.plain)
+            .serenityInputField()
           TextField("User email (optional)", text: $googleUserEmail)
+            .textFieldStyle(.plain)
+            .serenityInputField()
           TextField("Token TTL (hours)", text: $googleTokenTTLHours)
+            .textFieldStyle(.plain)
+            .serenityInputField()
             .frame(maxWidth: 180)
 
           HStack {
@@ -1340,7 +1410,11 @@ struct IntegrationsSectionView: View {
           }
 
           SecureField("GitHub token", text: $githubToken)
+            .textFieldStyle(.plain)
+            .serenityInputField()
           TextField("Display name (optional)", text: $githubDisplayName)
+            .textFieldStyle(.plain)
+            .serenityInputField()
 
           Button("Add GitHub Token") {
             Task {
@@ -1597,6 +1671,8 @@ private struct ActionHubSectionView: View {
   @State private var newTaskPriority: TaskPriority = .medium
   @State private var includeDueDate = false
   @State private var dueDate = Date()
+  @State private var calendarVisibleMonth = Calendar.current.startOfMonth(for: Date())
+  @State private var selectedCalendarDate = Calendar.current.startOfDay(for: Date())
   @State private var subtaskDraftByTaskID: [String: String] = [:]
   @State private var editingTask: TaskEntity?
 
@@ -1636,14 +1712,21 @@ private struct ActionHubSectionView: View {
 
   private var tasksView: some View {
     VStack(alignment: .leading, spacing: 16) {
-      ViewThatFits(in: .horizontal) {
-        HStack(alignment: .top, spacing: 14) {
-          progressPanel
-          quickAddPanel
-        }
+      if showQuickAddForm {
         VStack(spacing: 14) {
           progressPanel
           quickAddPanel
+        }
+      } else {
+        ViewThatFits(in: .horizontal) {
+          HStack(alignment: .top, spacing: 14) {
+            progressPanel
+            quickAddPanel
+          }
+          VStack(spacing: 14) {
+            progressPanel
+            quickAddPanel
+          }
         }
       }
 
@@ -1773,30 +1856,48 @@ private struct ActionHubSectionView: View {
           .textFieldStyle(.plain)
           .serenityInputField()
 
-        Picker("Project", selection: $newTaskProjectID) {
-          Text("No project").tag("")
-          ForEach(assignableProjects) { project in
-            Text(project.name).tag(project.id)
+        HStack(alignment: .top, spacing: 12) {
+          VStack(alignment: .leading, spacing: 6) {
+            Text("Project")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+            Picker("Project", selection: $newTaskProjectID) {
+              Text("No project").tag("")
+              ForEach(assignableProjects) { project in
+                Text(project.name).tag(project.id)
+              }
+            }
+            .labelsHidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+
+          VStack(alignment: .leading, spacing: 6) {
+            Text("Priority")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+            Picker("Priority", selection: $newTaskPriority) {
+              ForEach(TaskPriority.allCases, id: \.rawValue) { priority in
+                Text(priority.rawValue.capitalized)
+                  .tag(priority)
+              }
+            }
+            .labelsHidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
           }
         }
-        .frame(maxWidth: 240)
+        .frame(maxWidth: .infinity)
 
-        HStack {
-          Picker("Priority", selection: $newTaskPriority) {
-            ForEach(TaskPriority.allCases, id: \.rawValue) { priority in
-              Text(priority.rawValue.capitalized)
-                .tag(priority)
-            }
-          }
-          .frame(maxWidth: 180)
-
+        HStack(spacing: 12) {
           Toggle("Due date", isOn: $includeDueDate)
             .toggleStyle(.switch)
+            .frame(maxWidth: 120, alignment: .leading)
 
           if includeDueDate {
-            DatePicker("", selection: $dueDate, displayedComponents: [.date, .hourAndMinute])
-              .labelsHidden()
+            DueDateSelectionField(selection: $dueDate)
+              .frame(maxWidth: 280, alignment: .leading)
           }
+
+          Spacer(minLength: 0)
         }
 
         HStack {
@@ -2018,27 +2119,66 @@ private struct ActionHubSectionView: View {
   }
 
   private var calendarView: some View {
-    GroupBox("Upcoming") {
-      VStack(alignment: .leading, spacing: 10) {
-        if dueTasksSorted.isEmpty {
-          Text("No scheduled tasks.")
+    VStack(alignment: .leading, spacing: 14) {
+      HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Schedule Calendar")
+            .font(SerenityType.sectionTitle)
+          Text("\(dueTasksSorted.count) task\(dueTasksSorted.count == 1 ? "" : "s") with due dates")
+            .font(SerenityType.body)
             .foregroundStyle(SerenityPalette.textSecondary)
-        } else {
-          ForEach(dueTasksSorted.prefix(20)) { task in
-            HStack {
-              Text(task.title)
-              Spacer()
-              if let dueDate = task.dueDate {
-                Text(dueDate.formatted(date: .abbreviated, time: .shortened))
-                  .font(.caption)
-                  .foregroundStyle(SerenityPalette.textSecondary)
-              }
-            }
-            .padding(.vertical, 4)
+        }
+
+        Spacer(minLength: 16)
+
+        chip("Today \(appState.todayTasks.count)", tint: SerenityPalette.accent)
+        chip("Overdue \(appState.overdueTasks.count)", tint: appState.overdueTasks.isEmpty ? SerenityPalette.textSecondary : .red)
+
+        HStack(spacing: 6) {
+          Button {
+            shiftCalendarMonth(by: -1)
+          } label: {
+            Image(systemName: "chevron.left")
+              .font(.system(size: 11, weight: .semibold))
+              .frame(width: 26, height: 26)
           }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
+
+          Text(calendarVisibleMonth.formatted(.dateTime.month(.wide).year()))
+            .font(SerenityType.bodyMedium)
+            .frame(minWidth: 170, alignment: .center)
+
+          Button {
+            shiftCalendarMonth(by: 1)
+          } label: {
+            Image(systemName: "chevron.right")
+              .font(.system(size: 11, weight: .semibold))
+              .frame(width: 26, height: 26)
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
+        }
+
+        Button("Today") {
+          jumpCalendarToToday()
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+      }
+
+      ViewThatFits(in: .horizontal) {
+        HStack(alignment: .top, spacing: 14) {
+          calendarMonthPanel
+          calendarAgendaPanel
+            .frame(width: 340)
+        }
+
+        VStack(alignment: .leading, spacing: 14) {
+          calendarMonthPanel
+          calendarAgendaPanel
         }
       }
-      .padding(.top, 4)
     }
   }
 
@@ -2086,6 +2226,214 @@ private struct ActionHubSectionView: View {
       .sorted { lhs, rhs in
         (lhs.dueDate ?? lhs.createdAt) < (rhs.dueDate ?? rhs.createdAt)
       }
+  }
+
+  private var dueTasksByDay: [Date: [TaskEntity]] {
+    Dictionary(grouping: dueTasksSorted) { task in
+      Calendar.current.startOfDay(for: task.dueDate ?? task.createdAt)
+    }
+  }
+
+  private var selectedDayStart: Date {
+    Calendar.current.startOfDay(for: selectedCalendarDate)
+  }
+
+  private var selectedDayTasks: [TaskEntity] {
+    (dueTasksByDay[selectedDayStart] ?? [])
+      .sorted { lhs, rhs in
+        (lhs.dueDate ?? lhs.createdAt) < (rhs.dueDate ?? rhs.createdAt)
+      }
+  }
+
+  private var calendarWeekdaySymbols: [String] {
+    Calendar.current.orderedVeryShortStandaloneWeekdaySymbols()
+  }
+
+  private var calendarGridDates: [Date] {
+    Calendar.current.monthGridDates(for: calendarVisibleMonth)
+  }
+
+  private var calendarMonthPanel: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 8) {
+        ForEach(Array(calendarWeekdaySymbols.enumerated()), id: \.offset) { _, symbol in
+          Text(symbol)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .frame(maxWidth: .infinity)
+        }
+      }
+      .padding(.horizontal, 4)
+
+      LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 7), spacing: 6) {
+        ForEach(calendarGridDates, id: \.self) { date in
+          calendarDayCell(date)
+        }
+      }
+    }
+    .padding(14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private var calendarAgendaPanel: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(selectedDayStart.formatted(date: .complete, time: .omitted))
+          .font(SerenityType.sectionTitle)
+          .lineLimit(1)
+        Spacer(minLength: 8)
+        chip("\(selectedDayTasks.count) due", tint: SerenityPalette.accent)
+      }
+
+      HStack(spacing: 8) {
+        chip("\(selectedDayTasks.filter { !$0.completed }.count) open", tint: .orange)
+        chip("\(selectedDayTasks.filter(\.completed).count) done", tint: .green)
+      }
+
+      if selectedDayTasks.isEmpty {
+        Text("No tasks due on this date.")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .padding(.top, 2)
+      } else {
+        VStack(spacing: 8) {
+          ForEach(Array(selectedDayTasks.prefix(8))) { task in
+            calendarAgendaTaskRow(task)
+          }
+        }
+
+        if selectedDayTasks.count > 8 {
+          Text("+\(selectedDayTasks.count - 8) more due task\(selectedDayTasks.count - 8 == 1 ? "" : "s")")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .padding(.top, 2)
+        }
+      }
+    }
+    .padding(14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private func calendarDayCell(_ date: Date) -> some View {
+    let calendar = Calendar.current
+    let dayStart = calendar.startOfDay(for: date)
+    let isSelected = calendar.isDate(dayStart, inSameDayAs: selectedDayStart)
+    let isInVisibleMonth = calendar.isDate(dayStart, equalTo: calendarVisibleMonth, toGranularity: .month)
+    let isToday = calendar.isDateInToday(dayStart)
+    let dueItems = dueTasksByDay[dayStart] ?? []
+    let openDueCount = dueItems.filter { !$0.completed }.count
+
+    return Button {
+      selectedCalendarDate = dayStart
+      calendarVisibleMonth = calendar.startOfMonth(for: dayStart)
+    } label: {
+      VStack(alignment: .leading, spacing: 5) {
+        HStack(spacing: 6) {
+          Text("\(calendar.component(.day, from: dayStart))")
+            .font(SerenityType.bodyMedium.weight(isSelected ? .semibold : .regular))
+            .foregroundStyle(isSelected ? SerenityPalette.textOnInteractiveSurface : SerenityPalette.textPrimary)
+
+          Spacer(minLength: 0)
+
+          if isToday {
+            Circle()
+              .fill(isSelected ? SerenityPalette.textOnInteractiveSurface : SerenityPalette.accent)
+              .frame(width: 6, height: 6)
+          }
+        }
+
+        Spacer(minLength: 0)
+
+        if !dueItems.isEmpty {
+          HStack(spacing: 4) {
+            Circle()
+              .fill(openDueCount == 0 ? .green : SerenityPalette.accent)
+              .frame(width: 6, height: 6)
+
+            Text("\(dueItems.count)")
+              .font(SerenityType.caption)
+              .foregroundStyle(isSelected ? SerenityPalette.textOnInteractiveSurface.opacity(0.9) : SerenityPalette.textSecondary)
+          }
+        }
+      }
+      .padding(8)
+      .frame(maxWidth: .infinity, minHeight: 62, alignment: .topLeading)
+      .background(
+        (isSelected ? SerenityPalette.activeItemBackground : SerenityPalette.innerCardBackground.opacity(isInVisibleMonth ? 0.58 : 0.3)),
+        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .stroke(isSelected ? SerenityPalette.border : SerenityPalette.thinBorder, lineWidth: 1)
+      )
+      .opacity(isInVisibleMonth ? 1 : 0.44)
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+  }
+
+  private func calendarAgendaTaskRow(_ task: TaskEntity) -> some View {
+    HStack(alignment: .top, spacing: 8) {
+      Circle()
+        .fill(task.completed ? .green : priorityColor(task.priority))
+        .frame(width: 8, height: 8)
+        .padding(.top, 4)
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text(task.title)
+          .font(SerenityType.bodyMedium)
+          .strikethrough(task.completed)
+          .lineLimit(2)
+
+        HStack(spacing: 6) {
+          if let dueDate = task.dueDate {
+            Text(dueDate.formatted(date: .omitted, time: .shortened))
+          }
+          if let projectName = projectName(for: task.projectId) {
+            Text(projectName)
+          }
+        }
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 8)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+  }
+
+  private func jumpCalendarToToday() {
+    let today = Calendar.current.startOfDay(for: Date())
+    selectedCalendarDate = today
+    calendarVisibleMonth = Calendar.current.startOfMonth(for: today)
+  }
+
+  private func shiftCalendarMonth(by value: Int) {
+    let calendar = Calendar.current
+    guard let shifted = calendar.date(byAdding: .month, value: value, to: calendarVisibleMonth) else { return }
+    let monthStart = calendar.startOfMonth(for: shifted)
+    let preferredDay = calendar.component(.day, from: selectedCalendarDate)
+    let dayCount = calendar.range(of: .day, in: .month, for: monthStart)?.count ?? 30
+    let clampedDay = min(preferredDay, dayCount)
+    let nextSelected = calendar.date(byAdding: .day, value: clampedDay - 1, to: monthStart) ?? monthStart
+    calendarVisibleMonth = monthStart
+    selectedCalendarDate = calendar.startOfDay(for: nextSelected)
   }
 
   private var progressRing: some View {
@@ -2254,8 +2602,10 @@ private struct JournalSectionView: View {
       GroupBox("New Journal Entry") {
         VStack(alignment: .leading, spacing: 10) {
           TextField("Title (optional)", text: $newEntryTitle)
+            .textFieldStyle(.plain)
+            .serenityInputField()
           TextEditor(text: $newEntryContent)
-            .frame(minHeight: 90)
+            .serenityTextArea(minHeight: 120)
 
           HStack {
             Picker("Mood", selection: $newEntryMood) {
@@ -2268,6 +2618,8 @@ private struct JournalSectionView: View {
             .frame(maxWidth: 220)
 
             TextField("Tags (comma-separated)", text: $newEntryTags)
+              .textFieldStyle(.plain)
+              .serenityInputField()
           }
 
           HStack {
@@ -2432,9 +2784,13 @@ private struct GoalsSectionView: View {
       GroupBox("New Goal") {
         VStack(alignment: .leading, spacing: 10) {
           TextField("Goal title", text: $newGoalTitle)
+            .textFieldStyle(.plain)
+            .serenityInputField()
 
           HStack {
             TextField("Target", text: $newGoalTarget)
+              .textFieldStyle(.plain)
+              .serenityInputField()
               .frame(maxWidth: 140)
 
             Picker("Type", selection: $newGoalType) {
@@ -2564,7 +2920,11 @@ private struct ProjectsSectionView: View {
       GroupBox("New Project") {
         VStack(alignment: .leading, spacing: 10) {
           TextField("Project name", text: $newProjectName)
+            .textFieldStyle(.plain)
+            .serenityInputField()
           TextField("Description", text: $newProjectDescription)
+            .textFieldStyle(.plain)
+            .serenityInputField()
           HStack(spacing: 10) {
             ColorPicker("Project color", selection: $newProjectColor, supportsOpacity: false)
             Text(ProjectColorCodec.hex(from: newProjectColor))
@@ -2802,10 +3162,14 @@ struct InsightsSectionView: View {
             .frame(maxWidth: 200)
 
             TextField("Credential name", text: $newCredentialName)
+              .textFieldStyle(.plain)
+              .serenityInputField()
               .frame(maxWidth: 220)
           }
 
           SecureField("API key", text: $newCredentialAPIKey)
+            .textFieldStyle(.plain)
+            .serenityInputField()
 
           Picker("Model preference", selection: $newCredentialModel) {
             Text("Default").tag("")
@@ -2973,6 +3337,8 @@ struct InsightsSectionView: View {
                   get: { insightNoteDrafts[insight.id] ?? insight.userNotes ?? "" },
                   set: { insightNoteDrafts[insight.id] = $0 }
                 ))
+                .textFieldStyle(.plain)
+                .serenityInputField()
 
                 HStack {
                   Button("Helpful") {
@@ -3320,11 +3686,32 @@ private struct DatabaseSectionView: View {
 
 private struct SettingsSectionView: View {
   @EnvironmentObject private var appState: AppState
+  @State private var authorizationCode = ""
+  @State private var oauthBaseURL = ""
+  @State private var oauthClientID = ""
+  @State private var oauthRedirectURI = ""
+  @State private var cloudBaseURL = ""
+  @State private var cloudAccessToken = ""
+  @State private var postgresHost = ""
+  @State private var postgresPort = "5432"
+  @State private var postgresDatabase = ""
+  @State private var postgresUsername = ""
+  @State private var postgresPassword = ""
+  @State private var postgresSSLMode = "require"
+  @State private var localLockPassword = ""
+  @State private var localLockConfirmPassword = ""
+  @State private var unlockPassword = ""
+  @State private var backendConfigProfile: BackendProfile = .serenityCloud
+  @State private var localLockFormError: String?
+  @State private var oauthConfigurationError: String?
+  @State private var loadedStoredSettingsValues = false
+
+  private let postgresSSLModes = ["disable", "prefer", "require", "verify-ca", "verify-full"]
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       GroupBox("Appearance") {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
           Picker(
             "Theme",
             selection: Binding(
@@ -3340,31 +3727,43 @@ private struct SettingsSectionView: View {
           .frame(maxWidth: 340)
 
           Text("Choose whether Serenity follows the system appearance or forces light/dark mode.")
-            .font(.caption)
+            .font(SerenityType.caption)
             .foregroundStyle(SerenityPalette.textSecondary)
         }
         .padding(.top, 8)
       }
 
       GroupBox("Backend Configuration") {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
           Picker("Primary backend", selection: $appState.settings.backendProfile) {
             ForEach(BackendProfile.allCases) { profile in
               Text(profile.title).tag(profile)
             }
           }
-          .frame(maxWidth: 260)
+          .pickerStyle(.menu)
+          .frame(maxWidth: 280)
 
           let validation = appState.validationState(for: appState.settings.backendProfile)
           Text(validation.message)
-            .font(.caption)
-            .foregroundStyle(validation.isAvailable ? Color.secondary : Color.orange)
+            .font(SerenityType.caption)
+            .foregroundStyle(validation.isAvailable ? SerenityPalette.textSecondary : Color.orange)
+
+          Picker("Edit configuration", selection: $backendConfigProfile) {
+            ForEach(BackendProfile.allCases) { profile in
+              Text(profile.title).tag(profile)
+            }
+          }
+          .pickerStyle(.menu)
+          .frame(maxWidth: 280)
+
+          backendConfigurationEditor
 
           Button("Validate active backend") {
             Task {
               await appState.refreshActiveBackendValidation()
             }
           }
+          .buttonStyle(SerenitySecondaryButtonStyle())
           .hoverCursor(.pointingHand)
 
           backendSwitchStatus
@@ -3376,11 +3775,11 @@ private struct SettingsSectionView: View {
         VStack(alignment: .leading, spacing: 8) {
           if appState.backendDiagnosticsLines.isEmpty {
             Text("No diagnostics available yet.")
-              .foregroundStyle(.secondary)
+              .foregroundStyle(SerenityPalette.textSecondary)
           } else {
             ForEach(appState.backendDiagnosticsLines, id: \.self) { line in
               Text(line)
-                .font(.caption)
+                .font(SerenityType.caption)
                 .textSelection(.enabled)
             }
           }
@@ -3391,47 +3790,217 @@ private struct SettingsSectionView: View {
               await appState.refreshBackendDiagnostics()
             }
           }
+          .buttonStyle(SerenitySecondaryButtonStyle())
           .hoverCursor(.pointingHand)
         }
         .padding(.top, 8)
       }
 
       GroupBox("Auth Session") {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
           authSessionStatus
 
-          Button("Sign out") {
-            Task {
-              await appState.logout()
+          VStack(alignment: .leading, spacing: 8) {
+            Text("OAuth configuration")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+
+            TextField("Base URL (https://...)", text: $oauthBaseURL)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+
+            TextField("Client ID", text: $oauthClientID)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+
+            TextField("Redirect URI", text: $oauthRedirectURI)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+
+            if let oauthConfigurationError {
+              Text(oauthConfigurationError)
+                .font(SerenityType.caption)
+                .foregroundStyle(.red)
+            }
+
+            if !isOAuthConfigured {
+              Text("Save OAuth configuration to enable sign in on this Mac.")
+                .font(SerenityType.caption)
+                .foregroundStyle(Color.orange)
+            }
+
+            HStack {
+              Button("Save OAuth config") {
+                let submittedBaseURL = oauthBaseURL
+                let submittedClientID = oauthClientID
+                let submittedRedirectURI = oauthRedirectURI
+                Task {
+                  do {
+                    try await appState.saveOAuthConfiguration(
+                      baseURL: submittedBaseURL,
+                      clientID: submittedClientID,
+                      redirectURI: submittedRedirectURI
+                    )
+                    oauthConfigurationError = nil
+                    syncOAuthConfigurationFields()
+                  } catch {
+                    oauthConfigurationError = error.localizedDescription
+                  }
+                }
+              }
+              .buttonStyle(SerenityPrimaryButtonStyle())
+              .hoverCursor(.pointingHand)
+
+              Button("Clear") {
+                Task {
+                  await appState.clearOAuthConfiguration()
+                  oauthConfigurationError = nil
+                  syncOAuthConfigurationFields()
+                }
+              }
+              .buttonStyle(SerenitySecondaryButtonStyle())
+              .hoverCursor(.pointingHand)
             }
           }
-          .hoverCursor(.pointingHand)
+
+          VStack(alignment: .leading, spacing: 6) {
+            Text("Authorization code")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+            TextField("Paste OAuth authorization code", text: $authorizationCode)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+          }
+
+          HStack {
+            Button("Sign in") {
+              let submittedCode = authorizationCode
+              Task {
+                await appState.loginWithAuthorizationCode(submittedCode)
+                if case .authenticated = appState.authSessionState {
+                  authorizationCode = ""
+                }
+              }
+            }
+            .buttonStyle(SerenityPrimaryButtonStyle())
+            .disabled(authorizationCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !isOAuthConfigured)
+            .hoverCursor(.pointingHand)
+
+            Button("Sign out") {
+              Task {
+                await appState.logout()
+              }
+            }
+            .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
+          }
         }
         .padding(.top, 8)
       }
 
       GroupBox("App Lock") {
-        VStack(alignment: .leading, spacing: 10) {
-          Toggle("Enable local app lock", isOn: $appState.settings.localLockEnabled)
+        VStack(alignment: .leading, spacing: 12) {
+          Toggle(
+            "Enable local app lock",
+            isOn: Binding(
+              get: { appState.settings.localLockEnabled },
+              set: { newValue in
+                if newValue {
+                  appState.settings.localLockEnabled = true
+                } else {
+                  Task {
+                    await appState.handleLocalLockToggle(false)
+                    localLockPassword = ""
+                    localLockConfirmPassword = ""
+                    unlockPassword = ""
+                    localLockFormError = nil
+                  }
+                }
+              }
+            )
+          )
 
           Text(appState.statusMessage(for: appState.localLockStatus))
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
 
-          HStack {
-            Button("Lock now") {
-              Task {
-                await appState.lockAppNow()
-              }
-            }
-            .hoverCursor(.pointingHand)
+          if appState.settings.localLockEnabled, case .disabled = appState.localLockStatus {
+            VStack(alignment: .leading, spacing: 8) {
+              Text("Set local lock password")
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
 
-            Button("Unlock") {
-              Task {
-                await appState.unlockAppWithConfiguredPassword()
+              SecureField("New password", text: $localLockPassword)
+                .textFieldStyle(.plain)
+                .serenityInputField()
+
+              SecureField("Confirm password", text: $localLockConfirmPassword)
+                .textFieldStyle(.plain)
+                .serenityInputField()
+
+              if let localLockFormError {
+                Text(localLockFormError)
+                  .font(SerenityType.caption)
+                  .foregroundStyle(.red)
               }
+
+              Button("Set password and enable lock") {
+                let password = localLockPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+                let confirmation = localLockConfirmPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !password.isEmpty else {
+                  localLockFormError = "Password cannot be empty."
+                  return
+                }
+                guard password == confirmation else {
+                  localLockFormError = "Passwords do not match."
+                  return
+                }
+
+                localLockFormError = nil
+                Task {
+                  await appState.handleLocalLockToggle(true, password: password)
+                  if case .unlocked = appState.localLockStatus {
+                    localLockPassword = ""
+                    localLockConfirmPassword = ""
+                  }
+                }
+              }
+              .buttonStyle(SerenityPrimaryButtonStyle())
+              .hoverCursor(.pointingHand)
             }
-            .hoverCursor(.pointingHand)
+          }
+
+          if appState.settings.localLockEnabled {
+            VStack(alignment: .leading, spacing: 8) {
+              Text("Unlock with password")
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
+              SecureField("Enter local lock password", text: $unlockPassword)
+                .textFieldStyle(.plain)
+                .serenityInputField()
+            }
+
+            HStack {
+              Button("Unlock with password") {
+                let submittedPassword = unlockPassword
+                Task {
+                  await appState.unlockAppWithPassword(submittedPassword)
+                  if case .unlocked = appState.localLockStatus {
+                    unlockPassword = ""
+                  }
+                }
+              }
+              .buttonStyle(SerenitySecondaryButtonStyle())
+              .hoverCursor(.pointingHand)
+
+              Button("Lock now") {
+                Task {
+                  await appState.lockAppNow()
+                }
+              }
+              .buttonStyle(SerenitySecondaryButtonStyle())
+              .hoverCursor(.pointingHand)
+            }
           }
 
           biometricStatus
@@ -3448,19 +4017,145 @@ private struct SettingsSectionView: View {
               await appState.bootstrapLocalDatabase()
             }
           }
+          .buttonStyle(SerenitySecondaryButtonStyle())
           .hoverCursor(.pointingHand)
         }
         .padding(.top, 8)
       }
+    }
+    .onAppear {
+      loadStoredSettingsValuesIfNeeded()
     }
     .onChange(of: appState.settings.backendProfile) { _, newValue in
       Task {
         await appState.handleBackendProfileSelection(newValue)
       }
     }
-    .onChange(of: appState.settings.localLockEnabled) { _, newValue in
-      Task {
-        await appState.handleLocalLockToggle(newValue)
+  }
+
+  @ViewBuilder
+  private var backendConfigurationEditor: some View {
+    switch backendConfigProfile {
+    case .sqliteLocal:
+      Text("SQLite local backend is ready with no additional setup.")
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+
+    case .serenityCloud:
+      VStack(alignment: .leading, spacing: 8) {
+        Text("Serenity Cloud")
+          .font(SerenityType.bodyMedium)
+
+        Text("Sign in under Auth Session, then use your signed-in session to configure cloud access automatically.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+
+        TextField("Base URL (https://...)", text: $cloudBaseURL)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        if hasAuthenticatedSession {
+          Text("Signed-in session available for one-click cloud setup.")
+            .font(SerenityType.caption)
+            .foregroundStyle(.green)
+        } else {
+          Text("Not signed in yet. Use Auth Session below, or provide an access token manually.")
+            .font(SerenityType.caption)
+            .foregroundStyle(Color.orange)
+        }
+
+        SecureField("Access token", text: $cloudAccessToken)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        HStack {
+          Button("Use signed-in session") {
+            Task {
+              await appState.configureSerenityCloudFromSignedInSession(baseURLOverride: cloudBaseURL)
+              cloudAccessToken = ""
+            }
+          }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .disabled(!hasAuthenticatedSession)
+          .hoverCursor(.pointingHand)
+
+          Button("Save cloud config") {
+            Task {
+              await appState.configureSerenityCloud(baseURL: cloudBaseURL, accessToken: cloudAccessToken)
+            }
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+
+          Button("Clear") {
+            Task {
+              await appState.clearSerenityCloudConfiguration()
+              cloudAccessToken = ""
+            }
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        }
+      }
+
+    case .externalPostgres:
+      VStack(alignment: .leading, spacing: 8) {
+        Text("External PostgreSQL")
+          .font(SerenityType.bodyMedium)
+
+        TextField("Host", text: $postgresHost)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        TextField("Port", text: $postgresPort)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        TextField("Database", text: $postgresDatabase)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        TextField("Username", text: $postgresUsername)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        SecureField("Password", text: $postgresPassword)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        Picker("SSL mode", selection: $postgresSSLMode) {
+          ForEach(postgresSSLModes, id: \.self) { mode in
+            Text(mode).tag(mode)
+          }
+        }
+        .pickerStyle(.menu)
+        .frame(maxWidth: 280)
+
+        HStack {
+          Button("Save PostgreSQL config") {
+            Task {
+              await appState.configureExternalPostgres(
+                host: postgresHost,
+                port: postgresPort,
+                database: postgresDatabase,
+                username: postgresUsername,
+                password: postgresPassword,
+                sslMode: postgresSSLMode
+              )
+            }
+          }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .hoverCursor(.pointingHand)
+
+          Button("Clear") {
+            Task {
+              await appState.clearExternalPostgresConfiguration()
+              postgresPassword = ""
+            }
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        }
       }
     }
   }
@@ -3472,14 +4167,14 @@ private struct SettingsSectionView: View {
       EmptyView()
     case .switching(let target):
       Label("Switching to \(target.title)...", systemImage: "arrow.triangle.2.circlepath")
-        .font(.caption)
+        .font(SerenityType.caption)
     case .succeeded(let message):
       Text(message)
-        .font(.caption)
+        .font(SerenityType.caption)
         .foregroundStyle(.green)
     case .failed(let message):
       Text(message)
-        .font(.caption)
+        .font(SerenityType.caption)
         .foregroundStyle(.red)
     }
   }
@@ -3489,18 +4184,18 @@ private struct SettingsSectionView: View {
     switch appState.authSessionState {
     case .unauthenticated:
       Text("Not signed in")
-        .foregroundStyle(.secondary)
+        .foregroundStyle(SerenityPalette.textSecondary)
     case .authenticating:
       Text("Authenticating...")
-        .foregroundStyle(.secondary)
+        .foregroundStyle(SerenityPalette.textSecondary)
     case .authenticated(let session):
       Text("Signed in as \(session.userEmail)")
       Text("User ID: \(session.userID)")
-        .font(.caption)
-        .foregroundStyle(.secondary)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
     case .refreshing:
       Text("Refreshing session...")
-        .foregroundStyle(.secondary)
+        .foregroundStyle(SerenityPalette.textSecondary)
     case .failed(let message):
       Text("Auth error: \(message)")
         .foregroundStyle(.red)
@@ -3511,16 +4206,17 @@ private struct SettingsSectionView: View {
   private var biometricStatus: some View {
     switch appState.biometricAvailability {
     case .available:
-      Button("Unlock with Touch ID") {
+      Button("Unlock with biometrics or passcode") {
         Task {
           await appState.unlockAppWithBiometrics()
         }
       }
+      .buttonStyle(SerenitySecondaryButtonStyle())
       .hoverCursor(.pointingHand)
     case .unavailable(let reason):
-      Text("Touch ID unavailable: \(reason)")
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      Text("Biometric authentication unavailable: \(reason)")
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
     }
   }
 
@@ -3529,23 +4225,481 @@ private struct SettingsSectionView: View {
     switch appState.databaseBootstrapState {
     case .idle:
       Text("Local database bootstrap has not started yet.")
-        .foregroundStyle(.secondary)
+        .foregroundStyle(SerenityPalette.textSecondary)
     case .bootstrapping:
       Label("Applying migrations...", systemImage: "arrow.triangle.2.circlepath")
     case .ready(let path, let appliedCount):
       VStack(alignment: .leading, spacing: 4) {
         Text("Database ready")
         Text(path)
-          .font(.caption)
-          .foregroundStyle(.secondary)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
           .textSelection(.enabled)
         Text("Migrations applied this run: \(appliedCount)")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
       }
     case .failed(let message):
       Text("Bootstrap failed: \(message)")
         .foregroundStyle(.red)
+    }
+  }
+
+  private var isOAuthConfigured: Bool {
+    appState.oauthConfigurationForSettings() != nil
+  }
+
+  private var hasAuthenticatedSession: Bool {
+    if case .authenticated = appState.authSessionState {
+      return true
+    }
+
+    return false
+  }
+
+  private func loadStoredSettingsValuesIfNeeded() {
+    guard !loadedStoredSettingsValues else { return }
+    loadedStoredSettingsValues = true
+
+    syncOAuthConfigurationFields()
+
+    let existingCloudBaseURL = appState.cloudBaseURLForSettings()
+    if !existingCloudBaseURL.isEmpty {
+      cloudBaseURL = existingCloudBaseURL
+    } else if let oauthConfiguration = appState.oauthConfigurationForSettings() {
+      cloudBaseURL = oauthConfiguration.baseURL.absoluteString
+    }
+
+    backendConfigProfile = appState.settings.backendProfile
+
+    if let diagnostics = appState.externalPostgresDiagnosticsForSettings() {
+      postgresHost = diagnostics.host
+      postgresPort = String(diagnostics.port)
+      postgresDatabase = diagnostics.database
+      postgresUsername = diagnostics.username
+      postgresSSLMode = diagnostics.sslMode
+    }
+  }
+
+  private func syncOAuthConfigurationFields() {
+    guard let configuration = appState.oauthConfigurationForSettings() else {
+      oauthBaseURL = ""
+      oauthClientID = ""
+      oauthRedirectURI = ""
+      return
+    }
+
+    oauthBaseURL = configuration.baseURL.absoluteString
+    oauthClientID = configuration.clientID
+    oauthRedirectURI = configuration.redirectURI
+  }
+}
+
+private struct LocalLockOverlayView: View {
+  @EnvironmentObject private var appState: AppState
+  @State private var password = ""
+  @State private var revealPassword = false
+  @State private var isUnlockingWithPassword = false
+  @State private var isUnlockingWithBiometrics = false
+  @FocusState private var passwordFieldFocused: Bool
+
+  var body: some View {
+    ZStack {
+      LinearGradient(
+        colors: [
+          Color(red: 0.06, green: 0.12, blue: 0.24),
+          Color(red: 0.04, green: 0.10, blue: 0.20),
+        ],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+      )
+      .ignoresSafeArea()
+
+      Circle()
+        .fill(Color(red: 0.30, green: 0.45, blue: 0.82).opacity(0.34))
+        .frame(width: 680, height: 680)
+        .blur(radius: 120)
+        .offset(x: -220, y: -300)
+
+      Circle()
+        .fill(Color(red: 0.18, green: 0.32, blue: 0.62).opacity(0.30))
+        .frame(width: 780, height: 780)
+        .blur(radius: 140)
+        .offset(x: 260, y: -260)
+
+      Rectangle()
+        .fill(
+          LinearGradient(
+            colors: [
+              Color.black.opacity(0.10),
+              Color.black.opacity(0.26),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+          )
+        )
+        .ignoresSafeArea()
+
+      VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 18) {
+          VStack(spacing: 8) {
+            ZStack {
+              Circle()
+                .fill(
+                  LinearGradient(
+                    colors: [
+                      Color(red: 0.37, green: 0.52, blue: 0.98),
+                      Color(red: 0.59, green: 0.29, blue: 0.96),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                  )
+                )
+                .frame(width: 62, height: 62)
+                .shadow(color: Color(red: 0.38, green: 0.47, blue: 0.97).opacity(0.28), radius: 14, y: 8)
+
+              Image(systemName: "lock")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(Color.white)
+            }
+
+            Text("Serenity Notes")
+              .font(.system(size: 32, weight: .semibold, design: .rounded))
+              .foregroundStyle(Color.white.opacity(0.97))
+
+            Text("Enter your master password to unlock")
+              .font(.system(size: 15, weight: .regular, design: .rounded))
+              .foregroundStyle(Color(red: 0.66, green: 0.72, blue: 0.82))
+          }
+          .frame(maxWidth: .infinity)
+
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Master Password")
+              .font(.system(size: 13, weight: .medium, design: .rounded))
+              .foregroundStyle(Color(red: 0.74, green: 0.79, blue: 0.88))
+
+            HStack(spacing: 10) {
+              Image(systemName: "key")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color(red: 0.61, green: 0.67, blue: 0.78))
+
+              Group {
+                if revealPassword {
+                  TextField("", text: $password, prompt: Text("Enter master password").foregroundStyle(Color(red: 0.55, green: 0.62, blue: 0.73)))
+                    .textFieldStyle(.plain)
+                } else {
+                  SecureField("", text: $password, prompt: Text("Enter master password").foregroundStyle(Color(red: 0.55, green: 0.62, blue: 0.73)))
+                    .textFieldStyle(.plain)
+                }
+              }
+              .font(.system(size: 15, weight: .medium, design: .rounded))
+              .foregroundStyle(Color(red: 0.84, green: 0.89, blue: 0.97))
+              .focused($passwordFieldFocused)
+              .submitLabel(.go)
+              .onSubmit {
+                unlockWithPassword()
+              }
+              .disabled(isLockedOut || isUnlockingWithPassword)
+
+              Button {
+                revealPassword.toggle()
+              } label: {
+                Image(systemName: revealPassword ? "eye.slash" : "eye")
+                  .font(.system(size: 15, weight: .semibold))
+                  .foregroundStyle(Color(red: 0.56, green: 0.63, blue: 0.75))
+              }
+              .buttonStyle(.plain)
+              .hoverCursor(.pointingHand)
+              .disabled(isLockedOut || isUnlockingWithPassword)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+              RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(red: 0.03, green: 0.07, blue: 0.16).opacity(0.96))
+            )
+            .overlay(
+              RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(red: 0.18, green: 0.35, blue: 0.60).opacity(0.82), lineWidth: 1.2)
+            )
+          }
+
+          if let lockoutMessage {
+            statusMessageBox(
+              text: lockoutMessage,
+              tint: Color(red: 0.98, green: 0.74, blue: 0.47),
+              border: Color(red: 0.64, green: 0.42, blue: 0.23),
+              background: Color(red: 0.23, green: 0.15, blue: 0.08)
+            )
+          } else if let attemptsWarning {
+            statusMessageBox(
+              text: attemptsWarning,
+              tint: Color(red: 0.95, green: 0.81, blue: 0.44),
+              border: Color(red: 0.54, green: 0.46, blue: 0.20),
+              background: Color(red: 0.22, green: 0.19, blue: 0.09)
+            )
+          }
+
+          Button {
+            unlockWithPassword()
+          } label: {
+            HStack(spacing: 10) {
+              if isUnlockingWithPassword {
+                ProgressView()
+                  .controlSize(.small)
+                  .tint(Color(red: 0.10, green: 0.13, blue: 0.22))
+                Text("Validating...")
+              } else {
+                Text(isLockedOut ? "Locked" : "Unlock")
+              }
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+          }
+          .font(.system(size: 16, weight: .semibold, design: .rounded))
+          .foregroundStyle(unlockDisabled ? Color.white.opacity(0.62) : Color(red: 0.08, green: 0.11, blue: 0.20))
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 11)
+          .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+              .fill(unlockButtonFill)
+          )
+          .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+              .stroke(Color.white.opacity(unlockDisabled ? 0.05 : 0.14), lineWidth: 1)
+          )
+          .hoverCursor(.pointingHand)
+          .buttonStyle(.plain)
+          .disabled(unlockDisabled)
+
+          if isBiometricAvailable {
+            Button {
+              unlockWithBiometrics()
+            } label: {
+              HStack(spacing: 10) {
+                if isUnlockingWithBiometrics {
+                  ProgressView()
+                    .controlSize(.small)
+                  Text("Authenticating...")
+                } else {
+                  Label("Use Touch ID", systemImage: "touchid")
+                }
+              }
+              .frame(maxWidth: .infinity)
+              .contentShape(Rectangle())
+            }
+            .font(.system(size: 16, weight: .semibold, design: .rounded))
+            .foregroundStyle(Color(red: 0.82, green: 0.88, blue: 0.97))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+              RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(red: 0.11, green: 0.18, blue: 0.29))
+            )
+            .overlay(
+              RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(red: 0.26, green: 0.40, blue: 0.63).opacity(0.62), lineWidth: 1)
+            )
+            .hoverCursor(.pointingHand)
+            .buttonStyle(.plain)
+            .disabled(isUnlockingWithBiometrics || isUnlockingWithPassword || isLockedOut)
+          }
+
+          if isBiometricAvailable {
+            HStack(spacing: 10) {
+              Rectangle()
+                .fill(Color(red: 0.30, green: 0.37, blue: 0.49))
+                .frame(height: 1)
+              Text("or")
+                .font(.system(size: 14, weight: .regular, design: .rounded))
+                .foregroundStyle(Color(red: 0.56, green: 0.62, blue: 0.73))
+              Rectangle()
+                .fill(Color(red: 0.30, green: 0.37, blue: 0.49))
+                .frame(height: 1)
+            }
+          }
+
+          Button("Forgot your password?") {
+            appState.setSection(.settings)
+            appState.showToast("Open Settings to reset your local lock password.")
+          }
+          .buttonStyle(.plain)
+          .font(.system(size: 14, weight: .medium, design: .rounded))
+          .foregroundStyle(Color(red: 0.43, green: 0.67, blue: 0.98))
+          .frame(maxWidth: .infinity, alignment: .center)
+          .hoverCursor(.pointingHand)
+
+          VStack(alignment: .leading, spacing: 6) {
+            Label("Your data is protected", systemImage: "shield")
+              .font(.system(size: 14, weight: .semibold, design: .rounded))
+              .foregroundStyle(Color(red: 0.71, green: 0.83, blue: 1.0))
+            Text("All sensitive information is encrypted with your master password.")
+              .font(.system(size: 13, weight: .regular, design: .rounded))
+              .foregroundStyle(Color(red: 0.74, green: 0.82, blue: 0.95))
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 10)
+          .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+              .fill(Color(red: 0.10, green: 0.16, blue: 0.30).opacity(0.9))
+          )
+          .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+              .stroke(Color(red: 0.20, green: 0.42, blue: 0.84).opacity(0.78), lineWidth: 1)
+          )
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 26)
+        .frame(maxWidth: 480, minHeight: 620)
+        .background(
+          RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .fill(
+              LinearGradient(
+                colors: [
+                  Color(red: 0.06, green: 0.12, blue: 0.24).opacity(0.96),
+                  Color(red: 0.05, green: 0.10, blue: 0.21).opacity(0.98),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+              )
+            )
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .stroke(Color(red: 0.17, green: 0.31, blue: 0.50).opacity(0.7), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.42), radius: 16, x: 0, y: 10)
+
+        Text("Serenity Notes v2.0 • Privacy-First Productivity")
+          .font(.system(size: 11, weight: .regular, design: .rounded))
+          .foregroundStyle(Color(red: 0.53, green: 0.59, blue: 0.69))
+      }
+      .padding(.horizontal, 20)
+      .padding(.vertical, 16)
+    }
+    .onAppear {
+      passwordFieldFocused = true
+    }
+  }
+
+  private var unlockDisabled: Bool {
+    password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLockedOut || isUnlockingWithPassword || isUnlockingWithBiometrics
+  }
+
+  private var isLockedOut: Bool {
+    if case .lockedOut = appState.localLockStatus {
+      return true
+    }
+    return false
+  }
+
+  private var isBiometricAvailable: Bool {
+    if case .available = appState.biometricAvailability {
+      return true
+    }
+    return false
+  }
+
+  private var unlockButtonFill: LinearGradient {
+    if unlockDisabled {
+      return LinearGradient(
+        colors: [
+          Color(red: 0.49, green: 0.53, blue: 0.60),
+          Color(red: 0.43, green: 0.48, blue: 0.56),
+        ],
+        startPoint: .leading,
+        endPoint: .trailing
+      )
+    }
+
+    return LinearGradient(
+      colors: [
+        Color(red: 0.74, green: 0.77, blue: 0.82),
+        Color(red: 0.66, green: 0.70, blue: 0.77),
+      ],
+      startPoint: .leading,
+      endPoint: .trailing
+    )
+  }
+
+  private var attemptsWarning: String? {
+    guard case .locked(let attemptsRemaining) = appState.localLockStatus else { return nil }
+    guard attemptsRemaining < 5 else { return nil }
+    if attemptsRemaining == 1 {
+      return "Last attempt before temporary lockout"
+    }
+    return "\(attemptsRemaining) attempts remaining"
+  }
+
+  private var lockoutMessage: String? {
+    guard case .lockedOut(let until) = appState.localLockStatus else { return nil }
+    let remainingSeconds = max(0, Int(until.timeIntervalSinceNow.rounded(.up)))
+    if remainingSeconds <= 0 {
+      return "Too many failed attempts. Try again shortly."
+    }
+    return "Too many failed attempts. Try again in \(formattedDuration(seconds: remainingSeconds))."
+  }
+
+  private func formattedDuration(seconds: Int) -> String {
+    let minutes = seconds / 60
+    let remainder = seconds % 60
+    if minutes > 0 {
+      return "\(minutes)m \(remainder)s"
+    }
+    return "\(remainder)s"
+  }
+
+  @ViewBuilder
+  private func statusMessageBox(text: String, tint: Color, border: Color, background: Color) -> some View {
+    HStack(alignment: .top, spacing: 8) {
+      Image(systemName: "exclamationmark.triangle.fill")
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(tint)
+        .padding(.top, 2)
+      Text(text)
+        .font(.system(size: 13, weight: .medium, design: .rounded))
+        .foregroundStyle(tint.opacity(0.95))
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, 12)
+    .padding(.vertical, 11)
+    .background(
+      RoundedRectangle(cornerRadius: 13, style: .continuous)
+        .fill(background.opacity(0.72))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 13, style: .continuous)
+        .stroke(border.opacity(0.70), lineWidth: 1)
+    )
+  }
+
+  private func unlockWithPassword() {
+    guard !unlockDisabled else { return }
+
+    let submitted = password.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !submitted.isEmpty else { return }
+
+    isUnlockingWithPassword = true
+    Task {
+      await appState.unlockAppWithPassword(submitted)
+      if case .unlocked = appState.localLockStatus {
+        password = ""
+      }
+      isUnlockingWithPassword = false
+    }
+  }
+
+  private func unlockWithBiometrics() {
+    guard isBiometricAvailable else { return }
+    guard !isUnlockingWithBiometrics else { return }
+
+    isUnlockingWithBiometrics = true
+    Task {
+      await appState.unlockAppWithBiometrics()
+      isUnlockingWithBiometrics = false
     }
   }
 }
@@ -3576,6 +4730,8 @@ private struct MetricTile: View {
 private struct GlobalSearchSheet: View {
   @EnvironmentObject private var appState: AppState
   @FocusState private var queryFocused: Bool
+  @State private var highlightedResultID: String?
+  @State private var keyMonitor: Any?
 
   private var queryBinding: Binding<String> {
     Binding(
@@ -3588,9 +4744,13 @@ private struct GlobalSearchSheet: View {
     !appState.globalSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
+  private var displayedResults: [GlobalSearchResult] {
+    Array(appState.globalSearchResults.prefix(40))
+  }
+
   private var groupedResults: [(GlobalSearchResultType, [GlobalSearchResult])] {
     GlobalSearchResultType.allCases.compactMap { type in
-      let matches = appState.globalSearchResults.filter { $0.type == type }
+      let matches = displayedResults.filter { $0.type == type }
       guard !matches.isEmpty else { return nil }
       return (type, matches)
     }
@@ -3648,14 +4808,21 @@ private struct GlobalSearchSheet: View {
                 Text(type.title.uppercased())
                   .font(.caption.weight(.semibold))
                   .foregroundStyle(SerenityPalette.textSecondary)
-                ForEach(results.prefix(10)) { result in
+                ForEach(results) { result in
                   Button {
                     appState.selectGlobalSearchResult(result)
                   } label: {
-                    GlobalSearchResultRow(result: result)
+                    GlobalSearchResultRow(
+                      result: result,
+                      isHighlighted: highlightedResultID == result.id
+                    )
                   }
                   .buttonStyle(.plain)
                   .hoverCursor(.pointingHand)
+                  .onHover { isHovering in
+                    guard isHovering else { return }
+                    highlightedResultID = result.id
+                  }
                 }
               }
             }
@@ -3669,16 +4836,114 @@ private struct GlobalSearchSheet: View {
     .background(SerenityPalette.windowBackground)
     .onAppear {
       queryFocused = true
+      syncHighlightedResult()
+      installKeyMonitor()
+    }
+    .onDisappear {
+      removeKeyMonitor()
+    }
+    .onChange(of: appState.globalSearchResults) { _, _ in
+      syncHighlightedResult()
+    }
+    .onChange(of: appState.globalSearchQuery) { _, _ in
+      syncHighlightedResult()
     }
     .onSubmit(of: .text) {
-      guard let firstResult = appState.globalSearchResults.first else { return }
-      appState.selectGlobalSearchResult(firstResult)
+      openHighlightedResult()
     }
   }
+
+  private func syncHighlightedResult() {
+    guard hasSearchQuery else {
+      highlightedResultID = nil
+      return
+    }
+
+    guard !displayedResults.isEmpty else {
+      highlightedResultID = nil
+      return
+    }
+
+    if let highlightedResultID,
+       displayedResults.contains(where: { $0.id == highlightedResultID }) {
+      return
+    }
+
+    highlightedResultID = displayedResults.first?.id
+  }
+
+  private func moveHighlightedResult(step: Int) {
+    guard !displayedResults.isEmpty else {
+      highlightedResultID = nil
+      return
+    }
+
+    guard let selectedResultID = highlightedResultID,
+          let currentIndex = displayedResults.firstIndex(where: { $0.id == selectedResultID }) else {
+      highlightedResultID = step >= 0 ? displayedResults.first?.id : displayedResults.last?.id
+      return
+    }
+
+    let nextIndex = (currentIndex + step + displayedResults.count) % displayedResults.count
+    highlightedResultID = displayedResults[nextIndex].id
+  }
+
+  private func openHighlightedResult() {
+    guard let result =
+      displayedResults.first(where: { $0.id == highlightedResultID }) ?? displayedResults.first else {
+      return
+    }
+
+    appState.selectGlobalSearchResult(result)
+  }
+
+  private func installKeyMonitor() {
+#if os(macOS)
+    removeKeyMonitor()
+    keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+      handleKeyDown(event)
+    }
+#endif
+  }
+
+  private func removeKeyMonitor() {
+#if os(macOS)
+    guard let keyMonitor else { return }
+    NSEvent.removeMonitor(keyMonitor)
+    self.keyMonitor = nil
+#endif
+  }
+
+#if os(macOS)
+  private func handleKeyDown(_ event: NSEvent) -> NSEvent? {
+    guard appState.isGlobalSearchPresented else { return event }
+    guard event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty else {
+      return event
+    }
+
+    switch event.keyCode {
+    case 125: // Down arrow
+      moveHighlightedResult(step: 1)
+      return nil
+    case 126: // Up arrow
+      moveHighlightedResult(step: -1)
+      return nil
+    case 36: // Return
+      openHighlightedResult()
+      return nil
+    case 53: // Escape
+      appState.closeGlobalSearch()
+      return nil
+    default:
+      return event
+    }
+  }
+#endif
 }
 
 private struct GlobalSearchResultRow: View {
   let result: GlobalSearchResult
+  let isHighlighted: Bool
 
   var body: some View {
     HStack(spacing: 10) {
@@ -3710,10 +4975,13 @@ private struct GlobalSearchResultRow: View {
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 10)
-    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .background(
+      (isHighlighted ? SerenityPalette.activeItemBackground.opacity(0.18) : SerenityPalette.panelBackground),
+      in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+    )
     .overlay(
       RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+        .stroke(isHighlighted ? SerenityPalette.accent.opacity(0.45) : SerenityPalette.thinBorder, lineWidth: 1)
     )
   }
 }
@@ -3726,6 +4994,14 @@ private struct HelpCenterArticle: Identifiable {
   let section: AppSection?
 
   var id: String { title }
+}
+
+private struct HelpCenterFAQ: Identifiable {
+  let question: String
+  let answer: String
+  let keywords: [String]
+
+  var id: String { question }
 }
 
 private struct HelpCenterSheet: View {
@@ -3791,6 +5067,29 @@ private struct HelpCenterSheet: View {
     ),
   ]
 
+  private let faqs: [HelpCenterFAQ] = [
+    HelpCenterFAQ(
+      question: "How do I jump to results without using the mouse?",
+      answer: "Open Global Search with Cmd+K, use Up/Down to move selection, Return to open, and Escape to close.",
+      keywords: ["keyboard", "search", "navigation", "shortcuts"]
+    ),
+    HelpCenterFAQ(
+      question: "Why is a search result not showing up?",
+      answer: "Search indexes current tasks, projects, journal entries, and goals after data refreshes. Run Refresh Data if you recently changed records.",
+      keywords: ["search", "index", "missing", "refresh"]
+    ),
+    HelpCenterFAQ(
+      question: "How can I verify local database health?",
+      answer: "Use Run Integrity Check in Troubleshooting Actions. The result appears in the Database section diagnostics.",
+      keywords: ["database", "integrity", "health", "troubleshoot"]
+    ),
+    HelpCenterFAQ(
+      question: "How do I recover from stale integration status?",
+      answer: "Run Refresh Integrations, then open Integrations to review OAuth state and sync diagnostics.",
+      keywords: ["integration", "google", "github", "diagnostics"]
+    ),
+  ]
+
   private var filteredArticles: [HelpCenterArticle] {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard !trimmed.isEmpty else { return articles }
@@ -3802,6 +5101,22 @@ private struct HelpCenterSheet: View {
         article.shortcut ?? "",
         article.section?.title ?? "",
         article.keywords.joined(separator: " "),
+      ]
+        .joined(separator: " ")
+        .lowercased()
+      return haystack.contains(trimmed)
+    }
+  }
+
+  private var filteredFAQs: [HelpCenterFAQ] {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !trimmed.isEmpty else { return faqs }
+
+    return faqs.filter { faq in
+      let haystack = [
+        faq.question,
+        faq.answer,
+        faq.keywords.joined(separator: " "),
       ]
         .joined(separator: " ")
         .lowercased()
@@ -3864,9 +5179,48 @@ private struct HelpCenterSheet: View {
               .buttonStyle(SerenitySecondaryButtonStyle())
               .hoverCursor(.pointingHand)
 
+              Button("Open Settings") {
+                appState.setSection(.settings)
+                appState.closeHelpCenter()
+              }
+              .buttonStyle(SerenitySecondaryButtonStyle())
+              .hoverCursor(.pointingHand)
+            }
+            .padding(.top, 8)
+          }
+
+          GroupBox("Troubleshooting Actions") {
+            HStack(spacing: 8) {
               Button("Refresh Data") {
                 Task {
                   await appState.refreshCoreWorkflowData()
+                  appState.showToast("Core data refreshed")
+                }
+              }
+              .buttonStyle(SerenitySecondaryButtonStyle())
+              .hoverCursor(.pointingHand)
+
+              Button("Refresh Integrations") {
+                Task {
+                  await appState.refreshIntegrationDiagnostics()
+                  appState.showToast("Integration diagnostics refreshed")
+                }
+              }
+              .buttonStyle(SerenitySecondaryButtonStyle())
+              .hoverCursor(.pointingHand)
+
+              Button("Refresh AI Workflows") {
+                Task {
+                  await appState.refreshAIWorkflows()
+                  appState.showToast("AI workflows refreshed")
+                }
+              }
+              .buttonStyle(SerenitySecondaryButtonStyle())
+              .hoverCursor(.pointingHand)
+
+              Button("Run Integrity Check") {
+                Task {
+                  await appState.runDatabaseIntegrityCheck()
                 }
               }
               .buttonStyle(SerenitySecondaryButtonStyle())
@@ -3880,6 +5234,20 @@ private struct HelpCenterSheet: View {
               HelpShortcutRow(action: "Global Search", shortcut: "Cmd+K")
               HelpShortcutRow(action: "Help Center", shortcut: "Cmd+/")
               HelpShortcutRow(action: "Quick Add Task", shortcut: "Cmd+Shift+N")
+            }
+            .padding(.top, 8)
+          }
+
+          GroupBox("Frequently Asked Questions") {
+            VStack(alignment: .leading, spacing: 10) {
+              if filteredFAQs.isEmpty {
+                Text("No FAQ entries matched your search.")
+                  .foregroundStyle(SerenityPalette.textSecondary)
+              } else {
+                ForEach(filteredFAQs) { faq in
+                  HelpFAQRow(faq: faq)
+                }
+              }
             }
             .padding(.top, 8)
           }
@@ -3907,6 +5275,27 @@ private struct HelpCenterSheet: View {
     .padding(20)
     .frame(minWidth: 760, minHeight: 560)
     .background(SerenityPalette.windowBackground)
+  }
+}
+
+private struct HelpFAQRow: View {
+  let faq: HelpCenterFAQ
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(faq.question)
+        .font(SerenityType.bodyLarge.weight(.semibold))
+      Text(faq.answer)
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 10)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
   }
 }
 
@@ -3970,6 +5359,214 @@ private struct HelpArticleRow: View {
   }
 }
 
+private struct DueDateSelectionField: View {
+  @Binding var selection: Date
+  @State private var showingPopover = false
+
+  var body: some View {
+    Button {
+      showingPopover.toggle()
+    } label: {
+      HStack(spacing: 8) {
+        Image(systemName: "calendar")
+          .foregroundStyle(SerenityPalette.accent)
+
+        Text(selection.formatted(date: .abbreviated, time: .shortened))
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textPrimary)
+          .lineLimit(1)
+
+        Spacer(minLength: 0)
+
+        Image(systemName: "chevron.down")
+          .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 9)
+      .frame(minWidth: 220, alignment: .leading)
+      .background(SerenityPalette.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+      )
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+    .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
+      DueDateCalendarPopover(selection: $selection, isPresented: $showingPopover)
+        .padding(12)
+        .frame(width: 334)
+    }
+  }
+}
+
+private struct DueDateCalendarPopover: View {
+  @Binding var selection: Date
+  @Binding var isPresented: Bool
+  @State private var visibleMonth: Date
+
+  init(selection: Binding<Date>, isPresented: Binding<Bool>) {
+    _selection = selection
+    _isPresented = isPresented
+    _visibleMonth = State(initialValue: Calendar.current.startOfMonth(for: selection.wrappedValue))
+  }
+
+  private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 7)
+
+  private var weekdaySymbols: [String] {
+    Calendar.current.orderedVeryShortStandaloneWeekdaySymbols()
+  }
+
+  private var gridDates: [Date] {
+    Calendar.current.monthGridDates(for: visibleMonth)
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 8) {
+        Button {
+          shiftMonth(by: -1)
+        } label: {
+          Image(systemName: "chevron.left")
+            .font(.system(size: 11, weight: .semibold))
+            .frame(width: 24, height: 24)
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+
+        Text(visibleMonth.formatted(.dateTime.month(.wide).year()))
+          .font(SerenityType.bodyLarge.weight(.semibold))
+          .frame(maxWidth: .infinity)
+
+        Button {
+          shiftMonth(by: 1)
+        } label: {
+          Image(systemName: "chevron.right")
+            .font(.system(size: 11, weight: .semibold))
+            .frame(width: 24, height: 24)
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+      }
+
+      HStack(spacing: 6) {
+        ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { _, symbol in
+          Text(symbol)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .frame(maxWidth: .infinity)
+        }
+      }
+      .padding(.horizontal, 2)
+
+      LazyVGrid(columns: columns, spacing: 6) {
+        ForEach(gridDates, id: \.self) { date in
+          dueDateCell(date)
+        }
+      }
+
+      Divider()
+        .overlay(SerenityPalette.thinBorder)
+
+      HStack(spacing: 10) {
+        Text("Time")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+
+        DatePicker("", selection: $selection, displayedComponents: .hourAndMinute)
+          .labelsHidden()
+      }
+
+      HStack(spacing: 8) {
+        quickTimeButton("9:00", hour: 9, minute: 0)
+        quickTimeButton("13:00", hour: 13, minute: 0)
+        quickTimeButton("17:30", hour: 17, minute: 30)
+      }
+
+      HStack {
+        Button("Today") {
+          let today = Date()
+          visibleMonth = Calendar.current.startOfMonth(for: today)
+          selectDay(today)
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+
+        Spacer()
+
+        Button("Done") {
+          isPresented = false
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+          .hoverCursor(.pointingHand)
+      }
+      .padding(.top, 2)
+    }
+    .onChange(of: selection) { _, newValue in
+      if !Calendar.current.isDate(newValue, equalTo: visibleMonth, toGranularity: .month) {
+        visibleMonth = Calendar.current.startOfMonth(for: newValue)
+      }
+    }
+  }
+
+  private func dueDateCell(_ date: Date) -> some View {
+    let calendar = Calendar.current
+    let day = calendar.startOfDay(for: date)
+    let selectedDay = calendar.startOfDay(for: selection)
+    let isSelected = calendar.isDate(day, inSameDayAs: selectedDay)
+    let isToday = calendar.isDateInToday(day)
+    let isInVisibleMonth = calendar.isDate(day, equalTo: visibleMonth, toGranularity: .month)
+
+    return Button {
+      selectDay(day)
+    } label: {
+      Text("\(calendar.component(.day, from: day))")
+        .font(SerenityType.bodyMedium.weight(isSelected ? .semibold : .regular))
+        .foregroundStyle(isSelected ? SerenityPalette.textOnInteractiveSurface : SerenityPalette.textPrimary)
+        .frame(maxWidth: .infinity, minHeight: 30)
+        .background(
+          (isSelected ? SerenityPalette.activeItemBackground : SerenityPalette.innerCardBackground.opacity(0.45)),
+          in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .stroke(
+              isToday ? SerenityPalette.accent.opacity(0.65) : (isSelected ? SerenityPalette.border : SerenityPalette.thinBorder),
+              lineWidth: 1
+            )
+        )
+        .opacity(isInVisibleMonth ? 1 : 0.42)
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+  }
+
+  private func selectDay(_ day: Date) {
+    let calendar = Calendar.current
+    let time = calendar.dateComponents([.hour, .minute, .second], from: selection)
+    var components = calendar.dateComponents([.year, .month, .day], from: day)
+    components.hour = time.hour ?? 9
+    components.minute = time.minute ?? 0
+    components.second = time.second ?? 0
+    selection = calendar.date(from: components) ?? day
+    visibleMonth = calendar.startOfMonth(for: day)
+  }
+
+  private func shiftMonth(by value: Int) {
+    guard let shifted = Calendar.current.date(byAdding: .month, value: value, to: visibleMonth) else { return }
+    visibleMonth = Calendar.current.startOfMonth(for: shifted)
+  }
+
+  private func quickTimeButton(_ label: String, hour: Int, minute: Int) -> some View {
+    Button(label) {
+      selection = Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: selection) ?? selection
+    }
+    .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+  }
+}
+
 private struct TaskEditorView: View {
   let task: TaskEntity
   let availableProjects: [ProjectEntity]
@@ -4008,9 +5605,13 @@ private struct TaskEditorView: View {
         .font(.headline)
 
       TextField("Title", text: $title)
+        .textFieldStyle(.plain)
+        .serenityInputField()
 
       TextField("Description (optional)", text: $description, axis: .vertical)
         .lineLimit(2...6)
+        .textFieldStyle(.plain)
+        .serenityInputField()
 
       HStack(spacing: 12) {
         Picker("Priority", selection: $priority) {
@@ -4024,8 +5625,8 @@ private struct TaskEditorView: View {
           .toggleStyle(.switch)
 
         if hasDueDate {
-          DatePicker("", selection: $dueDate, displayedComponents: [.date, .hourAndMinute])
-            .labelsHidden()
+          DueDateSelectionField(selection: $dueDate)
+            .frame(maxWidth: 280, alignment: .leading)
         }
       }
 
@@ -4038,6 +5639,8 @@ private struct TaskEditorView: View {
       .frame(maxWidth: 260)
 
       TextField("Tags (comma-separated)", text: $tags)
+        .textFieldStyle(.plain)
+        .serenityInputField()
 
       HStack {
         Spacer()
@@ -4096,8 +5699,10 @@ private struct JournalEntryEditorView: View {
         .font(.headline)
 
       TextField("Title", text: $title)
+        .textFieldStyle(.plain)
+        .serenityInputField()
       TextEditor(text: $content)
-        .frame(minHeight: 120)
+        .serenityTextArea(minHeight: 150)
 
       Picker("Mood", selection: $mood) {
         Text("None").tag(Optional<JournalMood>.none)
@@ -4109,6 +5714,8 @@ private struct JournalEntryEditorView: View {
       .frame(maxWidth: 240)
 
       TextField("Tags (comma-separated)", text: $tags)
+        .textFieldStyle(.plain)
+        .serenityInputField()
 
       HStack {
         Spacer()
@@ -4157,7 +5764,11 @@ private struct ProjectEditorView: View {
         .font(.headline)
 
       TextField("Name", text: $name)
+        .textFieldStyle(.plain)
+        .serenityInputField()
       TextField("Description", text: $description)
+        .textFieldStyle(.plain)
+        .serenityInputField()
       HStack(spacing: 10) {
         ColorPicker("Project color", selection: $color, supportsOpacity: false)
         Text(ProjectColorCodec.hex(from: color))
@@ -4180,6 +5791,45 @@ private struct ProjectEditorView: View {
       }
     }
     .padding(20)
+  }
+}
+
+private extension Calendar {
+  func startOfMonth(for date: Date) -> Date {
+    let components = dateComponents([.year, .month], from: date)
+    return self.date(from: components) ?? date
+  }
+
+  func orderedVeryShortStandaloneWeekdaySymbols() -> [String] {
+    let symbols = veryShortStandaloneWeekdaySymbols
+    let offset = max(min(firstWeekday - 1, symbols.count - 1), 0)
+    return Array(symbols[offset...]) + Array(symbols[..<offset])
+  }
+
+  func monthGridDates(for month: Date) -> [Date] {
+    let monthStart = startOfMonth(for: month)
+    guard let dayRange = range(of: .day, in: .month, for: monthStart),
+          let monthEnd = date(byAdding: .day, value: dayRange.count - 1, to: monthStart) else {
+      return [startOfDay(for: monthStart)]
+    }
+
+    let leadingDays = (component(.weekday, from: monthStart) - firstWeekday + 7) % 7
+    let trailingDays = (firstWeekday + 6 - component(.weekday, from: monthEnd) + 7) % 7
+
+    guard let gridStart = date(byAdding: .day, value: -leadingDays, to: monthStart),
+          let gridEnd = date(byAdding: .day, value: trailingDays, to: monthEnd) else {
+      return [startOfDay(for: monthStart)]
+    }
+
+    var dates: [Date] = []
+    var cursor = startOfDay(for: gridStart)
+    let end = startOfDay(for: gridEnd)
+    while cursor <= end {
+      dates.append(cursor)
+      guard let next = date(byAdding: .day, value: 1, to: cursor) else { break }
+      cursor = next
+    }
+    return dates
   }
 }
 
@@ -4206,6 +5856,7 @@ private enum ProjectColorCodec {
   }
 
   static func hex(from color: Color) -> String {
+#if os(macOS)
     guard let converted = NSColor(color).usingColorSpace(.sRGB) else {
       return fallbackHex
     }
@@ -4213,6 +5864,21 @@ private enum ProjectColorCodec {
     let red = Int(round(converted.redComponent * 255))
     let green = Int(round(converted.greenComponent * 255))
     let blue = Int(round(converted.blueComponent * 255))
+#else
+    let converted = UIColor(color)
+    var redComponent: CGFloat = 0
+    var greenComponent: CGFloat = 0
+    var blueComponent: CGFloat = 0
+    var alphaComponent: CGFloat = 0
+
+    guard converted.getRed(&redComponent, green: &greenComponent, blue: &blueComponent, alpha: &alphaComponent) else {
+      return fallbackHex
+    }
+
+    let red = Int(round(redComponent * 255))
+    let green = Int(round(greenComponent * 255))
+    let blue = Int(round(blueComponent * 255))
+#endif
 
     return String(format: "#%02X%02X%02X", red, green, blue)
   }

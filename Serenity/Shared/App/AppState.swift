@@ -96,9 +96,27 @@ enum CoreWorkflowError: Error, LocalizedError {
   }
 }
 
+enum OAuthConfigurationValidationError: Error, LocalizedError {
+  case missingField(String)
+  case invalidBaseURL
+  case invalidRedirectURI
+
+  var errorDescription: String? {
+    switch self {
+    case .missingField(let field):
+      return "\(field) is required."
+    case .invalidBaseURL:
+      return "OAuth base URL must be a valid http(s) URL."
+    case .invalidRedirectURI:
+      return "OAuth redirect URI must be a valid URI."
+    }
+  }
+}
+
 @MainActor
 final class AppState: ObservableObject {
   private static let themePreferenceDefaultsKey = "serenity.ui.themePreference"
+  private static let localLockEnabledDefaultsKey = "serenity.security.localLock.enabled"
 
   @Published var selectedSection: AppSection? = .home
   @Published var settings = AppSettings()
@@ -157,9 +175,10 @@ final class AppState: ObservableObject {
   @Published var cloudSyncDiagnostics: [String] = []
 
   private let sqliteBackendAdapter: SQLiteBackendAdapter
-  private let serenityCloudAdapter: SerenityCloudAdapter?
-  private let externalPostgresAdapter: ExternalPostgresAdapter?
+  private var serenityCloudAdapter: SerenityCloudAdapter?
+  private var externalPostgresAdapter: ExternalPostgresAdapter?
   private let backendProfileManager: BackendProfileManager
+  private let backendConfigurationStore: BackendConfigurationStore
   private let authSessionManager: AuthSessionManager
   private let localLockManager: LocalLockManager
   private let biometricAuthService: BiometricAuthService
@@ -168,7 +187,7 @@ final class AppState: ObservableObject {
   private let googleIntegrationService: GoogleIntegrationService
   private let githubIntegrationService: GitHubIntegrationService
   private let aiWorkflowService: AIWorkflowService
-  private let cloudSyncEngine: CloudSyncEngine?
+  private var cloudSyncEngine: CloudSyncEngine?
 
   private var sqliteCoreRepositories: GRDBCoreRepositorySet?
   private var globalSearchDocuments: [GlobalSearchDocument] = []
@@ -176,12 +195,13 @@ final class AppState: ObservableObject {
   init(
     backendProfileManager: BackendProfileManager = BackendProfileManager(),
     sqliteBackendAdapter: SQLiteBackendAdapter = SQLiteBackendAdapter(),
-    serenityCloudAdapter: SerenityCloudAdapter? = SerenityCloudConfiguration.fromEnvironment().map {
+    serenityCloudAdapter: SerenityCloudAdapter? = SerenityCloudConfiguration.fromStoredOrEnvironment().map {
       SerenityCloudAdapter(configuration: $0)
     },
-    externalPostgresAdapter: ExternalPostgresAdapter? = ExternalPostgresConfiguration.fromEnvironment().map {
+    externalPostgresAdapter: ExternalPostgresAdapter? = ExternalPostgresConfiguration.fromStoredOrEnvironment().map {
       ExternalPostgresAdapter(configuration: $0)
     },
+    backendConfigurationStore: BackendConfigurationStore = BackendConfigurationStore(),
     authSessionManager: AuthSessionManager = AuthSessionManager(),
     localLockManager: LocalLockManager = LocalLockManager(),
     biometricAuthService: BiometricAuthService = BiometricAuthService(),
@@ -195,6 +215,7 @@ final class AppState: ObservableObject {
     self.sqliteBackendAdapter = sqliteBackendAdapter
     self.serenityCloudAdapter = serenityCloudAdapter
     self.externalPostgresAdapter = externalPostgresAdapter
+    self.backendConfigurationStore = backendConfigurationStore
     self.authSessionManager = authSessionManager
     self.localLockManager = localLockManager
     self.biometricAuthService = biometricAuthService
@@ -209,6 +230,8 @@ final class AppState: ObservableObject {
        let preference = AppThemePreference(rawValue: storedTheme) {
       themePreference = preference
     }
+
+    settings.localLockEnabled = UserDefaults.standard.bool(forKey: Self.localLockEnabledDefaultsKey)
   }
 
   var filteredTasks: [TaskEntity] {
@@ -337,14 +360,115 @@ final class AppState: ObservableObject {
   }
 
   func loadBackendSelectionState() async {
-    let state = await backendProfileManager.currentState()
+    var state = await backendProfileManager.currentState()
     backendSelectionState = state
     settings.backendProfile = state.activeProfile
+
+    state = await backendProfileManager.refreshValidation()
+    backendSelectionState = state
+
+    if state.activeProfile != .sqliteLocal,
+       let validation = state.validations[state.activeProfile],
+       !validation.isAvailable {
+      let fallback = await backendProfileManager.switchProfile(to: .sqliteLocal)
+      backendSelectionState = fallback.state
+      settings.backendProfile = fallback.activeProfile
+      showToast("Falling back to SQLite because \(state.activeProfile.title) is unavailable.")
+    }
+
     await refreshBackendDiagnostics()
   }
 
   func bootstrapAuthSession() async {
+    await authSessionManager.updateConfiguration(OAuthEnvironmentConfiguration.fromStoredOrEnvironment())
     authSessionState = await authSessionManager.bootstrap()
+  }
+
+  func oauthConfigurationForSettings() -> OAuthEnvironmentConfiguration? {
+    OAuthEnvironmentConfiguration.fromStoredOrEnvironment()
+  }
+
+  func saveOAuthConfiguration(baseURL: String, clientID: String, redirectURI: String) async throws {
+    let trimmedBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedClientID = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedRedirectURI = redirectURI.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    guard !trimmedBaseURL.isEmpty else {
+      throw OAuthConfigurationValidationError.missingField("OAuth base URL")
+    }
+    guard !trimmedClientID.isEmpty else {
+      throw OAuthConfigurationValidationError.missingField("OAuth client ID")
+    }
+    guard !trimmedRedirectURI.isEmpty else {
+      throw OAuthConfigurationValidationError.missingField("OAuth redirect URI")
+    }
+
+    guard
+      let parsedBaseURL = URL(string: trimmedBaseURL),
+      let scheme = parsedBaseURL.scheme?.lowercased(),
+      scheme == "http" || scheme == "https"
+    else {
+      throw OAuthConfigurationValidationError.invalidBaseURL
+    }
+
+    guard
+      let parsedRedirect = URL(string: trimmedRedirectURI),
+      parsedRedirect.scheme != nil
+    else {
+      throw OAuthConfigurationValidationError.invalidRedirectURI
+    }
+
+    let configuration = OAuthEnvironmentConfiguration(
+      baseURL: parsedBaseURL,
+      clientID: trimmedClientID,
+      redirectURI: trimmedRedirectURI
+    )
+    configuration.persist()
+    await authSessionManager.updateConfiguration(configuration)
+    if case .failed(let message) = authSessionState, message == OAuthClientError.notConfigured.localizedDescription {
+      authSessionState = .unauthenticated
+    }
+    showToast("OAuth configuration saved")
+  }
+
+  func clearOAuthConfiguration() async {
+    OAuthEnvironmentConfiguration.clearStored()
+    let fallback = OAuthEnvironmentConfiguration.fromEnvironment()
+    await authSessionManager.updateConfiguration(fallback)
+    if case .failed(let message) = authSessionState, message == OAuthClientError.notConfigured.localizedDescription {
+      authSessionState = .unauthenticated
+    }
+
+    if fallback == nil {
+      showToast("OAuth configuration cleared")
+    } else {
+      showToast("Using environment OAuth defaults")
+    }
+  }
+
+  func loginWithAuthorizationCode(_ code: String) async {
+    guard await assertRateLimit(for: .signIn, operationName: "Sign in") else { return }
+
+    let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+      showToast("Authorization code is required")
+      return
+    }
+
+    authSessionState = await authSessionManager.login(withAuthorizationCode: trimmed)
+    let succeeded: Bool = {
+      if case .authenticated = authSessionState {
+        return true
+      }
+      return false
+    }()
+
+    await securityAuditService.record(
+      eventType: .authentication,
+      severity: succeeded ? .info : .warning,
+      message: succeeded ? "User signed in" : "Sign in failed",
+      metadata: ["source": "settings"]
+    )
   }
 
   func logout() async {
@@ -364,24 +488,30 @@ final class AppState: ObservableObject {
     biometricAvailability = biometricAuthService.availability()
   }
 
-  func handleLocalLockToggle(_ enabled: Bool) async {
+  func handleLocalLockToggle(_ enabled: Bool, password: String? = nil) async {
     guard await assertRateLimit(for: .localLockToggle, operationName: "Local lock toggle") else { return }
 
     if enabled {
-      let password = ProcessInfo.processInfo.environment["SERENITY_LOCAL_LOCK_PASSWORD"] ?? "serenity-local-lock"
-      localLockStatus = await localLockManager.setEnabled(true, password: password)
+      let trimmed = password?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      guard !trimmed.isEmpty else {
+        settings.localLockEnabled = false
+        showToast("Set a local lock password first")
+        return
+      }
+
+      localLockStatus = await localLockManager.setEnabled(true, password: trimmed)
+      settings.localLockEnabled = true
+      UserDefaults.standard.set(true, forKey: Self.localLockEnabledDefaultsKey)
       await securityAuditService.record(
         eventType: .localLock,
         severity: .info,
         message: "Local lock enabled"
       )
-      if ProcessInfo.processInfo.environment["SERENITY_LOCAL_LOCK_PASSWORD"] == nil {
-        showToast("Local lock enabled with development password. Set SERENITY_LOCAL_LOCK_PASSWORD.")
-      } else {
-        showToast("Local lock enabled")
-      }
+      showToast("Local lock enabled")
     } else {
       localLockStatus = await localLockManager.setEnabled(false, password: nil)
+      settings.localLockEnabled = false
+      UserDefaults.standard.set(false, forKey: Self.localLockEnabledDefaultsKey)
       await securityAuditService.record(
         eventType: .localLock,
         severity: .warning,
@@ -392,6 +522,11 @@ final class AppState: ObservableObject {
   }
 
   func lockAppNow() async {
+    guard settings.localLockEnabled else {
+      showToast("Enable local lock first")
+      return
+    }
+
     localLockStatus = await localLockManager.lock()
     await securityAuditService.record(
       eventType: .localLock,
@@ -401,10 +536,20 @@ final class AppState: ObservableObject {
   }
 
   func unlockAppWithConfiguredPassword() async {
+    let password = ProcessInfo.processInfo.environment["SERENITY_LOCAL_LOCK_PASSWORD"] ?? ""
+    await unlockAppWithPassword(password)
+  }
+
+  func unlockAppWithPassword(_ password: String) async {
     guard await assertRateLimit(for: .passwordUnlock, operationName: "Password unlock") else { return }
 
-    let password = ProcessInfo.processInfo.environment["SERENITY_LOCAL_LOCK_PASSWORD"] ?? "serenity-local-lock"
-    localLockStatus = await localLockManager.unlock(password: password)
+    let trimmedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedPassword.isEmpty else {
+      showToast("Enter your local lock password")
+      return
+    }
+
+    localLockStatus = await localLockManager.unlock(password: trimmedPassword)
     let severity: SecurityAuditSeverity = {
       if case .unlocked = localLockStatus { return .info }
       if case .lockedOut = localLockStatus { return .critical }
@@ -425,26 +570,36 @@ final class AppState: ObservableObject {
     biometricAvailability = biometricAuthService.availability()
 
     guard case .available = biometricAvailability else {
-      showToast("Touch ID is unavailable on this Mac")
+      showToast("Biometric or device authentication is unavailable on this Mac")
       return
     }
 
     let authenticated = await biometricAuthService.authenticate(reason: "Unlock Serenity")
     if authenticated {
       localLockStatus = await localLockManager.unlockWithBiometric()
-      showToast("Unlocked with Touch ID")
+      showToast("Unlocked with biometrics")
       await securityAuditService.record(
         eventType: .biometricUnlock,
         severity: .info,
-        message: "Unlocked with Touch ID"
+        message: "Unlocked with biometrics"
       )
     } else {
-      showToast("Touch ID authentication failed")
+      showToast("Biometric authentication failed")
       await securityAuditService.record(
         eventType: .biometricUnlock,
         severity: .warning,
-        message: "Touch ID authentication failed"
+        message: "Biometric authentication failed"
       )
+    }
+  }
+
+  var isLockOverlayVisible: Bool {
+    guard settings.localLockEnabled else { return false }
+    switch localLockStatus {
+    case .locked, .lockedOut:
+      return true
+    case .disabled, .unlocked:
+      return false
     }
   }
 
@@ -500,6 +655,129 @@ final class AppState: ObservableObject {
     await refreshBackendDiagnostics()
     await refreshCoreWorkflowData()
     await refreshDatabaseManagement()
+  }
+
+  func configureSerenityCloud(baseURL: String, accessToken: String) async {
+    do {
+      let configuration = try backendConfigurationStore.saveSerenityCloudConfiguration(
+        baseURLString: baseURL,
+        accessToken: accessToken
+      )
+      serenityCloudAdapter = SerenityCloudAdapter(configuration: configuration)
+      cloudSyncEngine = serenityCloudAdapter.map {
+        CloudSyncEngine(sqliteBackendAdapter: sqliteBackendAdapter, remoteBackend: $0)
+      }
+      showToast("Serenity Cloud configuration saved")
+
+      await refreshActiveBackendValidation()
+      await refreshBackendDiagnostics()
+
+      if backendSelectionState.activeProfile == .serenityCloud {
+        await refreshCoreWorkflowData()
+      }
+    } catch {
+      showError(title: "Cloud configuration failed", message: error.localizedDescription)
+    }
+  }
+
+  func configureSerenityCloudFromSignedInSession(baseURLOverride: String? = nil) async {
+    let trimmedOverride = baseURLOverride?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let resolvedBaseURL: String
+    if !trimmedOverride.isEmpty {
+      resolvedBaseURL = trimmedOverride
+    } else if let oauthConfiguration = OAuthEnvironmentConfiguration.fromStoredOrEnvironment() {
+      resolvedBaseURL = oauthConfiguration.baseURL.absoluteString
+    } else {
+      showError(
+        title: "Cloud configuration failed",
+        message: "Provide a cloud base URL or save OAuth configuration first."
+      )
+      return
+    }
+
+    authSessionState = await authSessionManager.refreshSessionIfNeeded()
+    guard case .authenticated(let session) = authSessionState else {
+      showError(
+        title: "Sign in required",
+        message: "Sign in from the Auth Session section, then click Use signed-in session."
+      )
+      return
+    }
+
+    await configureSerenityCloud(baseURL: resolvedBaseURL, accessToken: session.accessToken)
+  }
+
+  func clearSerenityCloudConfiguration() async {
+    backendConfigurationStore.clearSerenityCloudConfiguration()
+    serenityCloudAdapter = nil
+    cloudSyncEngine = nil
+
+    if settings.backendProfile == .serenityCloud {
+      await handleBackendProfileSelection(.sqliteLocal)
+    }
+
+    await refreshActiveBackendValidation()
+    await refreshBackendDiagnostics()
+    showToast("Serenity Cloud configuration cleared")
+  }
+
+  func configureExternalPostgres(
+    host: String,
+    port: String,
+    database: String,
+    username: String,
+    password: String,
+    sslMode: String
+  ) async {
+    let trimmedPort = port.trimmingCharacters(in: .whitespacesAndNewlines)
+    let parsedPort = UInt16(trimmedPort.isEmpty ? "5432" : trimmedPort)
+    guard let parsedPort else {
+      showToast("PostgreSQL port must be a valid number")
+      return
+    }
+
+    do {
+      let configuration = try backendConfigurationStore.saveExternalPostgresConfiguration(
+        host: host,
+        port: parsedPort,
+        database: database,
+        username: username,
+        password: password,
+        sslMode: sslMode
+      )
+      externalPostgresAdapter = ExternalPostgresAdapter(configuration: configuration)
+      showToast("PostgreSQL configuration saved")
+
+      await refreshActiveBackendValidation()
+      await refreshBackendDiagnostics()
+
+      if backendSelectionState.activeProfile == .externalPostgres {
+        await refreshCoreWorkflowData()
+      }
+    } catch {
+      showError(title: "PostgreSQL configuration failed", message: error.localizedDescription)
+    }
+  }
+
+  func clearExternalPostgresConfiguration() async {
+    backendConfigurationStore.clearExternalPostgresConfiguration()
+    externalPostgresAdapter = nil
+
+    if settings.backendProfile == .externalPostgres {
+      await handleBackendProfileSelection(.sqliteLocal)
+    }
+
+    await refreshActiveBackendValidation()
+    await refreshBackendDiagnostics()
+    showToast("PostgreSQL configuration cleared")
+  }
+
+  func cloudBaseURLForSettings() -> String {
+    serenityCloudAdapter?.diagnostics().baseURL ?? ""
+  }
+
+  func externalPostgresDiagnosticsForSettings() -> ExternalPostgresDiagnostics? {
+    externalPostgresAdapter?.diagnostics()
   }
 
   func refreshActiveBackendValidation() async {
@@ -1975,7 +2253,10 @@ final class AppState: ObservableObject {
       }
       return try await serenityCloudAdapter.listTasks()
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      return try await externalPostgresAdapter.listTasks()
     }
   }
 
@@ -1990,7 +2271,10 @@ final class AppState: ObservableObject {
       }
       _ = try await serenityCloudAdapter.createTask(task)
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      _ = try await externalPostgresAdapter.createTask(task)
     }
   }
 
@@ -2005,7 +2289,10 @@ final class AppState: ObservableObject {
       }
       _ = try await serenityCloudAdapter.updateTask(task)
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      _ = try await externalPostgresAdapter.updateTask(task)
     }
   }
 
@@ -2020,7 +2307,10 @@ final class AppState: ObservableObject {
       }
       try await serenityCloudAdapter.deleteTask(id: id)
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      try await externalPostgresAdapter.deleteTask(id: id)
     }
   }
 
@@ -2035,7 +2325,14 @@ final class AppState: ObservableObject {
       }
       return try await serenityCloudAdapter.listProjects()
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      let projects = try await externalPostgresAdapter.listProjects()
+      if includeArchivedProjects {
+        return projects
+      }
+      return projects.filter { !$0.archived }
     }
   }
 
@@ -2050,7 +2347,10 @@ final class AppState: ObservableObject {
       }
       _ = try await serenityCloudAdapter.createProject(project)
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      _ = try await externalPostgresAdapter.createProject(project)
     }
   }
 
@@ -2065,7 +2365,10 @@ final class AppState: ObservableObject {
       }
       _ = try await serenityCloudAdapter.updateProject(project)
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      _ = try await externalPostgresAdapter.updateProject(project)
     }
   }
 
@@ -2080,7 +2383,10 @@ final class AppState: ObservableObject {
       }
       try await serenityCloudAdapter.deleteProject(id: id)
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      try await externalPostgresAdapter.deleteProject(id: id)
     }
   }
 
@@ -2100,7 +2406,16 @@ final class AppState: ObservableObject {
       }
       return try await serenityCloudAdapter.listJournalEntries()
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      let entries = try await externalPostgresAdapter.listJournalEntries()
+      if journalDateRangeEnabled {
+        let start = min(journalRangeStartDate, journalRangeEndDate)
+        let end = max(journalRangeStartDate, journalRangeEndDate)
+        return entries.filter { $0.date >= start && $0.date <= end }
+      }
+      return entries
     }
   }
 
@@ -2115,7 +2430,10 @@ final class AppState: ObservableObject {
       }
       _ = try await serenityCloudAdapter.createJournalEntry(entry)
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      _ = try await externalPostgresAdapter.createJournalEntry(entry)
     }
   }
 
@@ -2130,7 +2448,10 @@ final class AppState: ObservableObject {
       }
       _ = try await serenityCloudAdapter.updateJournalEntry(entry)
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      _ = try await externalPostgresAdapter.updateJournalEntry(entry)
     }
   }
 
@@ -2145,7 +2466,10 @@ final class AppState: ObservableObject {
       }
       try await serenityCloudAdapter.deleteJournalEntry(id: id)
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      try await externalPostgresAdapter.deleteJournalEntry(id: id)
     }
   }
 
@@ -2160,7 +2484,10 @@ final class AppState: ObservableObject {
       }
       return try await serenityCloudAdapter.listGoals()
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      return try await externalPostgresAdapter.listGoals()
     }
   }
 
@@ -2175,7 +2502,10 @@ final class AppState: ObservableObject {
       }
       _ = try await serenityCloudAdapter.createGoal(goal)
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      _ = try await externalPostgresAdapter.createGoal(goal)
     }
   }
 
@@ -2190,7 +2520,10 @@ final class AppState: ObservableObject {
       }
       _ = try await serenityCloudAdapter.updateGoal(goal)
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      _ = try await externalPostgresAdapter.updateGoal(goal)
     }
   }
 
@@ -2205,7 +2538,10 @@ final class AppState: ObservableObject {
       }
       try await serenityCloudAdapter.deleteGoal(id: id)
     case .externalPostgres:
-      throw CoreWorkflowError.unsupportedBackend(.externalPostgres)
+      guard let externalPostgresAdapter else {
+        throw CoreWorkflowError.unavailableBackend("External PostgreSQL adapter is not configured")
+      }
+      try await externalPostgresAdapter.deleteGoal(id: id)
     }
   }
 

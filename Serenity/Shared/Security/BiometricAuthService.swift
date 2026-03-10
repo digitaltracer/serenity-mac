@@ -26,17 +26,17 @@ final class BiometricAuthService {
     let context = contextFactory()
     var error: NSError?
 
-    if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
+    if context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) {
       return .available
     }
 
-    return .unavailable(reason: error?.localizedDescription ?? "Touch ID is unavailable.")
+    return .unavailable(reason: error?.localizedDescription ?? "Biometric or device authentication is unavailable.")
   }
 
   func authenticate(reason: String = "Unlock Serenity") async -> Bool {
     let context = contextFactory()
     do {
-      return try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason)
+      return try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
     } catch {
       return false
     }

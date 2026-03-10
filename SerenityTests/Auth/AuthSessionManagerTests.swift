@@ -3,6 +3,46 @@ import XCTest
 @testable import SerenityMac
 
 final class AuthSessionManagerTests: XCTestCase {
+  func testOAuthConfigurationPersistsAndClearsStoredValues() {
+    let suiteName = "serenity.macos.oauth-config.tests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+      defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let configuration = OAuthEnvironmentConfiguration(
+      baseURL: URL(string: "https://auth.serenity.test")!,
+      clientID: "desktop-client",
+      redirectURI: "serenity://oauth/callback"
+    )
+    configuration.persist(defaults)
+
+    XCTAssertEqual(OAuthEnvironmentConfiguration.fromStored(defaults), configuration)
+
+    let resolved = OAuthEnvironmentConfiguration.fromStoredOrEnvironment(
+      defaults: defaults,
+      environment: [
+        "SERENITY_OAUTH_BASE_URL": "https://env.serenity.test",
+        "SERENITY_OAUTH_CLIENT_ID": "env-client",
+        "SERENITY_OAUTH_REDIRECT_URI": "serenity://env/callback",
+      ]
+    )
+    XCTAssertEqual(resolved, configuration)
+
+    OAuthEnvironmentConfiguration.clearStored(defaults)
+    XCTAssertNil(OAuthEnvironmentConfiguration.fromStored(defaults))
+
+    let fallback = OAuthEnvironmentConfiguration.fromStoredOrEnvironment(
+      defaults: defaults,
+      environment: [
+        "SERENITY_OAUTH_BASE_URL": "https://env.serenity.test",
+        "SERENITY_OAUTH_CLIENT_ID": "env-client",
+        "SERENITY_OAUTH_REDIRECT_URI": "serenity://env/callback",
+      ]
+    )
+    XCTAssertEqual(fallback?.clientID, "env-client")
+  }
+
   func testLoginPersistsSessionAndAuthenticates() async {
     let suiteName = "serenity.macos.auth.tests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!

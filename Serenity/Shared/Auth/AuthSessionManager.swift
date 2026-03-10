@@ -51,10 +51,14 @@ protocol OAuthClient {
   func refreshToken(_ refreshToken: String) async throws -> OAuthTokenPayload
 }
 
-struct OAuthEnvironmentConfiguration: Sendable {
+struct OAuthEnvironmentConfiguration: Sendable, Equatable {
   let baseURL: URL
   let clientID: String
   let redirectURI: String
+
+  private static let baseURLDefaultsKey = "serenity.macos.oauth.baseURL"
+  private static let clientIDDefaultsKey = "serenity.macos.oauth.clientID"
+  private static let redirectURIDefaultsKey = "serenity.macos.oauth.redirectURI"
 
   static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> OAuthEnvironmentConfiguration? {
     guard
@@ -67,6 +71,38 @@ struct OAuthEnvironmentConfiguration: Sendable {
     }
 
     return OAuthEnvironmentConfiguration(baseURL: baseURL, clientID: clientID, redirectURI: redirectURI)
+  }
+
+  static func fromStored(_ defaults: UserDefaults = .standard) -> OAuthEnvironmentConfiguration? {
+    guard
+      let baseURLString = defaults.string(forKey: baseURLDefaultsKey),
+      let baseURL = URL(string: baseURLString),
+      let clientID = defaults.string(forKey: clientIDDefaultsKey), !clientID.isEmpty,
+      let redirectURI = defaults.string(forKey: redirectURIDefaultsKey), !redirectURI.isEmpty
+    else {
+      return nil
+    }
+
+    return OAuthEnvironmentConfiguration(baseURL: baseURL, clientID: clientID, redirectURI: redirectURI)
+  }
+
+  static func fromStoredOrEnvironment(
+    defaults: UserDefaults = .standard,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) -> OAuthEnvironmentConfiguration? {
+    fromStored(defaults) ?? fromEnvironment(environment)
+  }
+
+  func persist(_ defaults: UserDefaults = .standard) {
+    defaults.set(baseURL.absoluteString, forKey: Self.baseURLDefaultsKey)
+    defaults.set(clientID, forKey: Self.clientIDDefaultsKey)
+    defaults.set(redirectURI, forKey: Self.redirectURIDefaultsKey)
+  }
+
+  static func clearStored(_ defaults: UserDefaults = .standard) {
+    defaults.removeObject(forKey: baseURLDefaultsKey)
+    defaults.removeObject(forKey: clientIDDefaultsKey)
+    defaults.removeObject(forKey: redirectURIDefaultsKey)
   }
 }
 
@@ -210,18 +246,31 @@ actor OAuthSessionStore {
 }
 
 actor AuthSessionManager {
-  private let oauthClient: OAuthClient
+  private var oauthClient: OAuthClient
   private let store: OAuthSessionStore
   private(set) var state: AuthSessionState = .unauthenticated
 
   init(
-    oauthClient: OAuthClient? = OAuthEnvironmentConfiguration.fromEnvironment().map {
-      URLSessionOAuthClient(configuration: $0)
-    },
+    oauthClient: OAuthClient? = nil,
+    configuration: OAuthEnvironmentConfiguration? = OAuthEnvironmentConfiguration.fromStoredOrEnvironment(),
     store: OAuthSessionStore = OAuthSessionStore()
   ) {
-    self.oauthClient = oauthClient ?? UnavailableOAuthClient()
+    if let oauthClient {
+      self.oauthClient = oauthClient
+    } else if let configuration {
+      self.oauthClient = URLSessionOAuthClient(configuration: configuration)
+    } else {
+      self.oauthClient = UnavailableOAuthClient()
+    }
     self.store = store
+  }
+
+  func updateConfiguration(_ configuration: OAuthEnvironmentConfiguration?) {
+    if let configuration {
+      oauthClient = URLSessionOAuthClient(configuration: configuration)
+    } else {
+      oauthClient = UnavailableOAuthClient()
+    }
   }
 
   func bootstrap() async -> AuthSessionState {

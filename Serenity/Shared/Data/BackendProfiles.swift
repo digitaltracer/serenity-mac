@@ -115,15 +115,17 @@ struct BackendProfileRegistry: Sendable {
         .available(message: "Local SQLite backend is available.")
       },
       .serenityCloud: {
-        guard let configuration = SerenityCloudConfiguration.fromEnvironment() else {
-          return .unavailable(reason: "Serenity Cloud is not configured.")
+        guard let configuration = SerenityCloudConfiguration.fromStoredOrEnvironment() else {
+          return .unavailable(
+            reason: "Serenity Cloud is not configured. Save cloud base URL + token in Settings, or sign in and use current session."
+          )
         }
 
         let adapter = SerenityCloudAdapter(configuration: configuration)
         return await adapter.validateConnection()
       },
       .externalPostgres: {
-        guard let configuration = ExternalPostgresConfiguration.fromEnvironment() else {
+        guard let configuration = ExternalPostgresConfiguration.fromStoredOrEnvironment() else {
           return .unavailable(reason: "External PostgreSQL is not configured.")
         }
 

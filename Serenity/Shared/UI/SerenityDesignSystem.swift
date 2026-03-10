@@ -1,11 +1,18 @@
 import SwiftUI
+#if os(macOS)
 import AppKit
+typealias SerenityNativeColor = NSColor
+#elseif os(iOS)
+import UIKit
+typealias SerenityNativeColor = UIColor
+#endif
 
 enum SerenityUI {
-  private static func dynamicNSColor(
+  private static func dynamicNativeColor(
     light: (CGFloat, CGFloat, CGFloat, CGFloat),
     dark: (CGFloat, CGFloat, CGFloat, CGFloat)
-  ) -> NSColor {
+  ) -> SerenityNativeColor {
+#if os(macOS)
     NSColor(name: nil) { appearance in
       let bestMatch = appearance.bestMatch(from: [.darkAqua, .vibrantDark, .aqua, .vibrantLight])
       let active = (bestMatch == .darkAqua || bestMatch == .vibrantDark) ? dark : light
@@ -16,13 +23,29 @@ enum SerenityUI {
         alpha: active.3
       )
     }
+#else
+    SerenityNativeColor { traits in
+      let active = traits.userInterfaceStyle == .dark ? dark : light
+      return SerenityNativeColor(
+        red: active.0,
+        green: active.1,
+        blue: active.2,
+        alpha: active.3
+      )
+    }
+#endif
   }
 
   private static func dynamicColor(
     light: (CGFloat, CGFloat, CGFloat, CGFloat),
     dark: (CGFloat, CGFloat, CGFloat, CGFloat)
   ) -> Color {
-    Color(nsColor: dynamicNSColor(light: light, dark: dark))
+    let nativeColor = dynamicNativeColor(light: light, dark: dark)
+#if os(macOS)
+    return Color(nsColor: nativeColor)
+#else
+    return Color(uiColor: nativeColor)
+#endif
   }
 
   enum Palette {
@@ -59,6 +82,14 @@ enum SerenityUI {
       light: (0.93, 0.95, 0.97, 1.0),
       dark: (0.08, 0.14, 0.25, 1.0)
     )
+    static let inputBackground = SerenityUI.dynamicColor(
+      light: (0.98, 0.99, 1.00, 1.0),
+      dark: (0.08, 0.14, 0.25, 1.0)
+    )
+    static let inputBackgroundHover = SerenityUI.dynamicColor(
+      light: (0.97, 0.98, 1.00, 1.0),
+      dark: (0.10, 0.16, 0.27, 1.0)
+    )
     static let border = SerenityUI.dynamicColor(
       light: (0.60, 0.66, 0.76, 0.45),
       dark: (0.24, 0.34, 0.50, 0.55)
@@ -86,10 +117,6 @@ enum SerenityUI {
     static let textOnInteractiveSurface = SerenityUI.dynamicColor(
       light: (0.14, 0.20, 0.31, 1.0),
       dark: (0.97, 0.98, 1.00, 1.0)
-    )
-    static let editorTextNSColor = SerenityUI.dynamicNSColor(
-      light: (0.14, 0.20, 0.31, 1.0),
-      dark: (0.90, 0.94, 0.99, 0.95)
     )
     static let quickCaptureTint = SerenityUI.dynamicColor(
       light: (0.49, 0.58, 0.88, 0.10),
@@ -179,16 +206,60 @@ struct SerenityPillButtonStyle: ButtonStyle {
 }
 
 struct SerenityInputFieldModifier: ViewModifier {
+  @State private var hovered = false
+
   func body(content: Content) -> some View {
     content
       .font(SerenityType.body)
-      .padding(.horizontal, 10)
-      .padding(.vertical, 8)
-      .background(SerenityPalette.panelBackgroundRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+      .padding(.horizontal, 12)
+      .padding(.vertical, 10)
+      .background(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .fill(hovered ? SerenityPalette.inputBackgroundHover : SerenityPalette.inputBackground)
       )
+      .overlay(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .stroke(hovered ? SerenityPalette.border : SerenityPalette.thinBorder, lineWidth: 1)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .stroke(SerenityPalette.highlightStroke, lineWidth: 1)
+      )
+      .shadow(color: SerenityPalette.accent.opacity(hovered ? 0.12 : 0.06), radius: hovered ? 8 : 5, x: 0, y: 1)
+      .animation(.easeOut(duration: 0.16), value: hovered)
+      .onHover { isHovering in
+        hovered = isHovering
+      }
+  }
+}
+
+struct SerenityTextAreaModifier: ViewModifier {
+  let minHeight: CGFloat
+  @State private var hovered = false
+
+  func body(content: Content) -> some View {
+    content
+      .font(SerenityType.body)
+      .scrollContentBackground(.hidden)
+      .padding(8)
+      .frame(minHeight: minHeight)
+      .background(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .fill(hovered ? SerenityPalette.inputBackgroundHover : SerenityPalette.inputBackground)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(hovered ? SerenityPalette.border : SerenityPalette.thinBorder, lineWidth: 1)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(SerenityPalette.highlightStroke, lineWidth: 1)
+      )
+      .shadow(color: SerenityPalette.accent.opacity(hovered ? 0.12 : 0.06), radius: hovered ? 8 : 5, x: 0, y: 1)
+      .animation(.easeOut(duration: 0.16), value: hovered)
+      .onHover { isHovering in
+        hovered = isHovering
+      }
   }
 }
 
@@ -203,5 +274,9 @@ extension View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
           .stroke(SerenityPalette.border, lineWidth: 1)
       )
+  }
+
+  func serenityTextArea(minHeight: CGFloat = 120) -> some View {
+    modifier(SerenityTextAreaModifier(minHeight: minHeight))
   }
 }

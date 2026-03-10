@@ -2,7 +2,7 @@
   "name": "@serenity/macos",
   "version": "0.1.0",
   "private": true,
-  "description": "Serenity native macOS application",
+  "description": "Serenity native Apple application",
   "scripts": {
     "build": "node ./scripts/run-swift-command.cjs build",
     "test": "node ./scripts/run-swift-command.cjs test",
