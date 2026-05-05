@@ -8,3 +8,18 @@ scripts/release-macos.env
 dist/
 GoogleAuth.local.xcconfig
 GoogleAuth.xcconfig
+
+# macOS Finder noise
+.DS_Store
+
+# Claude Code session state
+.claude/
+
+# Xcode per-user state (always per-developer)
+xcuserdata/
+
+# Xcode workspace SwiftPM cache (Package.resolved at repo root is canonical)
+Serenity.xcodeproj/project.xcworkspace/xcshareddata/
+
+# Local screenshots
+screenshots/
