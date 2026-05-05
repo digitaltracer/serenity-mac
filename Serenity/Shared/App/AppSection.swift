@@ -9,6 +9,7 @@ public enum AppSection: String, CaseIterable, Identifiable {
   case projects
   case integrations
   case insights
+  case aiSummaries
   case database
   case settings
 
@@ -32,6 +33,8 @@ public enum AppSection: String, CaseIterable, Identifiable {
       return "Integrations"
     case .insights:
       return "Insights"
+    case .aiSummaries:
+      return "AI Summaries"
     case .database:
       return "Database"
     case .settings:
@@ -46,7 +49,7 @@ public enum AppSection: String, CaseIterable, Identifiable {
     case .actionHub:
       return "checklist"
     case .today:
-      return "sun.max"
+      return "calendar"
     case .journal:
       return "book"
     case .goals:
@@ -54,9 +57,11 @@ public enum AppSection: String, CaseIterable, Identifiable {
     case .projects:
       return "folder"
     case .integrations:
-      return "link"
+      return "globe"
     case .insights:
       return "chart.bar.xaxis"
+    case .aiSummaries:
+      return "sparkles"
     case .database:
       return "internaldrive"
     case .settings:

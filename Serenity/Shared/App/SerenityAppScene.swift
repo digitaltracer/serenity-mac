@@ -7,6 +7,7 @@ import UIKit
 
 struct SerenityAppScene: View {
   @ObservedObject var appState: AppState
+  @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
 
   var body: some View {
     Group {
@@ -74,34 +75,71 @@ struct SerenityAppScene: View {
   }
 
   private var appContent: some View {
-    NavigationSplitView {
-      SerenitySidebar(selectedSection: Binding(
-        get: { appState.selectedSection },
-        set: { appState.setSection($0) }
-      ))
+    NavigationSplitView(columnVisibility: $splitViewVisibility) {
+      SerenitySidebar(
+        selectedSection: Binding(
+          get: { appState.selectedSection },
+          set: { appState.setSection($0) }
+        )
+      )
       .navigationSplitViewColumnWidth(min: 214, ideal: 228, max: 246)
     } detail: {
       ZStack {
         SerenityDetailBackground()
-
-        VStack(spacing: 0) {
-          SerenityTopBar()
-
-          NavigationStack {
-            if let selectedSection = appState.selectedSection {
-              SectionView(section: selectedSection)
-                .environmentObject(appState)
-            } else {
-              ContentUnavailableView("Select a section", systemImage: "sidebar.left")
-            }
-          }
-        }
+        detailContent
       }
     }
     .navigationSplitViewStyle(.balanced)
 #if os(macOS)
-    .toolbar(removing: .sidebarToggle)
+    .toolbar {
+      ToolbarItemGroup(placement: .primaryAction) {
+        TopBarButton(symbol: "magnifyingglass", accessibilityLabel: "Search") {
+          appState.openGlobalSearch()
+        }
+        TopBarButton(symbol: "questionmark.circle", accessibilityLabel: "Help") {
+          appState.openHelpCenter()
+        }
+        TopBarButton(symbol: appState.themePreference.topBarSymbol, accessibilityLabel: "Theme") {
+          cycleThemePreference()
+        }
+      }
+    }
+    .toolbarBackground(SerenityPalette.sidebarHeaderBackground, for: .windowToolbar)
+    .toolbarBackground(.visible, for: .windowToolbar)
 #endif
+  }
+
+  @ViewBuilder
+  private var detailContent: some View {
+#if os(macOS)
+    detailNavigationStack
+#else
+    VStack(spacing: 0) {
+      SerenityTopBar()
+      detailNavigationStack
+    }
+#endif
+  }
+
+  private var detailNavigationStack: some View {
+    NavigationStack {
+      if let selectedSection = appState.selectedSection {
+        SectionView(section: selectedSection)
+          .environmentObject(appState)
+      } else {
+        ContentUnavailableView("Select a section", systemImage: "sidebar.left")
+      }
+    }
+  }
+
+  private func cycleThemePreference() {
+    let all = AppThemePreference.allCases
+    guard let currentIndex = all.firstIndex(of: appState.themePreference) else {
+      appState.setThemePreference(.system)
+      return
+    }
+    let next = all[(currentIndex + 1) % all.count]
+    appState.setThemePreference(next)
   }
 }
 
@@ -120,7 +158,7 @@ private extension AppThemePreference {
   var topBarSymbol: String {
     switch self {
     case .system:
-      return "circle.lefthalf.filled"
+      return "desktopcomputer"
     case .light:
       return "sun.max"
     case .dark:
@@ -240,17 +278,16 @@ private struct SerenityPanelGroupBoxStyle: GroupBoxStyle {
 }
 
 private enum SerenityChromeMetrics {
-  static let rowHeight: CGFloat = 12
-  static let horizontalPadding: CGFloat = 5
-  static let controlSpacing: CGFloat = 4
-  static let controlsVerticalOffset: CGFloat = -14
+  static let rowHeight: CGFloat = 32
+  static let horizontalPadding: CGFloat = 18
+  static let controlSpacing: CGFloat = 8
   static let buttonSize: CGFloat = 28
-  static let buttonIconSize: CGFloat = 14
-  static let sidebarControlReserve: CGFloat = 34
+  static let buttonIconSize: CGFloat = 13
   static let sidebarHeaderIconSize: CGFloat = 30
   static let sidebarHeaderVerticalPadding: CGFloat = 4
 }
 
+#if os(iOS)
 private struct SerenityTopBar: View {
   @EnvironmentObject private var appState: AppState
 
@@ -268,7 +305,6 @@ private struct SerenityTopBar: View {
         cycleThemePreference()
       }
     }
-    .offset(y: SerenityChromeMetrics.controlsVerticalOffset)
     .padding(.horizontal, SerenityChromeMetrics.horizontalPadding)
     .frame(height: SerenityChromeMetrics.rowHeight)
     .background(
@@ -296,6 +332,7 @@ private struct SerenityTopBar: View {
     appState.setThemePreference(next)
   }
 }
+#endif
 
 private struct TopBarButton: View {
   @State private var hovered = false
@@ -309,6 +346,7 @@ private struct TopBarButton: View {
         .font(.system(size: SerenityChromeMetrics.buttonIconSize, weight: .semibold))
         .foregroundStyle(SerenityPalette.textSecondary)
         .frame(width: SerenityChromeMetrics.buttonSize, height: SerenityChromeMetrics.buttonSize)
+        .contentShape(Rectangle())
         .background(
           RoundedRectangle(cornerRadius: 8, style: .continuous)
             .fill(hovered ? SerenityPalette.panelBackgroundRaised : .clear)
@@ -331,12 +369,11 @@ private struct SerenitySidebar: View {
   @Binding var selectedSection: AppSection?
   @State private var hoveredSection: AppSection?
 
-  private let primarySections: [AppSection] = [.home, .actionHub, .today, .journal, .goals, .projects, .insights]
+  private let primarySections: [AppSection] = [.home, .actionHub, .today, .journal, .goals, .insights, .aiSummaries]
   private let systemSections: [AppSection] = [.integrations, .database, .settings]
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      sidebarChromeRow
       sidebarHeader
 
       VStack(alignment: .leading, spacing: 0) {
@@ -373,22 +410,6 @@ private struct SerenitySidebar: View {
       }
     }
     .background(SerenityPalette.sidebarBackground)
-  }
-
-  private var sidebarChromeRow: some View {
-    HStack {
-      // Reserve leading space so window controls don't clash with custom chrome.
-      Spacer(minLength: SerenityChromeMetrics.sidebarControlReserve)
-      Spacer()
-    }
-    .padding(.horizontal, SerenityChromeMetrics.horizontalPadding)
-    .frame(height: SerenityChromeMetrics.rowHeight)
-    .background(SerenityPalette.sidebarHeaderBackground)
-    .overlay(alignment: .bottom) {
-      Rectangle()
-        .fill(SerenityPalette.thinBorder)
-        .frame(height: 1)
-    }
   }
 
   private var sidebarHeader: some View {
@@ -468,7 +489,7 @@ private extension AppSection {
     case .actionHub:
       return "Task and project control center"
     case .today:
-      return "Deadlines, priorities, and daily momentum"
+      return "Focus on what matters most right now"
     case .journal:
       return "Capture notes, mood, and reflections"
     case .goals:
@@ -479,6 +500,8 @@ private extension AppSection {
       return "Manage external providers and sync health"
     case .insights:
       return "AI analysis, recaps, and usage intelligence"
+    case .aiSummaries:
+      return "Generate and view AI-powered summaries of your tasks and journal entries"
     case .database:
       return "Bootstrap, integrity checks, and export tooling"
     case .settings:
@@ -710,7 +733,7 @@ private struct SectionView: View {
 
       ScrollView {
         VStack(alignment: .leading, spacing: density.sectionSpacing) {
-          if section != .home {
+          if section != .home && section != .today {
             sectionHeader(density: density)
           }
 
@@ -731,6 +754,8 @@ private struct SectionView: View {
             IntegrationsSectionView()
           case .insights:
             InsightsSectionView()
+          case .aiSummaries:
+            AISummariesSectionView()
           case .database:
             DatabaseSectionView()
           case .settings:
@@ -745,7 +770,7 @@ private struct SectionView: View {
     .animation(.easeInOut(duration: 0.2), value: section)
     .onAppear {
       AppLogger.info("Rendered section: \(section.rawValue)")
-      if section == .insights {
+      if section == .insights || section == .aiSummaries {
         Task {
           await appState.refreshAIWorkflows()
         }
@@ -1090,12 +1115,11 @@ private struct HomeSectionView: View {
 
   private var featureGrid: some View {
     LazyVGrid(columns: density.featureColumns, spacing: density.featureGridSpacing) {
-      featureCard(title: "ActionHub", subtitle: "Efficiently manage tasks, projects, and priorities.", icon: "checklist", section: .actionHub)
-      featureCard(title: "Journal", subtitle: "Capture thoughts, ideas, and reflections securely.", icon: "book", section: .journal)
-      featureCard(title: "Projects", subtitle: "Organize related work with clear progress tracking.", icon: "folder", section: .projects)
-      featureCard(title: "Insights Hub", subtitle: "AI-powered insights, analytics, and recommendations.", icon: "brain", section: .insights)
-      featureCard(title: "Integrations", subtitle: "Connect external services and monitor sync.", icon: "link", section: .integrations)
-      featureCard(title: "Database", subtitle: "Manage backups, integrity checks, and exports.", icon: "internaldrive", section: .database)
+      featureCard(title: "ActionHub", subtitle: "Efficiently manage tasks, projects, and priorities with a customizable workflow.", icon: "checklist", section: .actionHub)
+      featureCard(title: "Journal", subtitle: "Capture thoughts, ideas, and reflections with a private, secure journaling system.", icon: "book", section: .journal)
+      featureCard(title: "Projects", subtitle: "Organize related tasks into projects with visual progress tracking.", icon: "folder", section: .projects)
+      featureCard(title: "AI Summaries", subtitle: "Generate AI-powered summaries of your tasks and journal entries by date range.", icon: "sparkles", section: .aiSummaries)
+      featureCard(title: "Insights Hub", subtitle: "AI-powered insights, analytics, and personalized recommendations.", icon: "chart.bar.xaxis", section: .insights)
     }
   }
 
@@ -1196,230 +1220,236 @@ private struct HomeSectionView: View {
 struct IntegrationsSectionView: View {
   @EnvironmentObject private var appState: AppState
 
-  @State private var googleClientID = ProcessInfo.processInfo.environment["SERENITY_GOOGLE_CLIENT_ID"] ?? ""
-  @State private var googleClientSecret = ProcessInfo.processInfo.environment["SERENITY_GOOGLE_CLIENT_SECRET"] ?? ""
-  @State private var googleRedirectURI = ProcessInfo.processInfo.environment["SERENITY_GOOGLE_REDIRECT_URI"] ?? "http://localhost:8080/oauth/callback"
-  @State private var googleScopes = ProcessInfo.processInfo.environment["SERENITY_GOOGLE_SCOPES"] ?? "https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/userinfo.email"
-  @State private var googleAuthorizationCode = ""
-  @State private var googleAccessToken = ""
-  @State private var googleRefreshToken = ""
-  @State private var googleUserEmail = ""
-  @State private var googleTokenTTLHours = "1"
-
   @State private var githubToken = ""
   @State private var githubDisplayName = ""
+  @State private var isConnectingGoogle = false
+
+  private var isGoogleConfigured: Bool {
+    appState.googleCalendarConfigured
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
-      GroupBox("Sync Status") {
-        VStack(alignment: .leading, spacing: 12) {
-          HStack {
-            HStack(spacing: 10) {
-              ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                  .fill(SerenityPalette.headerIconBackground)
-                  .frame(width: 40, height: 40)
-                Image(systemName: "arrow.triangle.2.circlepath")
-                  .font(.system(size: 17, weight: .semibold))
-                  .foregroundStyle(SerenityPalette.textSecondary)
-              }
+      syncStatusCard
+      connectedServicesCard
+      githubTokensCard
+      cloudSyncHardeningCard
+    }
+  }
 
-              VStack(alignment: .leading, spacing: 2) {
-                Text("All integrations ready for synchronization")
-                  .font(SerenityType.sectionTitle)
-                Text(appState.integrationSyncInProgress ? "Syncing now..." : "Manual sync available")
-                  .font(SerenityType.body)
-                  .foregroundStyle(SerenityPalette.textSecondary)
-              }
-            }
-
-            Spacer()
-
-            Button("Sync Now") {
-              Task {
-                await appState.syncIntegrationsNow()
-              }
-            }
-            .buttonStyle(SerenityPrimaryButtonStyle())
-          .hoverCursor(.pointingHand)
-            .disabled(appState.integrationSyncInProgress)
-          }
-
-          HStack(spacing: 10) {
-            statusBadge(title: "Google", active: appState.googleIntegrationState.connected)
-            statusBadge(title: "GitHub", active: !appState.githubIntegrationState.tokens.isEmpty)
-            statusBadge(title: "Diagnostics", active: !appState.integrationDiagnosticsLines.isEmpty)
-          }
-        }
+  private var syncStatusCard: some View {
+    HStack(alignment: .center, spacing: 12) {
+      ZStack {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill(SerenityPalette.headerIconBackground)
+          .frame(width: 40, height: 40)
+        Image(systemName: "arrow.triangle.2.circlepath")
+          .font(.system(size: 17, weight: .semibold))
+          .foregroundStyle(SerenityPalette.accent)
       }
 
-      GroupBox("Connected Providers") {
-        VStack(alignment: .leading, spacing: 12) {
-          providerSummaryRow(
-            title: "Google Calendar",
-            detail: appState.googleIntegrationState.connected
-              ? "Connected as \(appState.googleIntegrationState.userEmail ?? "unknown")"
-              : "Not connected",
-            active: appState.googleIntegrationState.connected
-          )
-          providerSummaryRow(
-            title: "GitHub",
-            detail: appState.githubIntegrationState.tokens.isEmpty
-              ? "No tokens configured"
-              : "\(appState.githubIntegrationState.tokens.count) active token(s)",
-            active: !appState.githubIntegrationState.tokens.isEmpty
-          )
-        }
+      VStack(alignment: .leading, spacing: 2) {
+        Text(appState.integrationSyncInProgress ? "Syncing..." : "All integrations ready")
+          .font(SerenityType.sectionTitle)
+        Text(lastSyncSummary)
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
       }
 
-      GroupBox("Google Calendar") {
-        VStack(alignment: .leading, spacing: 10) {
-          HStack {
-            Circle()
-              .fill(appState.googleIntegrationState.connected ? Color.green : Color.secondary)
-              .frame(width: 10, height: 10)
-            Text(appState.googleIntegrationState.connected ? "Connected" : "Disconnected")
-            if let user = appState.googleIntegrationState.userEmail {
-              Text("(\(user))")
-                .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Toggle("Sync Enabled", isOn: Binding(
-              get: { appState.googleIntegrationState.syncEnabled },
-              set: { enabled in
-                Task {
-                  await appState.setGoogleIntegrationSyncEnabled(enabled)
-                }
-              }
-            ))
-            .toggleStyle(.switch)
-            .frame(maxWidth: 170)
-          }
+      Spacer()
 
-          Divider()
+      Button("Sync Now") {
+        Task { await appState.syncIntegrationsNow() }
+      }
+      .buttonStyle(SerenityPrimaryButtonStyle())
+      .hoverCursor(.pointingHand)
+      .disabled(appState.integrationSyncInProgress)
+    }
+    .padding(16)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
 
-          TextField("Google OAuth Client ID", text: $googleClientID)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-          SecureField("Google OAuth Client Secret", text: $googleClientSecret)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-          TextField("Redirect URI", text: $googleRedirectURI)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-          TextField("Scopes (comma-separated)", text: $googleScopes)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-          Button("Update OAuth Configuration") {
-            Task {
-              await appState.configureGoogleOAuth(
-                clientID: googleClientID,
-                clientSecret: googleClientSecret,
-                redirectURI: googleRedirectURI,
-                scopesCSV: googleScopes
-              )
-            }
-          }
-          .hoverCursor(.pointingHand)
+  private var lastSyncSummary: String {
+    let recents = [
+      appState.googleIntegrationState.lastSyncAt,
+      appState.githubIntegrationState.lastSyncAt
+    ].compactMap { $0 }
 
-          if let authorizationURL = appState.googleOAuthAuthorizationURL {
-            Text("Authorization URL")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-            Text(authorizationURL)
-              .font(.caption)
-              .textSelection(.enabled)
-          } else {
-            Text("Authorization URL unavailable. Configure OAuth credentials.")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
+    if appState.integrationSyncInProgress {
+      return "Syncing now..."
+    }
+    if let mostRecent = recents.max() {
+      let formatter = RelativeDateTimeFormatter()
+      formatter.unitsStyle = .abbreviated
+      return "Last synced \(formatter.localizedString(for: mostRecent, relativeTo: Date()))"
+    }
+    return "Manual sync available"
+  }
 
-          TextField("Authorization code", text: $googleAuthorizationCode)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-          Button("Exchange Authorization Code") {
-            Task {
-              await appState.connectGoogleWithAuthorizationCode(googleAuthorizationCode)
-              googleAuthorizationCode = ""
-            }
-          }
-          .hoverCursor(.pointingHand)
+  private var connectedServicesCard: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Text("Connected Services")
+        .font(SerenityType.sectionTitle)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
 
-          Divider()
+      Divider().overlay(SerenityPalette.thinBorder)
 
-          Text("Connect with existing token (development/testing)")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          SecureField("Access token", text: $googleAccessToken)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-          SecureField("Refresh token (optional)", text: $googleRefreshToken)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-          TextField("User email (optional)", text: $googleUserEmail)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-          TextField("Token TTL (hours)", text: $googleTokenTTLHours)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-            .frame(maxWidth: 180)
+      googleServiceRow
 
-          HStack {
-            Button("Connect Token") {
-              let ttl = Int(googleTokenTTLHours) ?? 1
-              Task {
-                await appState.connectGoogleWithAccessToken(
-                  accessToken: googleAccessToken,
-                  refreshToken: googleRefreshToken,
-                  userEmail: googleUserEmail,
-                  expiresInHours: ttl
-                )
-              }
-            }
-            .buttonStyle(.borderedProminent)
-          .hoverCursor(.pointingHand)
+      Divider().overlay(SerenityPalette.thinBorder).padding(.leading, 16)
 
-            Button("Disconnect", role: .destructive) {
-              Task {
-                await appState.disconnectGoogleIntegration()
-              }
-            }
-            .disabled(!appState.googleIntegrationState.connected)
-            .hoverCursor(.pointingHand)
-          }
+      githubServiceRow
+    }
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private var googleServiceRow: some View {
+    let connected = appState.googleIntegrationState.connected
+    return HStack(alignment: .center, spacing: 14) {
+      serviceIcon(systemName: "calendar", accent: Color(red: 0.26, green: 0.52, blue: 0.96))
+
+      VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 8) {
+          Text("Google Calendar")
+            .font(SerenityType.bodyLarge.weight(.semibold))
+          statusPill(connected: connected)
         }
-        .padding(.top, 8)
+        Text(googleStatusDetail)
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
       }
 
-      GroupBox("GitHub") {
-        VStack(alignment: .leading, spacing: 10) {
-          HStack {
-            Circle()
-              .fill(appState.githubIntegrationState.tokens.isEmpty ? Color.secondary : Color.green)
-              .frame(width: 10, height: 10)
-            Text(appState.githubIntegrationState.tokens.isEmpty ? "No tokens configured" : "\(appState.githubIntegrationState.tokens.count) token(s) configured")
-            Spacer()
-            Toggle("Sync Enabled", isOn: Binding(
-              get: { appState.githubIntegrationState.syncEnabled },
-              set: { enabled in
-                Task {
-                  await appState.setGitHubIntegrationSyncEnabled(enabled)
-                }
-              }
-            ))
-            .toggleStyle(.switch)
-            .frame(maxWidth: 170)
+      Spacer()
+
+      if connected {
+        Toggle("", isOn: Binding(
+          get: { appState.googleIntegrationState.syncEnabled },
+          set: { enabled in
+            Task { await appState.setGoogleIntegrationSyncEnabled(enabled) }
           }
+        ))
+        .toggleStyle(.switch)
+        .labelsHidden()
 
-          SecureField("GitHub token", text: $githubToken)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-          TextField("Display name (optional)", text: $githubDisplayName)
-            .textFieldStyle(.plain)
-            .serenityInputField()
+        Button("Disconnect") {
+          Task { await appState.disconnectGoogleIntegration() }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      } else {
+        Button {
+          Task { await connectGoogle() }
+        } label: {
+          HStack(spacing: 6) {
+            if isConnectingGoogle {
+              ProgressView().controlSize(.small)
+            }
+            Text(isConnectingGoogle ? "Connecting..." : "Connect")
+          }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .disabled(!isGoogleConfigured || isConnectingGoogle)
+      }
+    }
+    .padding(16)
+  }
 
-          Button("Add GitHub Token") {
+  private var githubServiceRow: some View {
+    let tokenCount = appState.githubIntegrationState.tokens.count
+    let connected = tokenCount > 0
+    return HStack(alignment: .center, spacing: 14) {
+      serviceIcon(systemName: "chevron.left.forwardslash.chevron.right", accent: Color(red: 0.55, green: 0.55, blue: 0.60))
+
+      VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 8) {
+          Text("GitHub")
+            .font(SerenityType.bodyLarge.weight(.semibold))
+          statusPill(connected: connected)
+        }
+        Text(connected
+          ? "\(tokenCount) token\(tokenCount == 1 ? "" : "s") configured"
+          : "Add a personal access token below to connect")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      Spacer()
+
+      if connected {
+        Toggle("", isOn: Binding(
+          get: { appState.githubIntegrationState.syncEnabled },
+          set: { enabled in
+            Task { await appState.setGitHubIntegrationSyncEnabled(enabled) }
+          }
+        ))
+        .toggleStyle(.switch)
+        .labelsHidden()
+      }
+    }
+    .padding(16)
+  }
+
+  private var googleStatusDetail: String {
+    if appState.googleIntegrationState.connected {
+      return appState.googleIntegrationState.userEmail.map { "Connected as \($0)" } ?? "Connected"
+    }
+    if !isGoogleConfigured {
+      return "Google Sign-In is not configured for this build."
+    }
+    return "Sync your calendar events as tasks"
+  }
+
+  private func serviceIcon(systemName: String, accent: Color) -> some View {
+    ZStack {
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .fill(accent.opacity(0.18))
+        .frame(width: 36, height: 36)
+      Image(systemName: systemName)
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(accent)
+    }
+  }
+
+  private func statusPill(connected: Bool) -> some View {
+    Text(connected ? "Connected" : "Not connected")
+      .font(SerenityType.caption)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .foregroundStyle(connected ? Color.green : SerenityPalette.textSecondary)
+      .background((connected ? Color.green : SerenityPalette.textSecondary).opacity(0.15), in: Capsule())
+  }
+
+  private var githubTokensCard: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Text("GitHub Access Tokens")
+        .font(SerenityType.sectionTitle)
+
+      Text("Generate a personal access token with the repo scope at github.com/settings/tokens, then paste it below.")
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+
+      VStack(alignment: .leading, spacing: 8) {
+        SecureField("Personal access token", text: $githubToken)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        TextField("Display name (optional)", text: $githubDisplayName)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        HStack {
+          Spacer()
+          Button("Add Token") {
             Task {
               await appState.addGitHubIntegrationToken(
                 token: githubToken,
@@ -2483,70 +2513,190 @@ private struct ActionHubSectionView: View {
 private struct TodaySectionView: View {
   @EnvironmentObject private var appState: AppState
 
+  private static let dateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "EEEE, MMMM d, yyyy"
+    return formatter
+  }()
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      HStack(spacing: 12) {
-        MetricTile(title: "Due Today", value: "\(appState.todayTasks.count)", tint: .blue)
-        MetricTile(title: "Overdue", value: "\(appState.overdueTasks.count)", tint: .red)
-        MetricTile(title: "Completed Today", value: "\(completedTodayCount)", tint: .green)
-      }
+    VStack(alignment: .leading, spacing: 20) {
+      header
 
-      GroupBox("Overdue") {
-        taskList(tasks: appState.overdueTasks)
-          .padding(.top, 8)
-      }
-
-      GroupBox("Due Today") {
-        taskList(tasks: appState.todayTasks)
-          .padding(.top, 8)
-      }
-
-      Button("Refresh") {
-        Task {
-          await appState.refreshCoreWorkflowData()
+      ViewThatFits(in: .horizontal) {
+        HStack(alignment: .top, spacing: 16) {
+          progressCard
+          focusCard
+        }
+        VStack(spacing: 16) {
+          progressCard
+          focusCard
         }
       }
-      .hoverCursor(.pointingHand)
+
+      VStack(alignment: .leading, spacing: 12) {
+        Text("Today's Tasks")
+          .font(SerenityType.sectionTitle)
+
+        tasksPanel
+      }
     }
   }
 
-  private var completedTodayCount: Int {
-    let today = Calendar.current.startOfDay(for: Date())
-    return appState.tasks.filter { task in
-      guard let completedAt = task.completedAt else { return false }
-      return Calendar.current.isDate(completedAt, inSameDayAs: today)
-    }.count
+  private var header: some View {
+    HStack(alignment: .center, spacing: 12) {
+      Image(systemName: "calendar")
+        .font(.system(size: 22, weight: .semibold))
+        .foregroundStyle(SerenityPalette.accent)
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Today")
+          .font(SerenityType.pageTitle)
+        Text("Focus on what matters most right now")
+          .font(SerenityType.pageSubtitle)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Text(Self.dateFormatter.string(from: Date()))
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary.opacity(0.8))
+      }
+
+      Spacer()
+    }
+  }
+
+  private var progressCard: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Text("Today's Progress")
+        .font(SerenityType.sectionTitle)
+
+      Text("\(Int(completionPercent * 100))%")
+        .font(.system(size: 38, weight: .semibold))
+
+      ProgressView(value: completionPercent)
+        .progressViewStyle(.linear)
+        .tint(SerenityPalette.accent)
+
+      Text("\(completedTodayCount) of \(totalTodayCount) tasks completed")
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(20)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private var focusCard: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Text("Today's Focus")
+        .font(SerenityType.sectionTitle)
+
+      focusRow(dotColor: SerenityPalette.textSecondary.opacity(0.6), label: "Planned for today", value: totalTodayCount)
+      focusRow(dotColor: .green, label: "Completed today", value: completedTodayCount)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(20)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private func focusRow(dotColor: Color, label: String, value: Int) -> some View {
+    HStack {
+      Circle()
+        .fill(dotColor)
+        .frame(width: 8, height: 8)
+      Text(label)
+        .font(SerenityType.body)
+      Spacer()
+      Text("\(value)")
+        .font(SerenityType.bodyLarge.weight(.semibold))
+    }
   }
 
   @ViewBuilder
-  private func taskList(tasks: [TaskEntity]) -> some View {
-    if tasks.isEmpty {
-      Text("No tasks")
-        .foregroundStyle(.secondary)
+  private var tasksPanel: some View {
+    if appState.todayTasks.isEmpty {
+      VStack(spacing: 10) {
+        Image(systemName: "calendar")
+          .font(.system(size: 32, weight: .regular))
+          .foregroundStyle(SerenityPalette.textSecondary.opacity(0.7))
+        Text("No tasks scheduled for today")
+          .font(SerenityType.bodyLarge.weight(.medium))
+        Text("You're clear for today. Add a task to plan something.")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Button("Add a Task") {
+          appState.setSection(.actionHub)
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .padding(.top, 4)
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 40)
+      .padding(.horizontal, 20)
+      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(SerenityPalette.border, lineWidth: 1)
+      )
     } else {
       VStack(alignment: .leading, spacing: 8) {
-        ForEach(tasks) { task in
+        ForEach(appState.todayTasks) { task in
           HStack {
+            Button {
+              Task { await appState.toggleTaskCompletion(id: task.id) }
+            } label: {
+              Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(task.completed ? Color.green : SerenityPalette.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .hoverCursor(.pointingHand)
+
             Text(task.title)
+              .strikethrough(task.completed, color: SerenityPalette.textSecondary)
+              .foregroundStyle(task.completed ? SerenityPalette.textSecondary : SerenityPalette.textPrimary)
+
             Spacer()
+
             if let dueDate = task.dueDate {
               Text(dueDate, style: .time)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(SerenityPalette.textSecondary)
             }
-            Button(task.completed ? "Reopen" : "Complete") {
-              Task {
-                await appState.toggleTaskCompletion(id: task.id)
-              }
-            }
-            .buttonStyle(.bordered)
-          .hoverCursor(.pointingHand)
           }
-          .padding(8)
-          .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8))
+          .padding(.horizontal, 14)
+          .padding(.vertical, 12)
+          .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
       }
+      .padding(16)
+      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(SerenityPalette.border, lineWidth: 1)
+      )
     }
+  }
+
+  private var totalTodayCount: Int {
+    appState.todayTasks.count
+  }
+
+  private var completedTodayCount: Int {
+    appState.todayTasks.filter { $0.completed }.count
+  }
+
+  private var completionPercent: Double {
+    guard totalTodayCount > 0 else { return 0 }
+    return Double(completedTodayCount) / Double(totalTodayCount)
   }
 }
 
@@ -3465,6 +3615,295 @@ struct InsightsSectionView: View {
         .padding(.top, 8)
       }
     }
+  }
+}
+
+private struct AISummariesSectionView: View {
+  @EnvironmentObject private var appState: AppState
+
+  private enum SummaryFilter: String, CaseIterable, Identifiable {
+    case all
+    case tasks
+    case journal
+    case combined
+
+    var id: String { rawValue }
+
+    var title: String {
+      switch self {
+      case .all: return "All"
+      case .tasks: return "Tasks"
+      case .journal: return "Journal"
+      case .combined: return "Combined"
+      }
+    }
+  }
+
+  @State private var startDate: Date = Calendar.current.date(byAdding: .day, value: -7, to: Calendar.current.startOfDay(for: Date())) ?? Date()
+  @State private var endDate: Date = Calendar.current.startOfDay(for: Date())
+  @State private var includeTasks = true
+  @State private var includeJournal = true
+  @State private var filter: SummaryFilter = .all
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      generateCard
+
+      VStack(alignment: .leading, spacing: 12) {
+        HStack {
+          Text("Your Summaries")
+            .font(SerenityType.sectionTitle)
+          Spacer()
+          filterPills
+        }
+
+        summariesList
+      }
+    }
+  }
+
+  private var generateCard: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Text("Generate New Summary")
+        .font(SerenityType.sectionTitle)
+
+      HStack(spacing: 10) {
+        presetButton(title: "Last 7 Days", days: 7)
+        presetButton(title: "Last 30 Days", days: 30)
+        presetButton(title: "Last 3 Months", days: 90)
+      }
+
+      HStack(alignment: .top, spacing: 16) {
+        VStack(alignment: .leading, spacing: 6) {
+          Text("Start Date")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+          #if os(macOS)
+          DatePicker("", selection: $startDate, displayedComponents: .date)
+            .labelsHidden()
+            .datePickerStyle(.field)
+          #else
+          DatePicker("", selection: $startDate, displayedComponents: .date)
+            .labelsHidden()
+            .datePickerStyle(.compact)
+          #endif
+        }
+
+        VStack(alignment: .leading, spacing: 6) {
+          Text("End Date")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+          #if os(macOS)
+          DatePicker("", selection: $endDate, displayedComponents: .date)
+            .labelsHidden()
+            .datePickerStyle(.field)
+          #else
+          DatePicker("", selection: $endDate, displayedComponents: .date)
+            .labelsHidden()
+            .datePickerStyle(.compact)
+          #endif
+        }
+
+        Spacer()
+      }
+
+      VStack(alignment: .leading, spacing: 8) {
+        Text("Include")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        HStack(spacing: 8) {
+          includeToggle(title: "Tasks", isOn: $includeTasks)
+          includeToggle(title: "Journal", isOn: $includeJournal)
+        }
+      }
+
+      if !isAIConfigured {
+        aiProviderBanner
+      }
+
+      Button {
+        Task { await generate() }
+      } label: {
+        HStack(spacing: 8) {
+          Image(systemName: "sparkles")
+          Text("Generate Summary")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
+      }
+      .buttonStyle(SerenityPrimaryButtonStyle())
+      .hoverCursor(.pointingHand)
+      .disabled(!isAIConfigured || resolvedSummaryType == nil)
+    }
+    .padding(20)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private var aiProviderBanner: some View {
+    HStack(alignment: .top, spacing: 10) {
+      Image(systemName: "exclamationmark.triangle.fill")
+        .foregroundStyle(.orange)
+      VStack(alignment: .leading, spacing: 2) {
+        Text("AI Provider not configured")
+          .font(SerenityType.bodyMedium)
+        HStack(spacing: 4) {
+          Text("You need to configure an AI provider to use this feature.")
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+          Button("Go to Settings") {
+            appState.setSection(.settings)
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(SerenityPalette.accent)
+          .hoverCursor(.pointingHand)
+        }
+      }
+      Spacer()
+    }
+    .padding(12)
+    .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+    )
+  }
+
+  private var filterPills: some View {
+    HStack(spacing: 6) {
+      ForEach(SummaryFilter.allCases) { option in
+        Button(option.title) {
+          filter = option
+        }
+        .buttonStyle(SerenityPillButtonStyle(selected: filter == option))
+        .hoverCursor(.pointingHand)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var summariesList: some View {
+    let filtered = filteredSummaries
+
+    if filtered.isEmpty {
+      VStack(spacing: 10) {
+        Image(systemName: "sparkles")
+          .font(.system(size: 30, weight: .regular))
+          .foregroundStyle(SerenityPalette.textSecondary.opacity(0.7))
+        Text("No summaries yet")
+          .font(SerenityType.bodyLarge.weight(.medium))
+        Text("Generate your first summary using the form above")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 36)
+      .padding(.horizontal, 20)
+      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(SerenityPalette.border, lineWidth: 1)
+      )
+    } else {
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(filtered) { summary in
+          VStack(alignment: .leading, spacing: 6) {
+            HStack {
+              Text(summary.title)
+                .font(SerenityType.bodyLarge.weight(.medium))
+              Spacer()
+              Text(summary.summaryType.rawValue.capitalized)
+                .font(SerenityType.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(SerenityPalette.innerCardBackground, in: Capsule())
+              Text("\(summary.wordCount) words")
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
+            }
+            Text(summary.content)
+              .lineLimit(3)
+              .font(SerenityType.body)
+              .foregroundStyle(SerenityPalette.textSecondary)
+            HStack {
+              Button("Export") {
+                Task { await appState.exportAISummary(id: summary.id) }
+              }
+              .buttonStyle(SerenitySecondaryButtonStyle())
+              .hoverCursor(.pointingHand)
+
+              Button("Delete", role: .destructive) {
+                Task { await appState.deleteAISummary(id: summary.id) }
+              }
+              .buttonStyle(SerenitySecondaryButtonStyle())
+              .hoverCursor(.pointingHand)
+            }
+          }
+          .padding(14)
+          .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+      }
+      .padding(16)
+      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(SerenityPalette.border, lineWidth: 1)
+      )
+    }
+  }
+
+  private func presetButton(title: String, days: Int) -> some View {
+    Button {
+      let end = Calendar.current.startOfDay(for: Date())
+      let start = Calendar.current.date(byAdding: .day, value: -days, to: end) ?? end
+      startDate = start
+      endDate = end
+    } label: {
+      HStack(spacing: 6) {
+        Image(systemName: "calendar")
+        Text(title)
+      }
+    }
+    .buttonStyle(SerenitySecondaryButtonStyle())
+    .hoverCursor(.pointingHand)
+  }
+
+  private func includeToggle(title: String, isOn: Binding<Bool>) -> some View {
+    Button(title) {
+      isOn.wrappedValue.toggle()
+    }
+    .buttonStyle(SerenityPillButtonStyle(selected: isOn.wrappedValue))
+    .hoverCursor(.pointingHand)
+  }
+
+  private var filteredSummaries: [SummaryEntity] {
+    switch filter {
+    case .all: return appState.aiSummaries
+    case .tasks: return appState.aiSummaries.filter { $0.summaryType == .tasks }
+    case .journal: return appState.aiSummaries.filter { $0.summaryType == .journal }
+    case .combined: return appState.aiSummaries.filter { $0.summaryType == .combined }
+    }
+  }
+
+  private var isAIConfigured: Bool {
+    appState.aiCredentials.contains { $0.enabled }
+  }
+
+  private var resolvedSummaryType: SummaryType? {
+    switch (includeTasks, includeJournal) {
+    case (true, true): return .combined
+    case (true, false): return .tasks
+    case (false, true): return .journal
+    case (false, false): return nil
+    }
+  }
+
+  private func generate() async {
+    guard let type = resolvedSummaryType else { return }
+    await appState.generateAISummary(type: type)
   }
 }
 
