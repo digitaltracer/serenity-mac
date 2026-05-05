@@ -23,6 +23,8 @@ struct SerenityMacApp: App {
           NSApplication.shared.registerForRemoteNotifications()
         }
     }
+    .windowStyle(.hiddenTitleBar)
+    .defaultSize(width: 1280, height: 820)
     .commands {
       CommandGroup(after: .newItem) {
         Button("Global Search") {

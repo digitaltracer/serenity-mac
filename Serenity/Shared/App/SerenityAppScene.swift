@@ -88,25 +88,24 @@ struct SerenityAppScene: View {
         SerenityDetailBackground()
         detailContent
       }
-    }
-    .navigationSplitViewStyle(.balanced)
 #if os(macOS)
-    .toolbar {
-      ToolbarItemGroup(placement: .primaryAction) {
-        TopBarButton(symbol: "magnifyingglass", accessibilityLabel: "Search") {
-          appState.openGlobalSearch()
-        }
-        TopBarButton(symbol: "questionmark.circle", accessibilityLabel: "Help") {
-          appState.openHelpCenter()
-        }
-        TopBarButton(symbol: appState.themePreference.topBarSymbol, accessibilityLabel: "Theme") {
-          cycleThemePreference()
+      .toolbar {
+        ToolbarItemGroup(placement: .primaryAction) {
+          TopBarButton(symbol: "magnifyingglass", accessibilityLabel: "Search") {
+            appState.openGlobalSearch()
+          }
+          TopBarButton(symbol: "questionmark.circle", accessibilityLabel: "Help") {
+            appState.openHelpCenter()
+          }
+          TopBarButton(symbol: appState.themePreference.topBarSymbol, accessibilityLabel: "Theme") {
+            cycleThemePreference()
+          }
         }
       }
-    }
-    .toolbarBackground(SerenityPalette.sidebarHeaderBackground, for: .windowToolbar)
-    .toolbarBackground(.visible, for: .windowToolbar)
+      .toolbarBackground(.hidden, for: .windowToolbar)
 #endif
+    }
+    .navigationSplitViewStyle(.balanced)
   }
 
   @ViewBuilder

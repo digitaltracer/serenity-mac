@@ -55,20 +55,20 @@ enum SerenityUI {
       dark: (0.02, 0.07, 0.18, 1.0)
     )
     static let windowBackgroundDepth = SerenityUI.dynamicColor(
-      light: (0.95, 0.96, 0.98, 1.0),
-      dark: (0.02, 0.07, 0.18, 1.0)
+      light: (0.93, 0.94, 0.97, 1.0),
+      dark: (0.015, 0.055, 0.14, 1.0)
     )
     static let ambientGlow = SerenityUI.dynamicColor(
       light: (0.45, 0.33, 0.92, 0.015),
       dark: (0.45, 0.33, 0.92, 0.09)
     )
     static let sidebarBackground = SerenityUI.dynamicColor(
-      light: (0.94, 0.95, 0.97, 1.0),
-      dark: (0.03, 0.07, 0.16, 1.0)
+      light: (0.93, 0.94, 0.97, 1.0),
+      dark: (0.015, 0.055, 0.14, 1.0)
     )
     static let sidebarHeaderBackground = SerenityUI.dynamicColor(
-      light: (0.95, 0.96, 0.98, 1.0),
-      dark: (0.03, 0.08, 0.18, 1.0)
+      light: (0.93, 0.94, 0.97, 1.0),
+      dark: (0.015, 0.055, 0.14, 1.0)
     )
     static let panelBackground = SerenityUI.dynamicColor(
       light: (0.97, 0.98, 0.99, 1.0),
