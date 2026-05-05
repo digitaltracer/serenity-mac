@@ -3,5 +3,8 @@
 .env
 .env.local
 .env.*.local
+Serenity/Config/*.local.xcconfig
 scripts/release-macos.env
 dist/
+GoogleAuth.local.xcconfig
+GoogleAuth.xcconfig
