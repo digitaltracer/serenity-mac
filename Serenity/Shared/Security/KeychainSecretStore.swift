@@ -23,48 +23,49 @@ protocol SecretStorageBackend {
 }
 
 struct KeychainBackend: SecretStorageBackend {
+  /// When true, items are written with `kSecAttrSynchronizable=true` so they
+  /// ride iCloud Keychain to the user's other devices. Reads always include
+  /// `kSecAttrSynchronizableAny` so legacy non-synced items remain visible.
+  let synchronizable: Bool
+
+  init(synchronizable: Bool = true) {
+    self.synchronizable = synchronizable
+  }
+
   func set(service: String, key: String, data: Data) throws {
-    let baseQuery: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service,
-      kSecAttrAccount as String: key,
-    ]
+    let lookup = baseQuery(service: service, key: key, includeSynchronizableAny: true)
 
-    let status = SecItemCopyMatching(baseQuery as CFDictionary, nil)
+    let status = SecItemCopyMatching(lookup as CFDictionary, nil)
+
     if status == errSecSuccess {
-      let updateStatus = SecItemUpdate(
-        baseQuery as CFDictionary,
-        [kSecValueData as String: data] as CFDictionary
-      )
-      guard updateStatus == errSecSuccess else {
-        throw KeychainSecretStoreError.unexpectedStatus(updateStatus)
+      // Updating sync attributes via SecItemUpdate isn't supported reliably,
+      // so when migrating an existing local item to a synchronizable one we
+      // delete and re-add. Same for any unrelated attribute drift.
+      let deleteStatus = SecItemDelete(lookup as CFDictionary)
+      guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
+        throw KeychainSecretStoreError.unexpectedStatus(deleteStatus)
       }
-      return
+    } else if status != errSecItemNotFound {
+      throw KeychainSecretStoreError.unexpectedStatus(status)
     }
 
-    if status == errSecItemNotFound {
-      var addQuery = baseQuery
-      addQuery[kSecValueData as String] = data
-      addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-
-      let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-      guard addStatus == errSecSuccess else {
-        throw KeychainSecretStoreError.unexpectedStatus(addStatus)
-      }
-      return
+    var addQuery = baseQuery(service: service, key: key, includeSynchronizableAny: false)
+    addQuery[kSecValueData as String] = data
+    addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+    if synchronizable {
+      addQuery[kSecAttrSynchronizable as String] = kCFBooleanTrue
     }
 
-    throw KeychainSecretStoreError.unexpectedStatus(status)
+    let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+    guard addStatus == errSecSuccess else {
+      throw KeychainSecretStoreError.unexpectedStatus(addStatus)
+    }
   }
 
   func get(service: String, key: String) throws -> Data? {
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service,
-      kSecAttrAccount as String: key,
-      kSecReturnData as String: true,
-      kSecMatchLimit as String: kSecMatchLimitOne,
-    ]
+    var query = baseQuery(service: service, key: key, includeSynchronizableAny: true)
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
 
     var result: AnyObject?
     let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -81,12 +82,7 @@ struct KeychainBackend: SecretStorageBackend {
   }
 
   func delete(service: String, key: String) throws {
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service,
-      kSecAttrAccount as String: key,
-    ]
-
+    let query = baseQuery(service: service, key: key, includeSynchronizableAny: true)
     let status = SecItemDelete(query as CFDictionary)
     guard status == errSecSuccess || status == errSecItemNotFound else {
       throw KeychainSecretStoreError.unexpectedStatus(status)
@@ -94,13 +90,9 @@ struct KeychainBackend: SecretStorageBackend {
   }
 
   func contains(service: String, key: String) throws -> Bool {
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service,
-      kSecAttrAccount as String: key,
-      kSecReturnData as String: false,
-      kSecMatchLimit as String: kSecMatchLimitOne,
-    ]
+    var query = baseQuery(service: service, key: key, includeSynchronizableAny: true)
+    query[kSecReturnData as String] = false
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
 
     let status = SecItemCopyMatching(query as CFDictionary, nil)
     if status == errSecSuccess {
@@ -111,13 +103,29 @@ struct KeychainBackend: SecretStorageBackend {
     }
     throw KeychainSecretStoreError.unexpectedStatus(status)
   }
+
+  private func baseQuery(
+    service: String,
+    key: String,
+    includeSynchronizableAny: Bool
+  ) -> [String: Any] {
+    var query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: service,
+      kSecAttrAccount as String: key,
+    ]
+    if includeSynchronizableAny {
+      query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+    }
+    return query
+  }
 }
 
 final class KeychainSecretStore {
   private let service: String
   private let backend: SecretStorageBackend
 
-  init(service: String = "com.serenity.macos", backend: SecretStorageBackend = KeychainBackend()) {
+  init(service: String = "com.digitaltracer.serenity", backend: SecretStorageBackend = KeychainBackend()) {
     self.service = service
     self.backend = backend
   }

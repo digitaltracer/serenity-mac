@@ -1,7 +1,7 @@
 import OSLog
 
 enum AppLogger {
-  private static let logger = Logger(subsystem: "com.serenity.macos", category: "app")
+  private static let logger = Logger(subsystem: "com.digitaltracer.serenity", category: "app")
 
   static func info(_ message: String) {
     logger.info("\(message, privacy: .public)")

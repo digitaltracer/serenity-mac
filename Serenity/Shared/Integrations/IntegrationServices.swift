@@ -53,7 +53,7 @@ final class GoogleIntegrationService {
   private let decoder = JSONDecoder()
 
   init(
-    secretStore: KeychainSecretStore = KeychainSecretStore(service: "com.serenity.macos.integrations"),
+    secretStore: KeychainSecretStore = KeychainSecretStore(service: "com.digitaltracer.serenity.integrations"),
     requestHandler: @escaping IntegrationRequestHandler = URLSessionIntegrationClient.shared
   ) {
     self.secretStore = secretStore
@@ -355,7 +355,7 @@ actor GitHubIntegrationService {
   private let decoder = JSONDecoder()
 
   init(
-    secretStore: KeychainSecretStore = KeychainSecretStore(service: "com.serenity.macos.integrations"),
+    secretStore: KeychainSecretStore = KeychainSecretStore(service: "com.digitaltracer.serenity.integrations"),
     requestHandler: @escaping IntegrationRequestHandler = URLSessionIntegrationClient.shared
   ) {
     self.secretStore = secretStore

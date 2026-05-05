@@ -50,7 +50,7 @@ actor AIWorkflowService {
 
   init(
     sqliteBackendAdapter: SQLiteBackendAdapter,
-    secretStore: KeychainSecretStore = KeychainSecretStore(service: "com.serenity.macos.ai")
+    secretStore: KeychainSecretStore = KeychainSecretStore(service: "com.digitaltracer.serenity.ai")
   ) {
     self.sqliteBackendAdapter = sqliteBackendAdapter
     self.secretStore = secretStore
