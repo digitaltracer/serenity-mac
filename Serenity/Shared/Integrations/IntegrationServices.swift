@@ -1,9 +1,15 @@
 import Foundation
+import GoogleSignIn
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 enum IntegrationServiceError: Error, LocalizedError {
   case missingGoogleConfiguration
   case missingGoogleSession
-  case invalidOAuthCode
+  case missingGooglePresenter
   case invalidResponse
   case unsupportedResponseStatus(Int, String)
   case missingGitHubToken
@@ -11,11 +17,11 @@ enum IntegrationServiceError: Error, LocalizedError {
   var errorDescription: String? {
     switch self {
     case .missingGoogleConfiguration:
-      return "Google OAuth configuration is missing."
+      return "Google Sign-In is not configured. Add GOOGLE_CLIENT_ID, GOOGLE_REVERSED_CLIENT_ID, and the matching URL scheme to the app configuration."
     case .missingGoogleSession:
       return "Google session is missing. Connect Google first."
-    case .invalidOAuthCode:
-      return "OAuth authorization code is invalid."
+    case .missingGooglePresenter:
+      return "Serenity could not find a window or view controller to present Google Sign-In."
     case .invalidResponse:
       return "Integration service returned an invalid response."
     case .unsupportedResponseStatus(let status, let body):
@@ -38,54 +44,26 @@ enum URLSessionIntegrationClient {
   }
 }
 
-actor GoogleIntegrationService {
+@MainActor
+final class GoogleIntegrationService {
   private let secretStore: KeychainSecretStore
   private let requestHandler: IntegrationRequestHandler
   private let sessionKey = "integrations.google.session"
-  private var configuration: GoogleOAuthConfiguration?
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
 
   init(
-    configuration: GoogleOAuthConfiguration? = GoogleOAuthConfiguration.fromEnvironment(),
     secretStore: KeychainSecretStore = KeychainSecretStore(service: "com.serenity.macos.integrations"),
     requestHandler: @escaping IntegrationRequestHandler = URLSessionIntegrationClient.shared
   ) {
-    self.configuration = configuration
     self.secretStore = secretStore
     self.requestHandler = requestHandler
     encoder.dateEncodingStrategy = .iso8601
     decoder.dateDecodingStrategy = .iso8601
   }
 
-  func updateConfiguration(_ configuration: GoogleOAuthConfiguration) {
-    self.configuration = configuration
-  }
-
-  func currentConfiguration() -> GoogleOAuthConfiguration? {
-    configuration
-  }
-
-  func authorizationURL(state: String = UUID().uuidString) throws -> URL {
-    guard let configuration else {
-      throw IntegrationServiceError.missingGoogleConfiguration
-    }
-
-    var components = URLComponents(url: configuration.authBaseURL, resolvingAgainstBaseURL: false)
-    components?.queryItems = [
-      URLQueryItem(name: "client_id", value: configuration.clientID),
-      URLQueryItem(name: "redirect_uri", value: configuration.redirectURI),
-      URLQueryItem(name: "response_type", value: "code"),
-      URLQueryItem(name: "access_type", value: "offline"),
-      URLQueryItem(name: "prompt", value: "consent"),
-      URLQueryItem(name: "scope", value: configuration.scopes.joined(separator: " ")),
-      URLQueryItem(name: "state", value: state),
-    ]
-
-    guard let url = components?.url else {
-      throw IntegrationServiceError.invalidResponse
-    }
-    return url
+  var isConfigured: Bool {
+    GoogleCalendarConfiguration.isConfigured
   }
 
   func connectWithToken(
@@ -93,7 +71,7 @@ actor GoogleIntegrationService {
     refreshToken: String?,
     expiresAt: Date?,
     userEmail: String?
-  ) throws -> GoogleIntegrationSession {
+  ) async throws -> GoogleIntegrationSession {
     let session = GoogleIntegrationSession(
       accessToken: accessToken,
       refreshToken: refreshToken,
@@ -105,54 +83,63 @@ actor GoogleIntegrationService {
     return session
   }
 
-  func exchangeAuthorizationCode(_ code: String) async throws -> GoogleIntegrationSession {
-    let trimmedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmedCode.isEmpty else {
-      throw IntegrationServiceError.invalidOAuthCode
+  func restorePreviousSession() async -> GoogleIntegrationSession? {
+    guard isConfigured else {
+      return try? await currentSession()
     }
-    guard let configuration else {
+
+    configureGoogleSignInIfPossible()
+
+    do {
+      let user = try await GIDSignIn.sharedInstance.restorePreviousSignIn()
+      let session = try makeSession(from: user, preservingRefreshToken: try await currentSession()?.refreshToken)
+      try saveSession(session)
+      return session
+    } catch {
+      try? await disconnect()
+      return nil
+    }
+  }
+
+  func signIn() async throws -> GoogleIntegrationSession {
+    guard isConfigured else {
       throw IntegrationServiceError.missingGoogleConfiguration
     }
 
-    var request = URLRequest(url: configuration.tokenURL)
-    request.httpMethod = "POST"
-    request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+    configureGoogleSignInIfPossible()
 
-    let body = URLQueryItemEncoder.encode([
-      "client_id": configuration.clientID,
-      "client_secret": configuration.clientSecret,
-      "redirect_uri": configuration.redirectURI,
-      "grant_type": "authorization_code",
-      "code": trimmedCode,
-    ])
-    request.httpBody = body.data(using: .utf8)
-
-    let (data, response) = try await requestHandler(request)
-    guard 200..<300 ~= response.statusCode else {
-      throw IntegrationServiceError.unsupportedResponseStatus(response.statusCode, String(data: data, encoding: .utf8) ?? "")
+    #if os(macOS)
+    guard let window = NSApplication.shared.keyWindow ?? NSApplication.shared.windows.first(where: { $0.isVisible }) else {
+      throw IntegrationServiceError.missingGooglePresenter
     }
 
-    let token = try decoder.decode(GoogleTokenResponse.self, from: data)
-    let userEmail: String?
-    do {
-      userEmail = try await fetchGoogleUserEmail(accessToken: token.accessToken)
-    } catch {
-      userEmail = nil
-    }
-
-    let expiresAt = token.expiresIn.map { Date().addingTimeInterval(TimeInterval($0)) }
-    let session = GoogleIntegrationSession(
-      accessToken: token.accessToken,
-      refreshToken: token.refreshToken,
-      expiresAt: expiresAt,
-      userEmail: userEmail,
-      connectedAt: Date()
+    let result = try await GIDSignIn.sharedInstance.signIn(
+      withPresenting: window,
+      hint: nil,
+      additionalScopes: GoogleCalendarConfiguration.requiredScopes
     )
+    let session = try makeSession(from: result.user, preservingRefreshToken: try await currentSession()?.refreshToken)
     try saveSession(session)
     return session
+    #elseif os(iOS)
+    guard let presenter = Self.activePresentingViewController() else {
+      throw IntegrationServiceError.missingGooglePresenter
+    }
+
+    let result = try await GIDSignIn.sharedInstance.signIn(
+      withPresenting: presenter,
+      hint: nil,
+      additionalScopes: GoogleCalendarConfiguration.requiredScopes
+    )
+    let session = try makeSession(from: result.user, preservingRefreshToken: try await currentSession()?.refreshToken)
+    try saveSession(session)
+    return session
+    #else
+    throw IntegrationServiceError.missingGooglePresenter
+    #endif
   }
 
-  func currentSession() throws -> GoogleIntegrationSession? {
+  func currentSession() async throws -> GoogleIntegrationSession? {
     guard let raw = try secretStore.secret(for: sessionKey),
           let data = raw.data(using: .utf8)
     else {
@@ -162,7 +149,17 @@ actor GoogleIntegrationService {
     return try decoder.decode(GoogleIntegrationSession.self, from: data)
   }
 
-  func disconnect() throws {
+  func disconnect() async throws {
+    if GIDSignIn.sharedInstance.currentUser != nil {
+      do {
+        try await GIDSignIn.sharedInstance.disconnect()
+      } catch {
+        GIDSignIn.sharedInstance.signOut()
+      }
+    } else {
+      GIDSignIn.sharedInstance.signOut()
+    }
+
     try secretStore.deleteSecret(for: sessionKey)
   }
 
@@ -171,19 +168,14 @@ actor GoogleIntegrationService {
     existingProjects: [ProjectEntity],
     rangeDays: Int = 7
   ) async throws -> GoogleCalendarSyncPayload {
-    guard let session = try currentSession() else {
-      throw IntegrationServiceError.missingGoogleSession
-    }
-    guard let configuration else {
-      throw IntegrationServiceError.missingGoogleConfiguration
-    }
+    let session = try await activeSession()
 
     let now = Date()
     let endDate = Calendar.current.date(byAdding: .day, value: max(1, rangeDays), to: now) ?? now
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime]
 
-    var components = URLComponents(url: configuration.calendarEventsURL, resolvingAgainstBaseURL: false)
+    var components = URLComponents(url: GoogleCalendarConfiguration.calendarEventsURL, resolvingAgainstBaseURL: false)
     components?.queryItems = [
       URLQueryItem(name: "singleEvents", value: "true"),
       URLQueryItem(name: "orderBy", value: "startTime"),
@@ -266,9 +258,7 @@ actor GoogleIntegrationService {
   }
 
   private func fetchGoogleUserEmail(accessToken: String) async throws -> String? {
-    guard let configuration else { return nil }
-
-    var request = URLRequest(url: configuration.userInfoURL)
+    var request = URLRequest(url: GoogleCalendarConfiguration.userInfoURL)
     request.httpMethod = "GET"
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -281,6 +271,71 @@ actor GoogleIntegrationService {
     let profile = try decoder.decode(GoogleUserInfoResponse.self, from: data)
     return profile.email
   }
+
+  private func activeSession() async throws -> GoogleIntegrationSession {
+    if let currentUser = GIDSignIn.sharedInstance.currentUser {
+      let refreshedUser = try await currentUser.refreshTokensIfNeeded()
+      let session = try makeSession(from: refreshedUser, preservingRefreshToken: try await currentSession()?.refreshToken)
+      try saveSession(session)
+      return session
+    }
+
+    if let restored = await restorePreviousSession() {
+      return restored
+    }
+
+    guard let session = try await currentSession() else {
+      throw IntegrationServiceError.missingGoogleSession
+    }
+    return session
+  }
+
+  private func configureGoogleSignInIfPossible() {
+    guard let clientID = GoogleCalendarConfiguration.clientID else { return }
+    GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
+  }
+
+  private func makeSession(
+    from user: GIDGoogleUser,
+    preservingRefreshToken preservedRefreshToken: String?
+  ) throws -> GoogleIntegrationSession {
+    let accessToken = user.accessToken.tokenString.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !accessToken.isEmpty else {
+      throw IntegrationServiceError.invalidResponse
+    }
+
+    return GoogleIntegrationSession(
+      accessToken: accessToken,
+      refreshToken: user.refreshToken.tokenString.nilIfBlank ?? preservedRefreshToken,
+      expiresAt: user.accessToken.expirationDate,
+      userEmail: user.profile?.email,
+      connectedAt: Date()
+    )
+  }
+
+  #if os(iOS)
+  private static func activePresentingViewController() -> UIViewController? {
+    let foregroundScene = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .first { $0.activationState == .foregroundActive }
+    let root = foregroundScene?.windows.first { $0.isKeyWindow }?.rootViewController
+      ?? foregroundScene?.windows.first?.rootViewController
+    return topViewController(from: root)
+  }
+
+  private static func topViewController(from root: UIViewController?) -> UIViewController? {
+    if let navigation = root as? UINavigationController {
+      return topViewController(from: navigation.visibleViewController)
+    }
+    if let tab = root as? UITabBarController {
+      return topViewController(from: tab.selectedViewController)
+    }
+    if let presented = root?.presentedViewController {
+      return topViewController(from: presented)
+    }
+    return root
+  }
+  #endif
 
   private func saveSession(_ session: GoogleIntegrationSession) throws {
     let data = try encoder.encode(session)
@@ -504,29 +559,6 @@ actor GitHubIntegrationService {
   }
 }
 
-private enum URLQueryItemEncoder {
-  static func encode(_ values: [String: String]) -> String {
-    values
-      .map { key, value in
-        let escapedValue = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
-        return "\(key)=\(escapedValue)"
-      }
-      .joined(separator: "&")
-  }
-}
-
-private struct GoogleTokenResponse: Codable {
-  let accessToken: String
-  let refreshToken: String?
-  let expiresIn: Int?
-
-  enum CodingKeys: String, CodingKey {
-    case accessToken = "access_token"
-    case refreshToken = "refresh_token"
-    case expiresIn = "expires_in"
-  }
-}
-
 private struct GoogleUserInfoResponse: Codable {
   let email: String?
 }
@@ -588,5 +620,12 @@ private struct GitHubIssue: Codable {
     case state
     case htmlURL = "html_url"
     case createdAt = "created_at"
+  }
+}
+
+private extension String {
+  var nilIfBlank: String? {
+    let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 }

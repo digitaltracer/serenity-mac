@@ -20,6 +20,9 @@ struct SerenityAppScene: View {
     .groupBoxStyle(SerenityPanelGroupBoxStyle())
     .tint(SerenityPalette.accent)
     .preferredColorScheme(appState.themePreference.colorScheme)
+    .onOpenURL { url in
+      GoogleCalendarConfiguration.handleSignInURL(url)
+    }
     .overlay(alignment: .top) {
       if let toast = appState.activeToast {
         ToastBanner(message: toast.message)
@@ -1428,206 +1431,166 @@ struct IntegrationsSectionView: View {
           }
           .buttonStyle(SerenityPrimaryButtonStyle())
           .hoverCursor(.pointingHand)
+          .disabled(githubToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+      }
 
-          if !appState.githubIntegrationState.tokens.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-              ForEach(appState.githubIntegrationState.tokens) { token in
-                HStack {
-                  VStack(alignment: .leading, spacing: 2) {
-                    Text(token.displayName)
-                    Text("@\(token.username) • \(token.maskedToken)")
-                      .font(.caption)
-                      .foregroundStyle(.secondary)
+      if !appState.githubIntegrationState.tokens.isEmpty {
+        Divider().overlay(SerenityPalette.thinBorder)
+
+        VStack(alignment: .leading, spacing: 8) {
+          ForEach(appState.githubIntegrationState.tokens) { token in
+            HStack {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(token.displayName)
+                  .font(SerenityType.bodyMedium)
+                Text("@\(token.username) • \(token.maskedToken)")
+                  .font(SerenityType.caption)
+                  .foregroundStyle(SerenityPalette.textSecondary)
+              }
+
+              Spacer()
+
+              Toggle("Active", isOn: Binding(
+                get: { token.isActive },
+                set: { _ in
+                  Task {
+                    await appState.toggleGitHubIntegrationToken(id: token.id)
                   }
-
-                  Spacer()
-
-                  Toggle("Active", isOn: Binding(
-                    get: { token.isActive },
-                    set: { _ in
-                      Task {
-                        await appState.toggleGitHubIntegrationToken(id: token.id)
-                      }
-                    }
-                  ))
-                  .toggleStyle(.switch)
-                  .labelsHidden()
-
-                  Button("Remove", role: .destructive) {
-                    Task {
-                      await appState.removeGitHubIntegrationToken(id: token.id)
-                    }
-                  }
-                  .buttonStyle(.borderless)
-          .hoverCursor(.pointingHand)
                 }
-                .padding(8)
-                .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8))
-              }
-            }
-          }
-        }
-        .padding(.top, 8)
-      }
+              ))
+              .toggleStyle(.switch)
+              .labelsHidden()
 
-      GroupBox("Sync Controls and Diagnostics") {
-        VStack(alignment: .leading, spacing: 10) {
-          HStack {
-            Button("Refresh Diagnostics") {
-              Task {
-                await appState.refreshIntegrationDiagnostics()
-              }
-            }
-            .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-          }
-
-          if appState.integrationDiagnosticsLines.isEmpty {
-            Text("No integration diagnostics available.")
-              .foregroundStyle(.secondary)
-          } else {
-            ForEach(appState.integrationDiagnosticsLines, id: \.self) { line in
-              Text(line)
-                .font(.caption)
-                .textSelection(.enabled)
-            }
-          }
-        }
-        .padding(.top, 8)
-      }
-
-      GroupBox("Cloud Sync Hardening") {
-        VStack(alignment: .leading, spacing: 10) {
-          Picker("Conflict policy", selection: Binding(
-            get: { appState.cloudSyncPolicy },
-            set: { policy in
-              appState.cloudSyncPolicy = policy
-              Task {
-                await appState.refreshCloudSyncDiagnostics()
-              }
-            }
-          )) {
-            ForEach([CloudSyncResolutionPolicy.deferConflicts, .preferNewest, .preferLocal, .preferRemote], id: \.rawValue) { policy in
-              Text(policy.rawValue).tag(policy)
-            }
-          }
-          .frame(maxWidth: 240)
-
-          HStack {
-            Button("Run Full Entity Sync") {
-              Task {
-                await appState.runCloudSync()
-              }
-            }
-            .buttonStyle(SerenityPrimaryButtonStyle())
-          .hoverCursor(.pointingHand)
-
-            switch appState.cloudSyncState {
-            case .idle:
-              EmptyView()
-            case .syncing:
-              Label("Syncing...", systemImage: "arrow.triangle.2.circlepath")
-                .font(.caption)
-            case .succeeded(let message):
-              Text(message)
-                .font(.caption)
-                .foregroundStyle(.green)
-            case .failed(let message):
-              Text(message)
-                .font(.caption)
-                .foregroundStyle(.red)
-            }
-          }
-
-          if appState.cloudSyncConflicts.isEmpty {
-            Text("No unresolved conflicts.")
-              .foregroundStyle(.secondary)
-          } else {
-            ForEach(appState.cloudSyncConflicts) { conflict in
-              VStack(alignment: .leading, spacing: 6) {
-                Text("\(conflict.entityType.rawValue.capitalized): \(conflict.summary)")
-                  .font(.subheadline)
-                Text("Local: \(conflict.localUpdatedAt.formatted()) | Remote: \(conflict.remoteUpdatedAt.formatted())")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-
-                HStack {
-                  Button("Use Local") {
-                    Task {
-                      await appState.resolveCloudSyncConflict(conflict, policy: .preferLocal)
-                    }
-                  }
-                  .buttonStyle(.bordered)
-          .hoverCursor(.pointingHand)
-
-                  Button("Use Remote") {
-                    Task {
-                      await appState.resolveCloudSyncConflict(conflict, policy: .preferRemote)
-                    }
-                  }
-                  .buttonStyle(.bordered)
-          .hoverCursor(.pointingHand)
+              Button("Remove", role: .destructive) {
+                Task {
+                  await appState.removeGitHubIntegrationToken(id: token.id)
                 }
               }
-              .padding(8)
-              .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8))
+              .buttonStyle(.borderless)
+              .foregroundStyle(Color.red.opacity(0.85))
+              .hoverCursor(.pointingHand)
             }
-          }
-
-          ForEach(appState.cloudSyncDiagnostics, id: \.self) { line in
-            Text(line)
-              .font(.caption)
-              .foregroundStyle(.secondary)
+            .padding(12)
+            .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
           }
         }
-        .padding(.top, 8)
       }
     }
-  }
-
-  private func statusBadge(title: String, active: Bool) -> some View {
-    HStack(spacing: 6) {
-      Circle()
-        .fill(active ? Color.green : SerenityPalette.textSecondary.opacity(0.6))
-        .frame(width: 8, height: 8)
-      Text(title)
-        .font(.caption)
-    }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 6)
-    .background(SerenityPalette.innerCardBackground, in: Capsule())
-    .overlay(Capsule().stroke(SerenityPalette.thinBorder, lineWidth: 1))
-  }
-
-  private func providerSummaryRow(title: String, detail: String, active: Bool) -> some View {
-    HStack {
-      VStack(alignment: .leading, spacing: 3) {
-        HStack(spacing: 8) {
-          Text(title)
-            .font(SerenityType.sectionTitle)
-          Text(active ? "Connected" : "Disconnected")
-            .font(.caption)
-            .foregroundStyle(active ? .green : SerenityPalette.textSecondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background((active ? Color.green : SerenityPalette.textSecondary).opacity(0.15), in: Capsule())
-        }
-
-        Text(detail)
-          .font(SerenityType.body)
-          .foregroundStyle(SerenityPalette.textSecondary)
-      }
-
-      Spacer()
-    }
-    .padding(12)
-    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .padding(16)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     .overlay(
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
     )
   }
+
+  @MainActor
+  private func connectGoogle() async {
+    guard isGoogleConfigured else {
+      appState.showError(
+        title: "Google is not configured",
+        message: "Set GOOGLE_CLIENT_ID, GOOGLE_REVERSED_CLIENT_ID, and the matching URL scheme in the app build settings."
+      )
+      return
+    }
+
+    isConnectingGoogle = true
+    defer { isConnectingGoogle = false }
+
+    await appState.connectGoogleIntegration()
+  }
+
+  private var cloudSyncHardeningCard: some View {
+    GroupBox("Cloud Sync Hardening") {
+      VStack(alignment: .leading, spacing: 10) {
+        Picker("Conflict policy", selection: Binding(
+          get: { appState.cloudSyncPolicy },
+          set: { policy in
+            appState.cloudSyncPolicy = policy
+            Task {
+              await appState.refreshCloudSyncDiagnostics()
+            }
+          }
+        )) {
+          ForEach([CloudSyncResolutionPolicy.deferConflicts, .preferNewest, .preferLocal, .preferRemote], id: \.rawValue) { policy in
+            Text(policy.rawValue).tag(policy)
+          }
+        }
+        .frame(maxWidth: 240)
+
+        HStack {
+          Button("Run Full Entity Sync") {
+            Task {
+              await appState.runCloudSync()
+            }
+          }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .hoverCursor(.pointingHand)
+
+          switch appState.cloudSyncState {
+          case .idle:
+            EmptyView()
+          case .syncing:
+            Label("Syncing...", systemImage: "arrow.triangle.2.circlepath")
+              .font(.caption)
+          case .succeeded(let message):
+            Text(message)
+              .font(.caption)
+              .foregroundStyle(.green)
+          case .failed(let message):
+            Text(message)
+              .font(.caption)
+              .foregroundStyle(.red)
+          }
+        }
+
+        if appState.cloudSyncConflicts.isEmpty {
+          Text("No unresolved conflicts.")
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(appState.cloudSyncConflicts) { conflict in
+            VStack(alignment: .leading, spacing: 6) {
+              Text("\(conflict.entityType.rawValue.capitalized): \(conflict.summary)")
+                .font(.subheadline)
+              Text("Local: \(conflict.localUpdatedAt.formatted()) | Remote: \(conflict.remoteUpdatedAt.formatted())")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+              HStack {
+                Button("Use Local") {
+                  Task {
+                    await appState.resolveCloudSyncConflict(conflict, policy: .preferLocal)
+                  }
+                }
+                .buttonStyle(.bordered)
+                .hoverCursor(.pointingHand)
+
+                Button("Use Remote") {
+                  Task {
+                    await appState.resolveCloudSyncConflict(conflict, policy: .preferRemote)
+                  }
+                }
+                .buttonStyle(.bordered)
+                .hoverCursor(.pointingHand)
+              }
+            }
+            .padding(8)
+            .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8))
+          }
+        }
+
+        ForEach(appState.cloudSyncDiagnostics, id: \.self) { line in
+          Text(line)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
+      .padding(.top, 8)
+    }
+  }
 }
+
 
 private struct ActionHubSectionView: View {
   @EnvironmentObject private var appState: AppState

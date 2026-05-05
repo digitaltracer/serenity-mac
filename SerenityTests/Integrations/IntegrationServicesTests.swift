@@ -1,40 +1,31 @@
 import XCTest
 @testable import SerenityMac
 
+@MainActor
 final class IntegrationServicesTests: XCTestCase {
-  func testGoogleAuthorizationURLIncludesExpectedParameters() async throws {
+  func testGoogleTokenConnectAndSessionRoundTrip() async throws {
     let backend = InMemorySecretStorageBackend()
     let store = KeychainSecretStore(service: "test.integrations", backend: backend)
-    let configuration = GoogleOAuthConfiguration(
-      clientID: "client-id",
-      clientSecret: "client-secret",
-      redirectURI: "http://localhost:8080/oauth/callback",
-      scopes: [
-        "https://www.googleapis.com/auth/calendar.readonly",
-        "https://www.googleapis.com/auth/userinfo.email",
-      ],
-      authBaseURL: URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!,
-      tokenURL: URL(string: "https://oauth2.googleapis.com/token")!,
-      userInfoURL: URL(string: "https://www.googleapis.com/oauth2/v2/userinfo")!,
-      calendarEventsURL: URL(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events")!
-    )
 
     let service = GoogleIntegrationService(
-      configuration: configuration,
       secretStore: store,
       requestHandler: { _ in throw IntegrationServiceError.invalidResponse }
     )
 
-    let url = try await service.authorizationURL(state: "xyz")
-    let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
-    let queryItems = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+    let expiresAt = Date(timeIntervalSince1970: 1_777_777_777)
+    _ = try await service.connectWithToken(
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      expiresAt: expiresAt,
+      userEmail: "user@example.com"
+    )
 
-    XCTAssertEqual(components.host, "accounts.google.com")
-    XCTAssertEqual(queryItems["client_id"], "client-id")
-    XCTAssertEqual(queryItems["redirect_uri"], "http://localhost:8080/oauth/callback")
-    XCTAssertEqual(queryItems["response_type"], "code")
-    XCTAssertEqual(queryItems["state"], "xyz")
-    XCTAssertTrue((queryItems["scope"] ?? "").contains("calendar.readonly"))
+    let storedSession = try await service.currentSession()
+    let session = try XCTUnwrap(storedSession)
+    XCTAssertEqual(session.accessToken, "access-token")
+    XCTAssertEqual(session.refreshToken, "refresh-token")
+    XCTAssertEqual(session.expiresAt, expiresAt)
+    XCTAssertEqual(session.userEmail, "user@example.com")
   }
 
   func testGitHubTokenAddAndListRoundTrip() async throws {
@@ -68,19 +59,7 @@ final class IntegrationServicesTests: XCTestCase {
     let backend = InMemorySecretStorageBackend()
     let store = KeychainSecretStore(service: "test.integrations", backend: backend)
 
-    let configuration = GoogleOAuthConfiguration(
-      clientID: "client-id",
-      clientSecret: "client-secret",
-      redirectURI: "http://localhost:8080/oauth/callback",
-      scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
-      authBaseURL: URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!,
-      tokenURL: URL(string: "https://oauth2.googleapis.com/token")!,
-      userInfoURL: URL(string: "https://www.googleapis.com/oauth2/v2/userinfo")!,
-      calendarEventsURL: URL(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events")!
-    )
-
     let service = GoogleIntegrationService(
-      configuration: configuration,
       secretStore: store,
       requestHandler: { request in
         let payload = #"""
@@ -166,4 +145,3 @@ private final class InMemorySecretStorageBackend: SecretStorageBackend {
     values[namespacedKey(service: service, key: key)] != nil
   }
 }
-

@@ -40,6 +40,18 @@ Use this for the fast macOS build and test loop.
 - Test: `swift test`
 - Run: `swift run SerenityMac`
 
+### Environment variables
+
+Copy `.env.example` to `.env` in the repo root and fill in values for the
+integrations you want active. The app loads `.env` at startup (dev only — a
+shipped `.app` launched from Finder will not). Shell variables always take
+precedence over `.env`. See `.env.example` for the full list.
+
+Google Calendar uses native Google Sign-In on macOS and iOS. Add the non-secret
+`GOOGLE_CLIENT_ID` and `GOOGLE_REVERSED_CLIENT_ID` values to the Xcode build
+settings (or an xcconfig), and make sure the reversed client ID is present as a
+URL scheme in the platform Info.plist.
+
 ### Xcode workflow
 
 Open `Serenity.xcodeproj` in Xcode for native app development.

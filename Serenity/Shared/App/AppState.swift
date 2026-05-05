@@ -159,7 +159,7 @@ final class AppState: ObservableObject {
   @Published var githubIntegrationState: GitHubIntegrationState = .empty
   @Published var integrationSyncInProgress = false
   @Published var integrationDiagnosticsLines: [String] = []
-  @Published var googleOAuthAuthorizationURL: String?
+  @Published var googleCalendarConfigured = false
   @Published var aiModelCatalog: [AICredentialProvider: [String]] = [:]
   @Published var aiCredentials: [AICredentialEntity] = []
   @Published var aiSettings: AISettingsEntity = .defaultValue
@@ -207,7 +207,7 @@ final class AppState: ObservableObject {
     biometricAuthService: BiometricAuthService = BiometricAuthService(),
     securityAuditService: SecurityAuditService? = nil,
     sensitiveOperationRateGuard: SensitiveOperationRateGuard = SensitiveOperationRateGuard(),
-    googleIntegrationService: GoogleIntegrationService = GoogleIntegrationService(),
+    googleIntegrationService: GoogleIntegrationService? = nil,
     githubIntegrationService: GitHubIntegrationService = GitHubIntegrationService(),
     aiWorkflowService: AIWorkflowService? = nil
   ) {
@@ -221,7 +221,7 @@ final class AppState: ObservableObject {
     self.biometricAuthService = biometricAuthService
     self.securityAuditService = securityAuditService ?? SecurityAuditService(sqliteBackendAdapter: sqliteBackendAdapter)
     self.sensitiveOperationRateGuard = sensitiveOperationRateGuard
-    self.googleIntegrationService = googleIntegrationService
+    self.googleIntegrationService = googleIntegrationService ?? GoogleIntegrationService()
     self.githubIntegrationService = githubIntegrationService
     self.aiWorkflowService = aiWorkflowService ?? AIWorkflowService(sqliteBackendAdapter: sqliteBackendAdapter)
     self.cloudSyncEngine = serenityCloudAdapter.map { CloudSyncEngine(sqliteBackendAdapter: sqliteBackendAdapter, remoteBackend: $0) }
@@ -535,11 +535,6 @@ final class AppState: ObservableObject {
     )
   }
 
-  func unlockAppWithConfiguredPassword() async {
-    let password = ProcessInfo.processInfo.environment["SERENITY_LOCAL_LOCK_PASSWORD"] ?? ""
-    await unlockAppWithPassword(password)
-  }
-
   func unlockAppWithPassword(_ password: String) async {
     guard await assertRateLimit(for: .passwordUnlock, operationName: "Password unlock") else { return }
 
@@ -831,8 +826,12 @@ final class AppState: ObservableObject {
   }
 
   func bootstrapIntegrations() async {
+    googleCalendarConfigured = googleIntegrationService.isConfigured
+
     do {
-      if let googleSession = try await googleIntegrationService.currentSession() {
+      let restoredSession = await googleIntegrationService.restorePreviousSession()
+      let storedSession = try await googleIntegrationService.currentSession()
+      if let googleSession = restoredSession ?? storedSession {
         googleIntegrationState.connected = true
         googleIntegrationState.userEmail = googleSession.userEmail
         googleIntegrationState.expiresAt = googleSession.expiresAt
@@ -850,50 +849,13 @@ final class AppState: ObservableObject {
       githubIntegrationState.lastError = error.localizedDescription
     }
 
-    do {
-      googleOAuthAuthorizationURL = try await googleIntegrationService.authorizationURL().absoluteString
-    } catch {
-      googleOAuthAuthorizationURL = nil
-    }
-
     await refreshIntegrationDiagnostics()
     await refreshCloudSyncDiagnostics()
   }
 
-  func configureGoogleOAuth(
-    clientID: String,
-    clientSecret: String,
-    redirectURI: String,
-    scopesCSV: String
-  ) async {
-    let scopes = scopesCSV
-      .split(separator: ",")
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-    let configuration = GoogleOAuthConfiguration(
-      clientID: clientID.trimmingCharacters(in: .whitespacesAndNewlines),
-      clientSecret: clientSecret.trimmingCharacters(in: .whitespacesAndNewlines),
-      redirectURI: redirectURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        ? "http://localhost:8080/oauth/callback"
-        : redirectURI.trimmingCharacters(in: .whitespacesAndNewlines),
-      scopes: scopes.isEmpty ? ["https://www.googleapis.com/auth/calendar.readonly"] : scopes,
-      authBaseURL: URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!,
-      tokenURL: URL(string: "https://oauth2.googleapis.com/token")!,
-      userInfoURL: URL(string: "https://www.googleapis.com/oauth2/v2/userinfo")!,
-      calendarEventsURL: URL(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events")!
-    )
-    await googleIntegrationService.updateConfiguration(configuration)
+  func connectGoogleIntegration() async {
     do {
-      googleOAuthAuthorizationURL = try await googleIntegrationService.authorizationURL().absoluteString
-      showToast("Google OAuth configuration updated")
-    } catch {
-      showError(title: "Failed to configure Google OAuth", message: error.localizedDescription)
-    }
-  }
-
-  func connectGoogleWithAuthorizationCode(_ code: String) async {
-    do {
-      let session = try await googleIntegrationService.exchangeAuthorizationCode(code)
+      let session = try await googleIntegrationService.signIn()
       googleIntegrationState.connected = true
       googleIntegrationState.userEmail = session.userEmail
       googleIntegrationState.expiresAt = session.expiresAt
@@ -902,7 +864,7 @@ final class AppState: ObservableObject {
       await refreshIntegrationDiagnostics()
     } catch {
       googleIntegrationState.lastError = error.localizedDescription
-      showError(title: "Google OAuth failed", message: error.localizedDescription)
+      showError(title: "Google sign-in failed", message: error.localizedDescription)
       await refreshIntegrationDiagnostics()
     }
   }
@@ -1068,6 +1030,7 @@ final class AppState: ObservableObject {
 
   func refreshIntegrationDiagnostics() async {
     var lines: [String] = []
+    lines.append("Google configured: \(googleCalendarConfigured ? "yes" : "no")")
     lines.append("Google connected: \(googleIntegrationState.connected ? "yes" : "no")")
     lines.append("Google sync enabled: \(googleIntegrationState.syncEnabled ? "yes" : "no")")
     if let userEmail = googleIntegrationState.userEmail {

@@ -2,7 +2,12 @@ import SwiftUI
 
 @main
 struct SerenityMacApp: App {
-  @StateObject private var appState = AppState()
+  @StateObject private var appState: AppState
+
+  init() {
+    DotEnv.loadIfPresent()
+    _appState = StateObject(wrappedValue: AppState())
+  }
 
   var body: some Scene {
     WindowGroup {

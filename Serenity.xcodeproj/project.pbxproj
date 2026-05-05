@@ -7,117 +7,124 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A00000000000000000000076 = {isa = PBXBuildFile; productRef = A00000000000000000000072; };
-		A00000000000000000000077 = {isa = PBXBuildFile; productRef = A00000000000000000000073; };
-		A00000000000000000000078 = {isa = PBXBuildFile; productRef = A00000000000000000000074; };
-		A00000000000000000000079 = {isa = PBXBuildFile; productRef = A00000000000000000000075; };
-		A00000000000000000000080 = {isa = PBXBuildFile; fileRef = A00000000000000000000020; };
-		A00000000000000000000081 = {isa = PBXBuildFile; fileRef = A00000000000000000000021; };
-		A00000000000000000000082 = {isa = PBXBuildFile; fileRef = A00000000000000000000022; };
-		A00000000000000000000083 = {isa = PBXBuildFile; fileRef = A00000000000000000000023; };
-		A00000000000000000000084 = {isa = PBXBuildFile; fileRef = A00000000000000000000024; };
-		A00000000000000000000085 = {isa = PBXBuildFile; fileRef = A00000000000000000000025; };
-		A00000000000000000000086 = {isa = PBXBuildFile; fileRef = A00000000000000000000026; };
-		A00000000000000000000087 = {isa = PBXBuildFile; fileRef = A00000000000000000000027; };
-		A00000000000000000000088 = {isa = PBXBuildFile; fileRef = A00000000000000000000028; };
-		A00000000000000000000089 = {isa = PBXBuildFile; fileRef = A00000000000000000000029; };
-		A0000000000000000000008A = {isa = PBXBuildFile; fileRef = A0000000000000000000002A; };
-		A0000000000000000000008B = {isa = PBXBuildFile; fileRef = A0000000000000000000002B; };
-		A0000000000000000000008C = {isa = PBXBuildFile; fileRef = A0000000000000000000002C; };
-		A0000000000000000000008D = {isa = PBXBuildFile; fileRef = A0000000000000000000002D; };
-		A0000000000000000000008E = {isa = PBXBuildFile; fileRef = A0000000000000000000002E; };
-		A0000000000000000000008F = {isa = PBXBuildFile; fileRef = A0000000000000000000002F; };
-		A00000000000000000000090 = {isa = PBXBuildFile; fileRef = A00000000000000000000030; };
-		A00000000000000000000091 = {isa = PBXBuildFile; fileRef = A00000000000000000000031; };
-		A00000000000000000000092 = {isa = PBXBuildFile; fileRef = A00000000000000000000032; };
-		A00000000000000000000093 = {isa = PBXBuildFile; fileRef = A00000000000000000000033; };
-		A00000000000000000000094 = {isa = PBXBuildFile; fileRef = A00000000000000000000034; };
-		A00000000000000000000095 = {isa = PBXBuildFile; fileRef = A00000000000000000000035; };
-		A00000000000000000000096 = {isa = PBXBuildFile; fileRef = A00000000000000000000036; };
-		A00000000000000000000097 = {isa = PBXBuildFile; fileRef = A00000000000000000000037; };
-		A00000000000000000000098 = {isa = PBXBuildFile; fileRef = A00000000000000000000038; };
-		A00000000000000000000099 = {isa = PBXBuildFile; fileRef = A00000000000000000000039; };
-		A0000000000000000000009A = {isa = PBXBuildFile; fileRef = A0000000000000000000003A; };
-		A000000000000000000000A0 = {isa = PBXBuildFile; fileRef = A00000000000000000000020; };
-		A000000000000000000000A1 = {isa = PBXBuildFile; fileRef = A00000000000000000000021; };
-		A000000000000000000000A2 = {isa = PBXBuildFile; fileRef = A00000000000000000000022; };
-		A000000000000000000000A3 = {isa = PBXBuildFile; fileRef = A00000000000000000000023; };
-		A000000000000000000000A4 = {isa = PBXBuildFile; fileRef = A00000000000000000000024; };
-		A000000000000000000000A5 = {isa = PBXBuildFile; fileRef = A00000000000000000000025; };
-		A000000000000000000000A6 = {isa = PBXBuildFile; fileRef = A00000000000000000000026; };
-		A000000000000000000000A7 = {isa = PBXBuildFile; fileRef = A00000000000000000000027; };
-		A000000000000000000000A8 = {isa = PBXBuildFile; fileRef = A00000000000000000000028; };
-		A000000000000000000000A9 = {isa = PBXBuildFile; fileRef = A00000000000000000000029; };
-		A000000000000000000000AA = {isa = PBXBuildFile; fileRef = A0000000000000000000002A; };
-		A000000000000000000000AB = {isa = PBXBuildFile; fileRef = A0000000000000000000002B; };
-		A000000000000000000000AC = {isa = PBXBuildFile; fileRef = A0000000000000000000002C; };
-		A000000000000000000000AD = {isa = PBXBuildFile; fileRef = A0000000000000000000002D; };
-		A000000000000000000000AE = {isa = PBXBuildFile; fileRef = A0000000000000000000002E; };
-		A000000000000000000000AF = {isa = PBXBuildFile; fileRef = A0000000000000000000002F; };
-		A000000000000000000000B0 = {isa = PBXBuildFile; fileRef = A00000000000000000000030; };
-		A000000000000000000000B1 = {isa = PBXBuildFile; fileRef = A00000000000000000000031; };
-		A000000000000000000000B2 = {isa = PBXBuildFile; fileRef = A00000000000000000000032; };
-		A000000000000000000000B3 = {isa = PBXBuildFile; fileRef = A00000000000000000000033; };
-		A000000000000000000000B4 = {isa = PBXBuildFile; fileRef = A00000000000000000000034; };
-		A000000000000000000000B5 = {isa = PBXBuildFile; fileRef = A00000000000000000000035; };
-		A000000000000000000000B6 = {isa = PBXBuildFile; fileRef = A00000000000000000000036; };
-		A000000000000000000000B7 = {isa = PBXBuildFile; fileRef = A00000000000000000000037; };
-		A000000000000000000000B8 = {isa = PBXBuildFile; fileRef = A00000000000000000000038; };
-		A000000000000000000000B9 = {isa = PBXBuildFile; fileRef = A00000000000000000000039; };
-		A000000000000000000000BA = {isa = PBXBuildFile; fileRef = A0000000000000000000003B; };
+		A00000000000000000000076 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000072 /* GRDB */; };
+		A00000000000000000000077 /* PostgresNIO in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000073 /* PostgresNIO */; };
+		A00000000000000000000078 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000074 /* GRDB */; };
+		A00000000000000000000079 /* PostgresNIO in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000075 /* PostgresNIO */; };
+		A00000000000000000000080 /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000020 /* AppLogger.swift */; };
+		A00000000000000000000081 /* AppSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000021 /* AppSection.swift */; };
+		A00000000000000000000082 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000022 /* AppState.swift */; };
+		A00000000000000000000083 /* CoreWorkflowModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000023 /* CoreWorkflowModels.swift */; };
+		A00000000000000000000084 /* SerenityAppScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000024 /* SerenityAppScene.swift */; };
+		A00000000000000000000085 /* AIWorkflowService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000025 /* AIWorkflowService.swift */; };
+		A00000000000000000000086 /* AuthSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000026 /* AuthSessionManager.swift */; };
+		A00000000000000000000087 /* AIEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000027 /* AIEntities.swift */; };
+		A00000000000000000000088 /* AIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000028 /* AIRepositories.swift */; };
+		A00000000000000000000089 /* BackendConfigurationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000029 /* BackendConfigurationStore.swift */; };
+		A0000000000000000000008A /* BackendProfiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002A /* BackendProfiles.swift */; };
+		A0000000000000000000008B /* CloudSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002B /* CloudSyncEngine.swift */; };
+		A0000000000000000000008C /* CoreEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002C /* CoreEntities.swift */; };
+		A0000000000000000000008D /* CoreRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002D /* CoreRepositories.swift */; };
+		A0000000000000000000008E /* DatabaseMigrationRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002E /* DatabaseMigrationRunner.swift */; };
+		A0000000000000000000008F /* ExternalPostgresAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002F /* ExternalPostgresAdapter.swift */; };
+		A00000000000000000000090 /* SQLiteBackendAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000030 /* SQLiteBackendAdapter.swift */; };
+		A00000000000000000000091 /* SerenityCloudAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* SerenityCloudAdapter.swift */; };
+		A00000000000000000000092 /* IntegrationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* IntegrationModels.swift */; };
+		A00000000000000000000093 /* IntegrationServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000033 /* IntegrationServices.swift */; };
+		A00000000000000000000094 /* BiometricAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000034 /* BiometricAuthService.swift */; };
+		A00000000000000000000095 /* KeychainSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000035 /* KeychainSecretStore.swift */; };
+		A00000000000000000000096 /* LocalLockManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000036 /* LocalLockManager.swift */; };
+		A00000000000000000000097 /* RateGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000037 /* RateGuard.swift */; };
+		A00000000000000000000098 /* SecurityAuditRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000038 /* SecurityAuditRepository.swift */; };
+		A00000000000000000000099 /* SerenityDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000039 /* SerenityDesignSystem.swift */; };
+		A0000000000000000000009A /* SerenityMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000003A /* SerenityMacApp.swift */; };
+		A0000000000000000000009B /* DotEnv.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000040 /* DotEnv.swift */; };
+		A000000000000000000000A0 /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000020 /* AppLogger.swift */; };
+		A000000000000000000000A1 /* AppSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000021 /* AppSection.swift */; };
+		A000000000000000000000A2 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000022 /* AppState.swift */; };
+		A000000000000000000000A3 /* CoreWorkflowModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000023 /* CoreWorkflowModels.swift */; };
+		A000000000000000000000A4 /* SerenityAppScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000024 /* SerenityAppScene.swift */; };
+		A000000000000000000000A5 /* AIWorkflowService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000025 /* AIWorkflowService.swift */; };
+		A000000000000000000000A6 /* AuthSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000026 /* AuthSessionManager.swift */; };
+		A000000000000000000000A7 /* AIEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000027 /* AIEntities.swift */; };
+		A000000000000000000000A8 /* AIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000028 /* AIRepositories.swift */; };
+		A000000000000000000000A9 /* BackendConfigurationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000029 /* BackendConfigurationStore.swift */; };
+		A000000000000000000000AA /* BackendProfiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002A /* BackendProfiles.swift */; };
+		A000000000000000000000AB /* CloudSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002B /* CloudSyncEngine.swift */; };
+		A000000000000000000000AC /* CoreEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002C /* CoreEntities.swift */; };
+		A000000000000000000000AD /* CoreRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002D /* CoreRepositories.swift */; };
+		A000000000000000000000AE /* DatabaseMigrationRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002E /* DatabaseMigrationRunner.swift */; };
+		A000000000000000000000AF /* ExternalPostgresAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002F /* ExternalPostgresAdapter.swift */; };
+		A000000000000000000000B0 /* SQLiteBackendAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000030 /* SQLiteBackendAdapter.swift */; };
+		A000000000000000000000B1 /* SerenityCloudAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* SerenityCloudAdapter.swift */; };
+		A000000000000000000000B2 /* IntegrationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* IntegrationModels.swift */; };
+		A000000000000000000000B3 /* IntegrationServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000033 /* IntegrationServices.swift */; };
+		A000000000000000000000B4 /* BiometricAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000034 /* BiometricAuthService.swift */; };
+		A000000000000000000000B5 /* KeychainSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000035 /* KeychainSecretStore.swift */; };
+		A000000000000000000000B6 /* LocalLockManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000036 /* LocalLockManager.swift */; };
+		A000000000000000000000B7 /* RateGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000037 /* RateGuard.swift */; };
+		A000000000000000000000B8 /* SecurityAuditRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000038 /* SecurityAuditRepository.swift */; };
+		A000000000000000000000B9 /* SerenityDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000039 /* SerenityDesignSystem.swift */; };
+		A000000000000000000000BA /* SerenityIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000003B /* SerenityIOSApp.swift */; };
+		A000000000000000000000BB /* DotEnv.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000040 /* DotEnv.swift */; };
+		A000000000000000000000C0 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = A000000000000000000000C2 /* GoogleSignIn */; };
+		A000000000000000000000C1 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = A000000000000000000000C3 /* GoogleSignIn */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A00000000000000000000020 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
-		A00000000000000000000021 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSection.swift; sourceTree = "<group>"; };
-		A00000000000000000000022 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
-		A00000000000000000000023 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreWorkflowModels.swift; sourceTree = "<group>"; };
-		A00000000000000000000024 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityAppScene.swift; sourceTree = "<group>"; };
-		A00000000000000000000025 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIWorkflowService.swift; sourceTree = "<group>"; };
-		A00000000000000000000026 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionManager.swift; sourceTree = "<group>"; };
-		A00000000000000000000027 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIEntities.swift; sourceTree = "<group>"; };
-		A00000000000000000000028 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRepositories.swift; sourceTree = "<group>"; };
-		A00000000000000000000029 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendConfigurationStore.swift; sourceTree = "<group>"; };
-		A0000000000000000000002A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendProfiles.swift; sourceTree = "<group>"; };
-		A0000000000000000000002B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncEngine.swift; sourceTree = "<group>"; };
-		A0000000000000000000002C = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreEntities.swift; sourceTree = "<group>"; };
-		A0000000000000000000002D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreRepositories.swift; sourceTree = "<group>"; };
-		A0000000000000000000002E = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseMigrationRunner.swift; sourceTree = "<group>"; };
-		A0000000000000000000002F = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPostgresAdapter.swift; sourceTree = "<group>"; };
-		A00000000000000000000030 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteBackendAdapter.swift; sourceTree = "<group>"; };
-		A00000000000000000000031 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityCloudAdapter.swift; sourceTree = "<group>"; };
-		A00000000000000000000032 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationModels.swift; sourceTree = "<group>"; };
-		A00000000000000000000033 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationServices.swift; sourceTree = "<group>"; };
-		A00000000000000000000034 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricAuthService.swift; sourceTree = "<group>"; };
-		A00000000000000000000035 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainSecretStore.swift; sourceTree = "<group>"; };
-		A00000000000000000000036 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLockManager.swift; sourceTree = "<group>"; };
-		A00000000000000000000037 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateGuard.swift; sourceTree = "<group>"; };
-		A00000000000000000000038 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditRepository.swift; sourceTree = "<group>"; };
-		A00000000000000000000039 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityDesignSystem.swift; sourceTree = "<group>"; };
-		A0000000000000000000003A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityMacApp.swift; sourceTree = "<group>"; };
-		A0000000000000000000003B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityIOSApp.swift; sourceTree = "<group>"; };
-		A0000000000000000000003C = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A0000000000000000000003D = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A0000000000000000000003E = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SerenityMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A0000000000000000000003F = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SerenityIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000020 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
+		A00000000000000000000021 /* AppSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSection.swift; sourceTree = "<group>"; };
+		A00000000000000000000022 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		A00000000000000000000023 /* CoreWorkflowModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreWorkflowModels.swift; sourceTree = "<group>"; };
+		A00000000000000000000024 /* SerenityAppScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityAppScene.swift; sourceTree = "<group>"; };
+		A00000000000000000000025 /* AIWorkflowService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIWorkflowService.swift; sourceTree = "<group>"; };
+		A00000000000000000000026 /* AuthSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionManager.swift; sourceTree = "<group>"; };
+		A00000000000000000000027 /* AIEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIEntities.swift; sourceTree = "<group>"; };
+		A00000000000000000000028 /* AIRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRepositories.swift; sourceTree = "<group>"; };
+		A00000000000000000000029 /* BackendConfigurationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendConfigurationStore.swift; sourceTree = "<group>"; };
+		A0000000000000000000002A /* BackendProfiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendProfiles.swift; sourceTree = "<group>"; };
+		A0000000000000000000002B /* CloudSyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncEngine.swift; sourceTree = "<group>"; };
+		A0000000000000000000002C /* CoreEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreEntities.swift; sourceTree = "<group>"; };
+		A0000000000000000000002D /* CoreRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreRepositories.swift; sourceTree = "<group>"; };
+		A0000000000000000000002E /* DatabaseMigrationRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseMigrationRunner.swift; sourceTree = "<group>"; };
+		A0000000000000000000002F /* ExternalPostgresAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPostgresAdapter.swift; sourceTree = "<group>"; };
+		A00000000000000000000030 /* SQLiteBackendAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteBackendAdapter.swift; sourceTree = "<group>"; };
+		A00000000000000000000031 /* SerenityCloudAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityCloudAdapter.swift; sourceTree = "<group>"; };
+		A00000000000000000000032 /* IntegrationModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationModels.swift; sourceTree = "<group>"; };
+		A00000000000000000000033 /* IntegrationServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationServices.swift; sourceTree = "<group>"; };
+		A00000000000000000000034 /* BiometricAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricAuthService.swift; sourceTree = "<group>"; };
+		A00000000000000000000035 /* KeychainSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainSecretStore.swift; sourceTree = "<group>"; };
+		A00000000000000000000036 /* LocalLockManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLockManager.swift; sourceTree = "<group>"; };
+		A00000000000000000000037 /* RateGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateGuard.swift; sourceTree = "<group>"; };
+		A00000000000000000000038 /* SecurityAuditRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditRepository.swift; sourceTree = "<group>"; };
+		A00000000000000000000039 /* SerenityDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityDesignSystem.swift; sourceTree = "<group>"; };
+		A0000000000000000000003A /* SerenityMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityMacApp.swift; sourceTree = "<group>"; };
+		A0000000000000000000003B /* SerenityIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityIOSApp.swift; sourceTree = "<group>"; };
+		A0000000000000000000003C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A0000000000000000000003D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A0000000000000000000003E /* SerenityMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SerenityMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A0000000000000000000003F /* SerenityIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SerenityIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000040 /* DotEnv.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotEnv.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		A00000000000000000000054 = {
+		A00000000000000000000054 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A00000000000000000000076,
-				A00000000000000000000077,
+				A00000000000000000000076 /* GRDB in Frameworks */,
+				A000000000000000000000C0 /* GoogleSignIn in Frameworks */,
+				A00000000000000000000077 /* PostgresNIO in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A00000000000000000000055 = {
+		A00000000000000000000055 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A00000000000000000000078,
-				A00000000000000000000079,
+				A00000000000000000000078 /* GRDB in Frameworks */,
+				A000000000000000000000C1 /* GoogleSignIn in Frameworks */,
+				A00000000000000000000079 /* PostgresNIO in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -127,157 +134,158 @@
 		A00000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000004,
-				A00000000000000000000003,
+				A00000000000000000000004 /* Serenity */,
+				A00000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		A00000000000000000000003 = {
+		A00000000000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A0000000000000000000003E,
-				A0000000000000000000003F,
+				A0000000000000000000003E /* SerenityMac.app */,
+				A0000000000000000000003F /* SerenityIOS.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		A00000000000000000000004 = {
+		A00000000000000000000004 /* Serenity */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000005,
-				A0000000000000000000000D,
-				A0000000000000000000000E,
-				A0000000000000000000000F,
+				A00000000000000000000005 /* Shared */,
+				A0000000000000000000000D /* macOS */,
+				A0000000000000000000000E /* iOS */,
+				A0000000000000000000000F /* Support */,
 			);
 			path = Serenity;
 			sourceTree = "<group>";
 		};
-		A00000000000000000000005 = {
+		A00000000000000000000005 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000006,
-				A00000000000000000000007,
-				A00000000000000000000008,
-				A00000000000000000000009,
-				A0000000000000000000000A,
-				A0000000000000000000000B,
-				A0000000000000000000000C,
+				A00000000000000000000006 /* App */,
+				A00000000000000000000007 /* AI */,
+				A00000000000000000000008 /* Auth */,
+				A00000000000000000000009 /* Data */,
+				A0000000000000000000000A /* Integrations */,
+				A0000000000000000000000B /* Security */,
+				A0000000000000000000000C /* UI */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
 		};
-		A00000000000000000000006 = {
+		A00000000000000000000006 /* App */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000020,
-				A00000000000000000000021,
-				A00000000000000000000022,
-				A00000000000000000000023,
-				A00000000000000000000024,
+				A00000000000000000000020 /* AppLogger.swift */,
+				A00000000000000000000021 /* AppSection.swift */,
+				A00000000000000000000022 /* AppState.swift */,
+				A00000000000000000000023 /* CoreWorkflowModels.swift */,
+				A00000000000000000000040 /* DotEnv.swift */,
+				A00000000000000000000024 /* SerenityAppScene.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
 		};
-		A00000000000000000000007 = {
+		A00000000000000000000007 /* AI */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000025,
+				A00000000000000000000025 /* AIWorkflowService.swift */,
 			);
 			path = AI;
 			sourceTree = "<group>";
 		};
-		A00000000000000000000008 = {
+		A00000000000000000000008 /* Auth */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000026,
+				A00000000000000000000026 /* AuthSessionManager.swift */,
 			);
 			path = Auth;
 			sourceTree = "<group>";
 		};
-		A00000000000000000000009 = {
+		A00000000000000000000009 /* Data */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000027,
-				A00000000000000000000028,
-				A00000000000000000000029,
-				A0000000000000000000002A,
-				A0000000000000000000002B,
-				A0000000000000000000002C,
-				A0000000000000000000002D,
-				A0000000000000000000002E,
-				A0000000000000000000002F,
-				A00000000000000000000030,
-				A00000000000000000000031,
+				A00000000000000000000027 /* AIEntities.swift */,
+				A00000000000000000000028 /* AIRepositories.swift */,
+				A00000000000000000000029 /* BackendConfigurationStore.swift */,
+				A0000000000000000000002A /* BackendProfiles.swift */,
+				A0000000000000000000002B /* CloudSyncEngine.swift */,
+				A0000000000000000000002C /* CoreEntities.swift */,
+				A0000000000000000000002D /* CoreRepositories.swift */,
+				A0000000000000000000002E /* DatabaseMigrationRunner.swift */,
+				A0000000000000000000002F /* ExternalPostgresAdapter.swift */,
+				A00000000000000000000030 /* SQLiteBackendAdapter.swift */,
+				A00000000000000000000031 /* SerenityCloudAdapter.swift */,
 			);
 			path = Data;
 			sourceTree = "<group>";
 		};
-		A0000000000000000000000A = {
+		A0000000000000000000000A /* Integrations */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000032,
-				A00000000000000000000033,
+				A00000000000000000000032 /* IntegrationModels.swift */,
+				A00000000000000000000033 /* IntegrationServices.swift */,
 			);
 			path = Integrations;
 			sourceTree = "<group>";
 		};
-		A0000000000000000000000B = {
+		A0000000000000000000000B /* Security */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000034,
-				A00000000000000000000035,
-				A00000000000000000000036,
-				A00000000000000000000037,
-				A00000000000000000000038,
+				A00000000000000000000034 /* BiometricAuthService.swift */,
+				A00000000000000000000035 /* KeychainSecretStore.swift */,
+				A00000000000000000000036 /* LocalLockManager.swift */,
+				A00000000000000000000037 /* RateGuard.swift */,
+				A00000000000000000000038 /* SecurityAuditRepository.swift */,
 			);
 			path = Security;
 			sourceTree = "<group>";
 		};
-		A0000000000000000000000C = {
+		A0000000000000000000000C /* UI */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000039,
+				A00000000000000000000039 /* SerenityDesignSystem.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
 		};
-		A0000000000000000000000D = {
+		A0000000000000000000000D /* macOS */ = {
 			isa = PBXGroup;
 			children = (
-				A0000000000000000000003A,
+				A0000000000000000000003A /* SerenityMacApp.swift */,
 			);
 			path = macOS;
 			sourceTree = "<group>";
 		};
-		A0000000000000000000000E = {
+		A0000000000000000000000E /* iOS */ = {
 			isa = PBXGroup;
 			children = (
-				A0000000000000000000003B,
+				A0000000000000000000003B /* SerenityIOSApp.swift */,
 			);
 			path = iOS;
 			sourceTree = "<group>";
 		};
-		A0000000000000000000000F = {
+		A0000000000000000000000F /* Support */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000010,
-				A00000000000000000000011,
+				A00000000000000000000010 /* macOS */,
+				A00000000000000000000011 /* iOS */,
 			);
 			path = Support;
 			sourceTree = "<group>";
 		};
-		A00000000000000000000010 = {
+		A00000000000000000000010 /* macOS */ = {
 			isa = PBXGroup;
 			children = (
-				A0000000000000000000003C,
+				A0000000000000000000003C /* Info.plist */,
 			);
 			path = macOS;
 			sourceTree = "<group>";
 		};
-		A00000000000000000000011 = {
+		A00000000000000000000011 /* iOS */ = {
 			isa = PBXGroup;
 			children = (
-				A0000000000000000000003D,
+				A0000000000000000000003D /* Info.plist */,
 			);
 			path = iOS;
 			sourceTree = "<group>";
@@ -285,13 +293,13 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A00000000000000000000050 = {
+		A00000000000000000000050 /* SerenityMac */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A00000000000000000000058;
+			buildConfigurationList = A00000000000000000000058 /* Build configuration list for PBXNativeTarget "SerenityMac" */;
 			buildPhases = (
-				A00000000000000000000052,
-				A00000000000000000000054,
-				A00000000000000000000056,
+				A00000000000000000000052 /* Sources */,
+				A00000000000000000000054 /* Frameworks */,
+				A00000000000000000000056 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -299,20 +307,21 @@
 			);
 			name = SerenityMac;
 			packageProductDependencies = (
-				A00000000000000000000072,
-				A00000000000000000000073,
+				A00000000000000000000072 /* GRDB */,
+				A000000000000000000000C2 /* GoogleSignIn */,
+				A00000000000000000000073 /* PostgresNIO */,
 			);
 			productName = SerenityMac;
-			productReference = A0000000000000000000003E;
+			productReference = A0000000000000000000003E /* SerenityMac.app */;
 			productType = "com.apple.product-type.application";
 		};
-		A00000000000000000000051 = {
+		A00000000000000000000051 /* SerenityIOS */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A00000000000000000000059;
+			buildConfigurationList = A00000000000000000000059 /* Build configuration list for PBXNativeTarget "SerenityIOS" */;
 			buildPhases = (
-				A00000000000000000000053,
-				A00000000000000000000055,
-				A00000000000000000000057,
+				A00000000000000000000053 /* Sources */,
+				A00000000000000000000055 /* Frameworks */,
+				A00000000000000000000057 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -320,24 +329,25 @@
 			);
 			name = SerenityIOS;
 			packageProductDependencies = (
-				A00000000000000000000074,
-				A00000000000000000000075,
+				A00000000000000000000074 /* GRDB */,
+				A000000000000000000000C3 /* GoogleSignIn */,
+				A00000000000000000000075 /* PostgresNIO */,
 			);
 			productName = SerenityIOS;
-			productReference = A0000000000000000000003F;
+			productReference = A0000000000000000000003F /* SerenityIOS.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		A00000000000000000000001 = {
+		A00000000000000000000001 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2620;
-				LastUpgradeCheck = 2620;
+				LastUpgradeCheck = 2640;
 			};
-			buildConfigurationList = A0000000000000000000005A;
+			buildConfigurationList = A0000000000000000000005A /* Build configuration list for PBXProject "Serenity" */;
 			compatibilityVersion = "Xcode 15.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -347,28 +357,29 @@
 			);
 			mainGroup = A00000000000000000000002;
 			packageReferences = (
-				A00000000000000000000070,
-				A00000000000000000000071,
+				A00000000000000000000070 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+				A000000000000000000000C4 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				A00000000000000000000071 /* XCRemoteSwiftPackageReference "postgres-nio" */,
 			);
-			productRefGroup = A00000000000000000000003;
+			productRefGroup = A00000000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A00000000000000000000050,
-				A00000000000000000000051,
+				A00000000000000000000050 /* SerenityMac */,
+				A00000000000000000000051 /* SerenityIOS */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A00000000000000000000056 = {
+		A00000000000000000000056 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A00000000000000000000057 = {
+		A00000000000000000000057 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -378,105 +389,175 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A00000000000000000000052 = {
+		A00000000000000000000052 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A00000000000000000000080,
-				A00000000000000000000081,
-				A00000000000000000000082,
-				A00000000000000000000083,
-				A00000000000000000000084,
-				A00000000000000000000085,
-				A00000000000000000000086,
-				A00000000000000000000087,
-				A00000000000000000000088,
-				A00000000000000000000089,
-				A0000000000000000000008A,
-				A0000000000000000000008B,
-				A0000000000000000000008C,
-				A0000000000000000000008D,
-				A0000000000000000000008E,
-				A0000000000000000000008F,
-				A00000000000000000000090,
-				A00000000000000000000091,
-				A00000000000000000000092,
-				A00000000000000000000093,
-				A00000000000000000000094,
-				A00000000000000000000095,
-				A00000000000000000000096,
-				A00000000000000000000097,
-				A00000000000000000000098,
-				A00000000000000000000099,
-				A0000000000000000000009A,
+				A00000000000000000000080 /* AppLogger.swift in Sources */,
+				A00000000000000000000081 /* AppSection.swift in Sources */,
+				A00000000000000000000082 /* AppState.swift in Sources */,
+				A00000000000000000000083 /* CoreWorkflowModels.swift in Sources */,
+				A0000000000000000000009B /* DotEnv.swift in Sources */,
+				A00000000000000000000084 /* SerenityAppScene.swift in Sources */,
+				A00000000000000000000085 /* AIWorkflowService.swift in Sources */,
+				A00000000000000000000086 /* AuthSessionManager.swift in Sources */,
+				A00000000000000000000087 /* AIEntities.swift in Sources */,
+				A00000000000000000000088 /* AIRepositories.swift in Sources */,
+				A00000000000000000000089 /* BackendConfigurationStore.swift in Sources */,
+				A0000000000000000000008A /* BackendProfiles.swift in Sources */,
+				A0000000000000000000008B /* CloudSyncEngine.swift in Sources */,
+				A0000000000000000000008C /* CoreEntities.swift in Sources */,
+				A0000000000000000000008D /* CoreRepositories.swift in Sources */,
+				A0000000000000000000008E /* DatabaseMigrationRunner.swift in Sources */,
+				A0000000000000000000008F /* ExternalPostgresAdapter.swift in Sources */,
+				A00000000000000000000090 /* SQLiteBackendAdapter.swift in Sources */,
+				A00000000000000000000091 /* SerenityCloudAdapter.swift in Sources */,
+				A00000000000000000000092 /* IntegrationModels.swift in Sources */,
+				A00000000000000000000093 /* IntegrationServices.swift in Sources */,
+				A00000000000000000000094 /* BiometricAuthService.swift in Sources */,
+				A00000000000000000000095 /* KeychainSecretStore.swift in Sources */,
+				A00000000000000000000096 /* LocalLockManager.swift in Sources */,
+				A00000000000000000000097 /* RateGuard.swift in Sources */,
+				A00000000000000000000098 /* SecurityAuditRepository.swift in Sources */,
+				A00000000000000000000099 /* SerenityDesignSystem.swift in Sources */,
+				A0000000000000000000009A /* SerenityMacApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A00000000000000000000053 = {
+		A00000000000000000000053 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A000000000000000000000A0,
-				A000000000000000000000A1,
-				A000000000000000000000A2,
-				A000000000000000000000A3,
-				A000000000000000000000A4,
-				A000000000000000000000A5,
-				A000000000000000000000A6,
-				A000000000000000000000A7,
-				A000000000000000000000A8,
-				A000000000000000000000A9,
-				A000000000000000000000AA,
-				A000000000000000000000AB,
-				A000000000000000000000AC,
-				A000000000000000000000AD,
-				A000000000000000000000AE,
-				A000000000000000000000AF,
-				A000000000000000000000B0,
-				A000000000000000000000B1,
-				A000000000000000000000B2,
-				A000000000000000000000B3,
-				A000000000000000000000B4,
-				A000000000000000000000B5,
-				A000000000000000000000B6,
-				A000000000000000000000B7,
-				A000000000000000000000B8,
-				A000000000000000000000B9,
-				A000000000000000000000BA,
+				A000000000000000000000A0 /* AppLogger.swift in Sources */,
+				A000000000000000000000A1 /* AppSection.swift in Sources */,
+				A000000000000000000000A2 /* AppState.swift in Sources */,
+				A000000000000000000000A3 /* CoreWorkflowModels.swift in Sources */,
+				A000000000000000000000BB /* DotEnv.swift in Sources */,
+				A000000000000000000000A4 /* SerenityAppScene.swift in Sources */,
+				A000000000000000000000A5 /* AIWorkflowService.swift in Sources */,
+				A000000000000000000000A6 /* AuthSessionManager.swift in Sources */,
+				A000000000000000000000A7 /* AIEntities.swift in Sources */,
+				A000000000000000000000A8 /* AIRepositories.swift in Sources */,
+				A000000000000000000000A9 /* BackendConfigurationStore.swift in Sources */,
+				A000000000000000000000AA /* BackendProfiles.swift in Sources */,
+				A000000000000000000000AB /* CloudSyncEngine.swift in Sources */,
+				A000000000000000000000AC /* CoreEntities.swift in Sources */,
+				A000000000000000000000AD /* CoreRepositories.swift in Sources */,
+				A000000000000000000000AE /* DatabaseMigrationRunner.swift in Sources */,
+				A000000000000000000000AF /* ExternalPostgresAdapter.swift in Sources */,
+				A000000000000000000000B0 /* SQLiteBackendAdapter.swift in Sources */,
+				A000000000000000000000B1 /* SerenityCloudAdapter.swift in Sources */,
+				A000000000000000000000B2 /* IntegrationModels.swift in Sources */,
+				A000000000000000000000B3 /* IntegrationServices.swift in Sources */,
+				A000000000000000000000B4 /* BiometricAuthService.swift in Sources */,
+				A000000000000000000000B5 /* KeychainSecretStore.swift in Sources */,
+				A000000000000000000000B6 /* LocalLockManager.swift in Sources */,
+				A000000000000000000000B7 /* RateGuard.swift in Sources */,
+				A000000000000000000000B8 /* SecurityAuditRepository.swift in Sources */,
+				A000000000000000000000B9 /* SerenityDesignSystem.swift in Sources */,
+				A000000000000000000000BA /* SerenityIOSApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		A0000000000000000000005B = {
+		A0000000000000000000005B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_VERSION = 5.10;
 			};
 			name = Debug;
 		};
-		A0000000000000000000005C = {
+		A0000000000000000000005C /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_VERSION = 5.10;
 			};
 			name = Release;
 		};
-		A0000000000000000000005D = {
+		A0000000000000000000005D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = N3B962X7RX;
 				GENERATE_INFOPLIST_FILE = NO;
+				GOOGLE_CLIENT_ID = "";
+				GOOGLE_REVERSED_CLIENT_ID = "";
 				INFOPLIST_FILE = Serenity/Support/macOS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Serenity;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.serenity.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -486,18 +567,26 @@
 			};
 			name = Debug;
 		};
-		A0000000000000000000005E = {
+		A0000000000000000000005E /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = N3B962X7RX;
 				GENERATE_INFOPLIST_FILE = NO;
+				GOOGLE_CLIENT_ID = "";
+				"GOOGLE_CLIENT_ID[arch=*]" = "";
+				GOOGLE_REVERSED_CLIENT_ID = "";
 				INFOPLIST_FILE = Serenity/Support/macOS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Serenity;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.serenity.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -508,12 +597,15 @@
 			};
 			name = Release;
 		};
-		A0000000000000000000005F = {
+		A0000000000000000000005F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
+				GOOGLE_CLIENT_ID = "";
+				GOOGLE_REVERSED_CLIENT_ID = "";
 				INFOPLIST_FILE = Serenity/Support/iOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -531,12 +623,15 @@
 			};
 			name = Debug;
 		};
-		A00000000000000000000060 = {
+		A00000000000000000000060 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
+				GOOGLE_CLIENT_ID = "";
+				GOOGLE_REVERSED_CLIENT_ID = "";
 				INFOPLIST_FILE = Serenity/Support/iOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -558,29 +653,29 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A00000000000000000000058 = {
+		A00000000000000000000058 /* Build configuration list for PBXNativeTarget "SerenityMac" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A0000000000000000000005D,
-				A0000000000000000000005E,
+				A0000000000000000000005D /* Debug */,
+				A0000000000000000000005E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A00000000000000000000059 = {
+		A00000000000000000000059 /* Build configuration list for PBXNativeTarget "SerenityIOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A0000000000000000000005F,
-				A00000000000000000000060,
+				A0000000000000000000005F /* Debug */,
+				A00000000000000000000060 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A0000000000000000000005A = {
+		A0000000000000000000005A /* Build configuration list for PBXProject "Serenity" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A0000000000000000000005B,
-				A0000000000000000000005C,
+				A0000000000000000000005B /* Debug */,
+				A0000000000000000000005C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -588,7 +683,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		A00000000000000000000070 = {
+		A00000000000000000000070 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/groue/GRDB.swift.git";
 			requirement = {
@@ -596,7 +691,7 @@
 				minimumVersion = 6.0.0;
 			};
 		};
-		A00000000000000000000071 = {
+		A00000000000000000000071 /* XCRemoteSwiftPackageReference "postgres-nio" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/vapor/postgres-nio.git";
 			requirement = {
@@ -604,30 +699,48 @@
 				minimumVersion = 1.22.0;
 			};
 		};
+		A000000000000000000000C4 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		A00000000000000000000072 = {
+		A00000000000000000000072 /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A00000000000000000000070;
+			package = A00000000000000000000070 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
 			productName = GRDB;
 		};
-		A00000000000000000000073 = {
+		A00000000000000000000073 /* PostgresNIO */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A00000000000000000000071;
+			package = A00000000000000000000071 /* XCRemoteSwiftPackageReference "postgres-nio" */;
 			productName = PostgresNIO;
 		};
-		A00000000000000000000074 = {
+		A00000000000000000000074 /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A00000000000000000000070;
+			package = A00000000000000000000070 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
 			productName = GRDB;
 		};
-		A00000000000000000000075 = {
+		A00000000000000000000075 /* PostgresNIO */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A00000000000000000000071;
+			package = A00000000000000000000071 /* XCRemoteSwiftPackageReference "postgres-nio" */;
 			productName = PostgresNIO;
+		};
+		A000000000000000000000C2 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A000000000000000000000C4 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		A000000000000000000000C3 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A000000000000000000000C4 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
-	rootObject = A00000000000000000000001;
+	rootObject = A00000000000000000000001 /* Project object */;
 }

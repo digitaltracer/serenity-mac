@@ -10,6 +10,7 @@ let package = Package(
   ],
   dependencies: [
     .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.0.0"),
+    .package(url: "https://github.com/google/GoogleSignIn-iOS.git", from: "9.0.0"),
     .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.22.0"),
   ],
   targets: [
@@ -17,6 +18,7 @@ let package = Package(
       name: "SerenityMac",
       dependencies: [
         .product(name: "GRDB", package: "GRDB.swift"),
+        .product(name: "GoogleSignIn", package: "GoogleSignIn-iOS"),
         .product(name: "PostgresNIO", package: "postgres-nio"),
       ],
       path: "Serenity",

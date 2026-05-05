@@ -1,4 +1,5 @@
 import Foundation
+import GoogleSignIn
 
 enum IntegrationProvider: String, CaseIterable, Identifiable, Sendable {
   case google
@@ -16,40 +17,50 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Sendable {
   }
 }
 
-struct GoogleOAuthConfiguration: Equatable, Sendable {
-  var clientID: String
-  var clientSecret: String
-  var redirectURI: String
-  var scopes: [String]
-  var authBaseURL: URL
-  var tokenURL: URL
-  var userInfoURL: URL
-  var calendarEventsURL: URL
+enum GoogleCalendarConfiguration {
+  static let clientIDInfoKey = "GOOGLE_CLIENT_ID"
+  static let reversedClientIDInfoKey = "GOOGLE_REVERSED_CLIENT_ID"
+  static let bundleURLTypesInfoKey = "CFBundleURLTypes"
+  static let bundleURLSchemesInfoKey = "CFBundleURLSchemes"
+  static let calendarReadonlyScope = "https://www.googleapis.com/auth/calendar.readonly"
+  static let userInfoURL = URL(string: "https://www.googleapis.com/oauth2/v2/userinfo")!
+  static let calendarEventsURL = URL(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events")!
 
-  static func fromEnvironment() -> GoogleOAuthConfiguration? {
-    let env = ProcessInfo.processInfo.environment
-    guard let clientID = env["SERENITY_GOOGLE_CLIENT_ID"], !clientID.isEmpty,
-          let clientSecret = env["SERENITY_GOOGLE_CLIENT_SECRET"], !clientSecret.isEmpty
-    else {
-      return nil
+  static var requiredScopes: [String] {
+    [calendarReadonlyScope]
+  }
+
+  static var isConfigured: Bool {
+    guard clientID != nil, let reversedClientID else {
+      return false
     }
 
-    let redirectURI = env["SERENITY_GOOGLE_REDIRECT_URI"] ?? "http://localhost:8080/oauth/callback"
-    let scopes = (env["SERENITY_GOOGLE_SCOPES"] ?? "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email")
-      .split(separator: " ")
-      .map(String.init)
-      .filter { !$0.isEmpty }
+    let urlTypes = Bundle.main.object(forInfoDictionaryKey: bundleURLTypesInfoKey) as? [[String: Any]] ?? []
+    return urlTypes.contains { type in
+      let schemes = type[bundleURLSchemesInfoKey] as? [String] ?? []
+      return schemes.contains(reversedClientID)
+    }
+  }
 
-    return GoogleOAuthConfiguration(
-      clientID: clientID,
-      clientSecret: clientSecret,
-      redirectURI: redirectURI,
-      scopes: scopes.isEmpty ? ["https://www.googleapis.com/auth/calendar.readonly"] : scopes,
-      authBaseURL: URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!,
-      tokenURL: URL(string: "https://oauth2.googleapis.com/token")!,
-      userInfoURL: URL(string: "https://www.googleapis.com/oauth2/v2/userinfo")!,
-      calendarEventsURL: URL(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events")!
-    )
+  static var clientID: String? {
+    infoString(for: clientIDInfoKey)
+  }
+
+  static var reversedClientID: String? {
+    infoString(for: reversedClientIDInfoKey)
+  }
+
+  @discardableResult
+  static func handleSignInURL(_ url: URL) -> Bool {
+    GIDSignIn.sharedInstance.handle(url)
+  }
+
+  private static func infoString(for key: String) -> String? {
+    let rawValue = Bundle.main.object(forInfoDictionaryKey: key) as? String
+    let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let trimmed, !trimmed.isEmpty else { return nil }
+    guard !trimmed.hasPrefix("$(") || !trimmed.hasSuffix(")") else { return nil }
+    return trimmed
   }
 }
 
@@ -131,4 +142,3 @@ struct GitHubSyncPayload: Sendable {
   var project: ProjectEntity?
   var importedCount: Int
 }
-
