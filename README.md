@@ -40,12 +40,6 @@ Use this for the fast macOS build and test loop.
 - Test: `swift test`
 - Run: `swift run SerenityMac`
 
-There are matching npm wrappers:
-
-- Build: `npm run build`
-- Test: `npm run test`
-- Run: `npm run dev`
-
 ### Xcode workflow
 
 Open `Serenity.xcodeproj` in Xcode for native app development.
