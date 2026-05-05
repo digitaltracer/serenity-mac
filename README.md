@@ -61,6 +61,17 @@ Open `Serenity.xcodeproj` in Xcode for native app development.
 
 The SwiftPM target still builds only the macOS executable. The iOS app target is provided through the Xcode project.
 
+## Release
+
+The macOS release helper mirrors the Pipeline release flow for a single app
+target:
+
+- Dry run ZIP: `scripts/release-macos.sh --skip-notarization --format zip`
+- Signed/notarized package: `scripts/release-macos.sh --format pkg`
+
+The script auto-loads `scripts/release-macos.env` when present. That local file
+is gitignored. Run with `--help` for the full flag list.
+
 ## Testing
 
 The repository includes focused tests for:
