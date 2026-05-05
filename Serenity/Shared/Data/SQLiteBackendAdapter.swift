@@ -78,8 +78,15 @@ final class SQLiteBackendAdapter {
     let sourcePath = try requireDatabasePath()
     let sourceURL = URL(fileURLWithPath: sourcePath)
 
-    let backupsDirectory = FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent("Library/Application Support/Serenity/backups", isDirectory: true)
+    let applicationSupportDirectory = try FileManager.default.url(
+      for: .applicationSupportDirectory,
+      in: .userDomainMask,
+      appropriateFor: nil,
+      create: true
+    )
+    let backupsDirectory = applicationSupportDirectory
+      .appendingPathComponent("Serenity", isDirectory: true)
+      .appendingPathComponent("backups", isDirectory: true)
     try FileManager.default.createDirectory(at: backupsDirectory, withIntermediateDirectories: true)
 
     let formatter = DateFormatter()

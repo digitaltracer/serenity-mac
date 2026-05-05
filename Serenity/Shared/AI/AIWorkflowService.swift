@@ -418,8 +418,15 @@ actor AIWorkflowService {
       throw AIWorkflowError.summaryNotFound(id)
     }
 
-    let exportsDirectory = FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent("Library/Application Support/Serenity/exports", isDirectory: true)
+    let applicationSupportDirectory = try FileManager.default.url(
+      for: .applicationSupportDirectory,
+      in: .userDomainMask,
+      appropriateFor: nil,
+      create: true
+    )
+    let exportsDirectory = applicationSupportDirectory
+      .appendingPathComponent("Serenity", isDirectory: true)
+      .appendingPathComponent("exports", isDirectory: true)
     try FileManager.default.createDirectory(at: exportsDirectory, withIntermediateDirectories: true)
 
     let formatter = DateFormatter()
