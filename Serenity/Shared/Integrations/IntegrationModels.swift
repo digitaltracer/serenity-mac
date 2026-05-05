@@ -52,7 +52,10 @@ enum GoogleCalendarConfiguration {
 
   @discardableResult
   static func handleSignInURL(_ url: URL) -> Bool {
-    GIDSignIn.sharedInstance.handle(url)
+    AppLogger.info("handleSignInURL called with url=\(url.absoluteString)")
+    let handled = GIDSignIn.sharedInstance.handle(url)
+    AppLogger.info("handleSignInURL handled=\(handled)")
+    return handled
   }
 
   private static func infoString(for key: String) -> String? {

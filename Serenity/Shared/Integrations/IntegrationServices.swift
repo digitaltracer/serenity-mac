@@ -102,25 +102,44 @@ final class GoogleIntegrationService {
   }
 
   func signIn() async throws -> GoogleIntegrationSession {
+    AppLogger.info("GoogleSignIn.signIn invoked")
+    AppLogger.info("GoogleSignIn.isConfigured=\(isConfigured) clientID=\(GoogleCalendarConfiguration.clientID ?? "nil") reversedClientID=\(GoogleCalendarConfiguration.reversedClientID ?? "nil")")
+
     guard isConfigured else {
+      AppLogger.error("GoogleSignIn aborting: missingGoogleConfiguration")
       throw IntegrationServiceError.missingGoogleConfiguration
     }
 
     configureGoogleSignInIfPossible()
 
     #if os(macOS)
+    let allWindows = NSApplication.shared.windows
+    AppLogger.info("GoogleSignIn windows count=\(allWindows.count) keyWindow=\(NSApplication.shared.keyWindow?.title ?? "nil")")
+    for (idx, win) in allWindows.enumerated() {
+      AppLogger.info("GoogleSignIn window[\(idx)] title=\(win.title) isVisible=\(win.isVisible) isKey=\(win.isKeyWindow)")
+    }
+
     guard let window = NSApplication.shared.keyWindow ?? NSApplication.shared.windows.first(where: { $0.isVisible }) else {
+      AppLogger.error("GoogleSignIn aborting: missingGooglePresenter (no visible window)")
       throw IntegrationServiceError.missingGooglePresenter
     }
 
-    let result = try await GIDSignIn.sharedInstance.signIn(
-      withPresenting: window,
-      hint: nil,
-      additionalScopes: GoogleCalendarConfiguration.requiredScopes
-    )
-    let session = try makeSession(from: result.user, preservingRefreshToken: try await currentSession()?.refreshToken)
-    try saveSession(session)
-    return session
+    AppLogger.info("GoogleSignIn presenting on window=\(window.title) — calling GIDSignIn.signIn(withPresenting:)")
+    do {
+      let result = try await GIDSignIn.sharedInstance.signIn(
+        withPresenting: window,
+        hint: nil,
+        additionalScopes: GoogleCalendarConfiguration.requiredScopes
+      )
+      AppLogger.info("GoogleSignIn returned user=\(result.user.profile?.email ?? "unknown")")
+      let session = try makeSession(from: result.user, preservingRefreshToken: try await currentSession()?.refreshToken)
+      try saveSession(session)
+      AppLogger.info("GoogleSignIn session saved")
+      return session
+    } catch {
+      AppLogger.error("GoogleSignIn threw: \(error) — \(error.localizedDescription)")
+      throw error
+    }
     #elseif os(iOS)
     guard let presenter = Self.activePresentingViewController() else {
       throw IntegrationServiceError.missingGooglePresenter
@@ -291,7 +310,11 @@ final class GoogleIntegrationService {
   }
 
   private func configureGoogleSignInIfPossible() {
-    guard let clientID = GoogleCalendarConfiguration.clientID else { return }
+    guard let clientID = GoogleCalendarConfiguration.clientID else {
+      AppLogger.error("configureGoogleSignInIfPossible: clientID is nil — skipping")
+      return
+    }
+    AppLogger.info("configureGoogleSignInIfPossible: setting clientID=\(clientID)")
     GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
   }
 

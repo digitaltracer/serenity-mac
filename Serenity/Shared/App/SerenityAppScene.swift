@@ -1516,7 +1516,9 @@ struct IntegrationsSectionView: View {
 
   @MainActor
   private func connectGoogle() async {
+    AppLogger.info("connectGoogle tapped: isGoogleConfigured=\(isGoogleConfigured)")
     guard isGoogleConfigured else {
+      AppLogger.error("connectGoogle: not configured — showing error")
       appState.showError(
         title: "Google is not configured",
         message: "Set GOOGLE_CLIENT_ID, GOOGLE_REVERSED_CLIENT_ID, and the matching URL scheme in the app build settings."
@@ -1525,9 +1527,13 @@ struct IntegrationsSectionView: View {
     }
 
     isConnectingGoogle = true
-    defer { isConnectingGoogle = false }
+    defer {
+      AppLogger.info("connectGoogle: clearing isConnectingGoogle (defer)")
+      isConnectingGoogle = false
+    }
 
     await appState.connectGoogleIntegration()
+    AppLogger.info("connectGoogle: connectGoogleIntegration returned")
   }
 
   private var cloudSyncHardeningCard: some View {

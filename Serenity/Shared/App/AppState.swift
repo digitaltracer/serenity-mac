@@ -891,8 +891,10 @@ final class AppState: ObservableObject {
   }
 
   func connectGoogleIntegration() async {
+    AppLogger.info("connectGoogleIntegration: starting")
     do {
       let session = try await googleIntegrationService.signIn()
+      AppLogger.info("connectGoogleIntegration: signIn returned email=\(session.userEmail ?? "nil")")
       googleIntegrationState.connected = true
       googleIntegrationState.userEmail = session.userEmail
       googleIntegrationState.expiresAt = session.expiresAt
@@ -900,6 +902,7 @@ final class AppState: ObservableObject {
       showToast("Google connected")
       await refreshIntegrationDiagnostics()
     } catch {
+      AppLogger.error("connectGoogleIntegration: signIn threw \(error)")
       googleIntegrationState.lastError = error.localizedDescription
       showError(title: "Google sign-in failed", message: error.localizedDescription)
       await refreshIntegrationDiagnostics()
