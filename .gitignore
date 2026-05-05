@@ -5,6 +5,7 @@
 .env.*.local
 Serenity/Config/*.local.xcconfig
 scripts/release-macos.env
+scripts/release-macos.env.example
 dist/
 GoogleAuth.local.xcconfig
 GoogleAuth.xcconfig
