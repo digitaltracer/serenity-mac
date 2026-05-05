@@ -88,24 +88,26 @@ struct SerenityAppScene: View {
         SerenityDetailBackground()
         detailContent
       }
-#if os(macOS)
-      .toolbar {
-        ToolbarItemGroup(placement: .primaryAction) {
-          TopBarButton(symbol: "magnifyingglass", accessibilityLabel: "Search") {
-            appState.openGlobalSearch()
-          }
-          TopBarButton(symbol: "questionmark.circle", accessibilityLabel: "Help") {
-            appState.openHelpCenter()
-          }
-          TopBarButton(symbol: appState.themePreference.topBarSymbol, accessibilityLabel: "Theme") {
-            cycleThemePreference()
-          }
-        }
-      }
-      .toolbarBackground(.hidden, for: .windowToolbar)
-#endif
     }
     .navigationSplitViewStyle(.balanced)
+#if os(macOS)
+    .toolbar {
+      ToolbarItemGroup(placement: .primaryAction) {
+        TopBarButton(symbol: "magnifyingglass", accessibilityLabel: "Search") {
+          appState.openGlobalSearch()
+        }
+        TopBarButton(symbol: "questionmark.circle", accessibilityLabel: "Help") {
+          appState.openHelpCenter()
+        }
+        TopBarButton(symbol: appState.themePreference.topBarSymbol, accessibilityLabel: "Theme") {
+          cycleThemePreference()
+        }
+        Spacer()
+          .frame(width: 8)
+      }
+    }
+    .toolbarBackground(.hidden, for: .windowToolbar)
+#endif
   }
 
   @ViewBuilder
@@ -280,8 +282,8 @@ private enum SerenityChromeMetrics {
   static let rowHeight: CGFloat = 32
   static let horizontalPadding: CGFloat = 18
   static let controlSpacing: CGFloat = 8
-  static let buttonSize: CGFloat = 28
-  static let buttonIconSize: CGFloat = 13
+  static let buttonSize: CGFloat = 32
+  static let buttonIconSize: CGFloat = 14
   static let sidebarHeaderIconSize: CGFloat = 30
   static let sidebarHeaderVerticalPadding: CGFloat = 4
 }
