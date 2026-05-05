@@ -115,8 +115,10 @@ enum OAuthConfigurationValidationError: Error, LocalizedError {
 
 @MainActor
 final class AppState: ObservableObject {
-  private static let themePreferenceDefaultsKey = "serenity.ui.themePreference"
-  private static let localLockEnabledDefaultsKey = "serenity.security.localLock.enabled"
+  static let themePreferenceDefaultsKey = "serenity.ui.themePreference"
+  static let localLockEnabledDefaultsKey = "serenity.security.localLock.enabled"
+  private let settingsSync: SettingsSyncCoordinator
+  private var settingsSyncObserver: NSObjectProtocol?
 
   @Published var selectedSection: AppSection? = .home
   @Published var settings = AppSettings()
@@ -173,6 +175,7 @@ final class AppState: ObservableObject {
   @Published var cloudSyncPolicy: CloudSyncResolutionPolicy = .deferConflicts
   @Published var cloudSyncConflicts: [CloudSyncConflict] = []
   @Published var cloudSyncDiagnostics: [String] = []
+  @Published var iCloudSyncState: ICloudSyncState = .idle
 
   private let sqliteBackendAdapter: SQLiteBackendAdapter
   private var serenityCloudAdapter: SerenityCloudAdapter?
@@ -188,6 +191,7 @@ final class AppState: ObservableObject {
   private let githubIntegrationService: GitHubIntegrationService
   private let aiWorkflowService: AIWorkflowService
   private var cloudSyncEngine: CloudSyncEngine?
+  private var iCloudSyncEngine: ICloudSyncEngine?
 
   private var sqliteCoreRepositories: GRDBCoreRepositorySet?
   private var globalSearchDocuments: [GlobalSearchDocument] = []
@@ -209,8 +213,10 @@ final class AppState: ObservableObject {
     sensitiveOperationRateGuard: SensitiveOperationRateGuard = SensitiveOperationRateGuard(),
     googleIntegrationService: GoogleIntegrationService? = nil,
     githubIntegrationService: GitHubIntegrationService = GitHubIntegrationService(),
-    aiWorkflowService: AIWorkflowService? = nil
+    aiWorkflowService: AIWorkflowService? = nil,
+    settingsSync: SettingsSyncCoordinator = .shared
   ) {
+    self.settingsSync = settingsSync
     self.backendProfileManager = backendProfileManager
     self.sqliteBackendAdapter = sqliteBackendAdapter
     self.serenityCloudAdapter = serenityCloudAdapter
@@ -232,6 +238,35 @@ final class AppState: ObservableObject {
     }
 
     settings.localLockEnabled = UserDefaults.standard.bool(forKey: Self.localLockEnabledDefaultsKey)
+
+    settingsSyncObserver = NotificationCenter.default.addObserver(
+      forName: .settingsDidChangeRemotely,
+      object: nil,
+      queue: .main
+    ) { [weak self] notification in
+      let keys = (notification.userInfo?["changedKeys"] as? [String]) ?? []
+      Task { @MainActor [weak self] in
+        self?.applyRemoteSettingChanges(Set(keys))
+      }
+    }
+  }
+
+  deinit {
+    if let settingsSyncObserver {
+      NotificationCenter.default.removeObserver(settingsSyncObserver)
+    }
+  }
+
+  private func applyRemoteSettingChanges(_ keys: Set<String>) {
+    if keys.contains(Self.themePreferenceDefaultsKey) {
+      if let storedTheme = UserDefaults.standard.string(forKey: Self.themePreferenceDefaultsKey),
+         let preference = AppThemePreference(rawValue: storedTheme) {
+        themePreference = preference
+      }
+    }
+    if keys.contains(Self.localLockEnabledDefaultsKey) {
+      settings.localLockEnabled = UserDefaults.standard.bool(forKey: Self.localLockEnabledDefaultsKey)
+    }
   }
 
   var filteredTasks: [TaskEntity] {
@@ -338,7 +373,7 @@ final class AppState: ObservableObject {
 
   func setThemePreference(_ preference: AppThemePreference) {
     themePreference = preference
-    UserDefaults.standard.set(preference.rawValue, forKey: Self.themePreferenceDefaultsKey)
+    settingsSync.setSyncable(preference.rawValue, forKey: Self.themePreferenceDefaultsKey)
     AppLogger.info("Theme preference updated: \(preference.rawValue)")
   }
 
@@ -501,7 +536,7 @@ final class AppState: ObservableObject {
 
       localLockStatus = await localLockManager.setEnabled(true, password: trimmed)
       settings.localLockEnabled = true
-      UserDefaults.standard.set(true, forKey: Self.localLockEnabledDefaultsKey)
+      settingsSync.setSyncable(true, forKey: Self.localLockEnabledDefaultsKey)
       await securityAuditService.record(
         eventType: .localLock,
         severity: .info,
@@ -511,7 +546,7 @@ final class AppState: ObservableObject {
     } else {
       localLockStatus = await localLockManager.setEnabled(false, password: nil)
       settings.localLockEnabled = false
-      UserDefaults.standard.set(false, forKey: Self.localLockEnabledDefaultsKey)
+      settingsSync.setSyncable(false, forKey: Self.localLockEnabledDefaultsKey)
       await securityAuditService.record(
         eventType: .localLock,
         severity: .warning,
@@ -797,7 +832,9 @@ final class AppState: ObservableObject {
 
     do {
       let summary = try await sqliteBackendAdapter.bootstrap()
-      sqliteCoreRepositories = try sqliteBackendAdapter.makeCoreRepositories()
+      let repositories = try sqliteBackendAdapter.makeCoreRepositories()
+      sqliteCoreRepositories = repositories
+      installICloudSyncEngine(using: repositories)
 
       databaseBootstrapState = .ready(
         path: summary.databasePath,
@@ -2197,7 +2234,9 @@ final class AppState: ObservableObject {
     }
 
     let summary = try await sqliteBackendAdapter.bootstrap()
-    sqliteCoreRepositories = try sqliteBackendAdapter.makeCoreRepositories()
+    let repositories = try sqliteBackendAdapter.makeCoreRepositories()
+    sqliteCoreRepositories = repositories
+    installICloudSyncEngine(using: repositories)
 
     if case .ready = databaseBootstrapState {
       // Already reflected by an explicit bootstrap call.
@@ -2210,6 +2249,62 @@ final class AppState: ObservableObject {
     }
 
     return sqliteCoreRepositories
+  }
+
+  // MARK: - iCloud sync
+
+  /// Builds the iCloud sync engine on first access to a repository set and
+  /// kicks off an initial round-trip in the background. Idempotent — calling
+  /// it twice with the same set is a no-op.
+  ///
+  /// Skipped under XCTest because the test binary is unsigned and lacks the
+  /// CloudKit entitlement; talking to the CloudKit XPC service from a detached
+  /// task would crash the test process at teardown.
+  private func installICloudSyncEngine(using repositories: GRDBCoreRepositorySet) {
+    guard iCloudSyncEngine == nil else { return }
+    guard !Self.isRunningUnderXCTest else { return }
+
+    let engine = ICloudSyncEngine(
+      pendingStore: repositories.pendingSyncChanges,
+      stateStore: repositories.cloudSyncState,
+      recordKinds: [
+        TaskSyncRecordKind(repository: repositories.tasks),
+        JournalEntrySyncRecordKind(repository: repositories.journal),
+      ],
+      stateUpdate: { [weak self] state in
+        Task { @MainActor [weak self] in
+          self?.iCloudSyncState = state
+        }
+      },
+      logger: { message in
+        AppLogger.info("iCloudSync: \(message)")
+      }
+    )
+    iCloudSyncEngine = engine
+
+    // Initial pass picks up anything queued before the engine existed plus
+    // any remote changes that landed while we were offline.
+    triggerICloudSync()
+  }
+
+  /// Fire-and-forget kick to the engine. Coalesces internally — calling this
+  /// from many save/delete sites is fine.
+  func triggerICloudSync() {
+    guard let engine = iCloudSyncEngine else { return }
+    Task.detached(priority: .utility) {
+      await engine.sync()
+    }
+  }
+
+  /// True when the host process has loaded XCTest (SPM `xctest` runner or
+  /// Xcode test bundle). Used to gate features that talk to system XPC
+  /// services we can't reach from an unsigned test binary.
+  private static let isRunningUnderXCTest: Bool = NSClassFromString("XCTestCase") != nil
+
+  /// Called from the app delegate when CloudKit delivers a silent push for
+  /// the SerenityZone subscription.
+  func handleICloudRemoteNotification() {
+    triggerICloudSync()
   }
 
   private func fetchTasks() async throws -> [TaskEntity] {
@@ -2235,6 +2330,7 @@ final class AppState: ObservableObject {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.tasks.save(task)
+      triggerICloudSync()
     case .serenityCloud:
       guard let serenityCloudAdapter else {
         throw CoreWorkflowError.unavailableBackend("Serenity Cloud adapter is not configured")
@@ -2253,6 +2349,7 @@ final class AppState: ObservableObject {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.tasks.save(task)
+      triggerICloudSync()
     case .serenityCloud:
       guard let serenityCloudAdapter else {
         throw CoreWorkflowError.unavailableBackend("Serenity Cloud adapter is not configured")
@@ -2271,6 +2368,7 @@ final class AppState: ObservableObject {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.tasks.delete(id: id)
+      triggerICloudSync()
     case .serenityCloud:
       guard let serenityCloudAdapter else {
         throw CoreWorkflowError.unavailableBackend("Serenity Cloud adapter is not configured")
@@ -2394,6 +2492,7 @@ final class AppState: ObservableObject {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.journal.save(entry)
+      triggerICloudSync()
     case .serenityCloud:
       guard let serenityCloudAdapter else {
         throw CoreWorkflowError.unavailableBackend("Serenity Cloud adapter is not configured")
@@ -2412,6 +2511,7 @@ final class AppState: ObservableObject {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.journal.save(entry)
+      triggerICloudSync()
     case .serenityCloud:
       guard let serenityCloudAdapter else {
         throw CoreWorkflowError.unavailableBackend("Serenity Cloud adapter is not configured")
@@ -2430,6 +2530,7 @@ final class AppState: ObservableObject {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.journal.delete(id: id)
+      triggerICloudSync()
     case .serenityCloud:
       guard let serenityCloudAdapter else {
         throw CoreWorkflowError.unavailableBackend("Serenity Cloud adapter is not configured")

@@ -343,5 +343,33 @@ actor DatabaseMigrationRunner {
         "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '4');",
       ]
     ),
+    DatabaseMigration(
+      identifier: "20260505_006_cloudkit_sync_state",
+      statements: [
+        """
+        CREATE TABLE IF NOT EXISTS pending_sync_changes (
+          id TEXT PRIMARY KEY,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          operation TEXT NOT NULL CHECK (operation IN ('upsert', 'delete')),
+          queued_at TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_attempt_at TEXT,
+          last_error TEXT
+        );
+        """,
+        // One pending row per (entity_type, entity_id) — successive saves coalesce.
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_sync_unique_target ON pending_sync_changes(entity_type, entity_id);",
+        "CREATE INDEX IF NOT EXISTS idx_pending_sync_queued_at ON pending_sync_changes(queued_at);",
+        """
+        CREATE TABLE IF NOT EXISTS cloud_sync_state (
+          key TEXT PRIMARY KEY,
+          value BLOB,
+          updated_at TEXT NOT NULL
+        );
+        """,
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '5');",
+      ]
+    ),
   ]
 }

@@ -626,10 +626,15 @@ final class GRDBGoalRepository: CoreGoalRepository {
 }
 
 struct GRDBCoreRepositorySet {
-  let tasks: GRDBTaskRepository
+  /// Sync-aware task repository — every save/delete also enqueues a pending
+  /// sync change. The iCloud engine drains those into CloudKit, and pulled
+  /// remote records come back in via `applyRemoteUpsert(_:)`/`applyRemoteDelete(id:)`.
+  let tasks: SyncAwareTaskRepository
   let projects: GRDBProjectRepository
-  let journal: GRDBJournalRepository
+  let journal: SyncAwareJournalRepository
   let goals: GRDBGoalRepository
+  let pendingSyncChanges: PendingSyncChangeStore
+  let cloudSyncState: CloudSyncStateStore
 
   static func make(databasePath: String) throws -> GRDBCoreRepositorySet {
     var configuration = Configuration()
@@ -638,12 +643,21 @@ struct GRDBCoreRepositorySet {
     }
 
     let dbQueue = try DatabaseQueue(path: databasePath, configuration: configuration)
+    let pendingStore = GRDBPendingSyncChangeStore(dbQueue: dbQueue)
 
     return GRDBCoreRepositorySet(
-      tasks: GRDBTaskRepository(dbQueue: dbQueue),
+      tasks: SyncAwareTaskRepository(
+        underlying: GRDBTaskRepository(dbQueue: dbQueue),
+        pendingStore: pendingStore
+      ),
       projects: GRDBProjectRepository(dbQueue: dbQueue),
-      journal: GRDBJournalRepository(dbQueue: dbQueue),
-      goals: GRDBGoalRepository(dbQueue: dbQueue)
+      journal: SyncAwareJournalRepository(
+        underlying: GRDBJournalRepository(dbQueue: dbQueue),
+        pendingStore: pendingStore
+      ),
+      goals: GRDBGoalRepository(dbQueue: dbQueue),
+      pendingSyncChanges: pendingStore,
+      cloudSyncState: GRDBCloudSyncStateStore(dbQueue: dbQueue)
     )
   }
 }

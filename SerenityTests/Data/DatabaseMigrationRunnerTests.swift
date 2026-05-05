@@ -10,7 +10,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
 
     let summary = try await runner.bootstrapDatabase(at: databaseURL)
 
-    XCTAssertEqual(summary.appliedMigrations.count, 5)
+    XCTAssertEqual(summary.appliedMigrations.count, 6)
     XCTAssertTrue(summary.skippedMigrations.isEmpty)
 
     let dbQueue = try DatabaseQueue(path: databaseURL.path)
@@ -34,6 +34,8 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     XCTAssertTrue(tables.contains("summaries"))
     XCTAssertTrue(tables.contains("ai_provider_credentials"))
     XCTAssertTrue(tables.contains("security_audit_events"))
+    XCTAssertTrue(tables.contains("pending_sync_changes"))
+    XCTAssertTrue(tables.contains("cloud_sync_state"))
     XCTAssertTrue(indexes.contains("idx_tasks_project_id"))
     XCTAssertTrue(indexes.contains("idx_journal_date"))
     XCTAssertTrue(indexes.contains("idx_goals_status"))
@@ -53,7 +55,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     let secondRun = try await runner.bootstrapDatabase(at: databaseURL)
 
     XCTAssertTrue(secondRun.appliedMigrations.isEmpty)
-    XCTAssertEqual(secondRun.skippedMigrations.count, 5)
+    XCTAssertEqual(secondRun.skippedMigrations.count, 6)
   }
 
   private func makeTemporaryDatabaseURL() throws -> URL {
