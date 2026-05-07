@@ -2707,161 +2707,302 @@ private struct TodaySectionView: View {
   }
 }
 
+private struct SerenityFlowLayout: Layout {
+  var spacing: CGFloat = 6
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let maxWidth = proposal.width ?? .infinity
+    var x: CGFloat = 0
+    var y: CGFloat = 0
+    var rowHeight: CGFloat = 0
+
+    for subview in subviews {
+      let size = subview.sizeThatFits(.unspecified)
+      if x + size.width > maxWidth && x > 0 {
+        x = 0
+        y += rowHeight + spacing
+        rowHeight = 0
+      }
+      x += size.width + spacing
+      rowHeight = max(rowHeight, size.height)
+    }
+
+    let resolvedWidth = maxWidth.isFinite ? maxWidth : x
+    return CGSize(width: resolvedWidth, height: y + rowHeight)
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    var x: CGFloat = bounds.minX
+    var y: CGFloat = bounds.minY
+    var rowHeight: CGFloat = 0
+
+    for subview in subviews {
+      let size = subview.sizeThatFits(.unspecified)
+      if x + size.width > bounds.maxX && x > bounds.minX {
+        x = bounds.minX
+        y += rowHeight + spacing
+        rowHeight = 0
+      }
+      subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+      x += size.width + spacing
+      rowHeight = max(rowHeight, size.height)
+    }
+  }
+}
+
+private struct JournalDateRangePicker: View {
+  @Binding var isEnabled: Bool
+  @Binding var startDate: Date
+  @Binding var endDate: Date
+  let onApply: () -> Void
+  let onClose: () -> Void
+
+  @State private var visibleMonth: Date
+  @State private var nextPick: NextPick = .start
+
+  private enum NextPick { case start, end }
+
+  init(
+    isEnabled: Binding<Bool>,
+    startDate: Binding<Date>,
+    endDate: Binding<Date>,
+    onApply: @escaping () -> Void,
+    onClose: @escaping () -> Void
+  ) {
+    _isEnabled = isEnabled
+    _startDate = startDate
+    _endDate = endDate
+    self.onApply = onApply
+    self.onClose = onClose
+    let anchor = isEnabled.wrappedValue ? startDate.wrappedValue : Date()
+    _visibleMonth = State(initialValue: Calendar.current.startOfMonth(for: anchor))
+  }
+
+  private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
+
+  private var weekdaySymbols: [String] {
+    Calendar.current.orderedVeryShortStandaloneWeekdaySymbols()
+  }
+
+  private var gridDates: [Date] {
+    Calendar.current.monthGridDates(for: visibleMonth)
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Toggle(isOn: $isEnabled) {
+        Text("Filter by date range")
+          .font(SerenityType.bodyMedium)
+      }
+      .toggleStyle(.switch)
+      .tint(SerenityPalette.accent)
+      .onChange(of: isEnabled) { _, _ in onApply() }
+
+      if isEnabled {
+        calendarBody
+      }
+    }
+    .padding(16)
+    .frame(width: 320)
+  }
+
+  private var calendarBody: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      monthHeader
+      weekdayRow
+      grid
+      Divider().overlay(SerenityPalette.thinBorder)
+      rangeSummary
+      footerButtons
+    }
+  }
+
+  private var monthHeader: some View {
+    HStack(spacing: 8) {
+      Button { shiftMonth(by: -1) } label: {
+        Image(systemName: "chevron.left")
+          .font(.system(size: 11, weight: .semibold))
+          .frame(width: 24, height: 24)
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+
+      Text(visibleMonth.formatted(.dateTime.month(.wide).year()))
+        .font(SerenityType.bodyLarge.weight(.semibold))
+        .frame(maxWidth: .infinity)
+
+      Button { shiftMonth(by: 1) } label: {
+        Image(systemName: "chevron.right")
+          .font(.system(size: 11, weight: .semibold))
+          .frame(width: 24, height: 24)
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+    }
+  }
+
+  private var weekdayRow: some View {
+    HStack(spacing: 4) {
+      ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { _, symbol in
+        Text(symbol)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .frame(maxWidth: .infinity)
+      }
+    }
+    .padding(.horizontal, 2)
+  }
+
+  private var grid: some View {
+    LazyVGrid(columns: columns, spacing: 4) {
+      ForEach(gridDates, id: \.self) { date in
+        dayCell(date)
+      }
+    }
+  }
+
+  private func dayCell(_ date: Date) -> some View {
+    let calendar = Calendar.current
+    let day = calendar.startOfDay(for: date)
+    let start = calendar.startOfDay(for: startDate)
+    let end = calendar.startOfDay(for: endDate)
+    let isStart = day == start
+    let isEnd = day == end
+    let isEndpoint = isStart || isEnd
+    let isInRange = day > start && day < end
+    let isToday = calendar.isDateInToday(day)
+    let isInVisibleMonth = calendar.isDate(day, equalTo: visibleMonth, toGranularity: .month)
+
+    return Button { handleTap(day) } label: {
+      Text("\(calendar.component(.day, from: day))")
+        .font(SerenityType.bodyMedium.weight(isEndpoint ? .semibold : .regular))
+        .foregroundStyle(
+          isEndpoint
+            ? SerenityPalette.textOnInteractiveSurface
+            : SerenityPalette.textPrimary
+        )
+        .frame(maxWidth: .infinity, minHeight: 30)
+        .background(
+          dayBackground(isEndpoint: isEndpoint, isInRange: isInRange),
+          in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .stroke(
+              dayBorderColor(isEndpoint: isEndpoint, isInRange: isInRange, isToday: isToday),
+              lineWidth: 1
+            )
+        )
+        .opacity(isInVisibleMonth ? 1 : 0.32)
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+  }
+
+  private func dayBackground(isEndpoint: Bool, isInRange: Bool) -> Color {
+    if isEndpoint { return SerenityPalette.accent }
+    if isInRange { return SerenityPalette.accent.opacity(0.18) }
+    return Color.clear
+  }
+
+  private func dayBorderColor(isEndpoint: Bool, isInRange: Bool, isToday: Bool) -> Color {
+    if isEndpoint { return SerenityPalette.accent }
+    if isToday { return SerenityPalette.accent.opacity(0.6) }
+    if isInRange { return SerenityPalette.accent.opacity(0.25) }
+    return SerenityPalette.thinBorder
+  }
+
+  private var rangeSummary: some View {
+    HStack(spacing: 12) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("FROM")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Text(startDate.formatted(.dateTime.month(.abbreviated).day().year()))
+          .font(SerenityType.bodyMedium)
+      }
+      Spacer()
+      Image(systemName: "arrow.right")
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(SerenityPalette.textSecondary)
+      Spacer()
+      VStack(alignment: .trailing, spacing: 2) {
+        Text("TO")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Text(endDate.formatted(.dateTime.month(.abbreviated).day().year()))
+          .font(SerenityType.bodyMedium)
+      }
+    }
+  }
+
+  private var footerButtons: some View {
+    HStack {
+      Button("Today") {
+        let today = Date()
+        startDate = today
+        endDate = today
+        nextPick = .end
+        visibleMonth = Calendar.current.startOfMonth(for: today)
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+
+      Spacer()
+
+      Button("Apply") {
+        onApply()
+        onClose()
+      }
+      .buttonStyle(SerenityPrimaryButtonStyle())
+      .hoverCursor(.pointingHand)
+    }
+  }
+
+  private func handleTap(_ day: Date) {
+    let calendar = Calendar.current
+    if !calendar.isDate(day, equalTo: visibleMonth, toGranularity: .month) {
+      visibleMonth = calendar.startOfMonth(for: day)
+    }
+    switch nextPick {
+    case .start:
+      startDate = day
+      endDate = day
+      nextPick = .end
+    case .end:
+      if calendar.compare(day, to: startDate, toGranularity: .day) == .orderedAscending {
+        endDate = startDate
+        startDate = day
+      } else {
+        endDate = day
+      }
+      nextPick = .start
+    }
+  }
+
+  private func shiftMonth(by value: Int) {
+    guard let shifted = Calendar.current.date(byAdding: .month, value: value, to: visibleMonth) else { return }
+    visibleMonth = Calendar.current.startOfMonth(for: shifted)
+  }
+}
+
 private struct JournalSectionView: View {
   @EnvironmentObject private var appState: AppState
 
   @State private var newEntryTitle = ""
   @State private var newEntryContent = ""
   @State private var newEntryMood: JournalMood?
-  @State private var newEntryTags = ""
+  @State private var newEntryTagList: [String] = []
+  @State private var tagInputText = ""
 
   @State private var editingEntry: JournalEntryEntity?
+  @State private var datePopoverOpen = false
+  @State private var hoveredEntryId: String?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      GroupBox("New Journal Entry") {
-        VStack(alignment: .leading, spacing: 10) {
-          TextField("Title (optional)", text: $newEntryTitle)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-          TextEditor(text: $newEntryContent)
-            .serenityTextArea(minHeight: 120)
-
-          HStack {
-            Picker("Mood", selection: $newEntryMood) {
-              Text("None").tag(Optional<JournalMood>.none)
-              ForEach(journalMoods, id: \.rawValue) { mood in
-                Text(mood.rawValue.capitalized)
-                  .tag(Optional(mood))
-              }
-            }
-            .frame(maxWidth: 220)
-
-            TextField("Tags (comma-separated)", text: $newEntryTags)
-              .textFieldStyle(.plain)
-              .serenityInputField()
-          }
-
-          HStack {
-            Button("Create Entry") {
-              let tags = csvValues(from: newEntryTags)
-              Task {
-                await appState.createJournalEntry(
-                  title: newEntryTitle,
-                  content: newEntryContent,
-                  mood: newEntryMood,
-                  tags: tags
-                )
-              }
-
-              newEntryTitle = ""
-              newEntryContent = ""
-              newEntryMood = nil
-              newEntryTags = ""
-            }
-            .buttonStyle(.borderedProminent)
-          .hoverCursor(.pointingHand)
-
-            Button("Refresh") {
-              Task {
-                await appState.refreshCoreWorkflowData()
-              }
-            }
-            .hoverCursor(.pointingHand)
-          }
-        }
-        .padding(.top, 8)
-      }
-
-      GroupBox("Filters") {
-        VStack(alignment: .leading, spacing: 10) {
-          Toggle("Filter by date range", isOn: $appState.journalDateRangeEnabled)
-            .onChange(of: appState.journalDateRangeEnabled) { _, _ in
-              Task {
-                await appState.refreshCoreWorkflowData()
-              }
-            }
-
-          if appState.journalDateRangeEnabled {
-            HStack {
-              DatePicker("From", selection: $appState.journalRangeStartDate, displayedComponents: .date)
-              DatePicker("To", selection: $appState.journalRangeEndDate, displayedComponents: .date)
-              Button("Apply") {
-                Task {
-                  await appState.refreshCoreWorkflowData()
-                }
-              }
-              .hoverCursor(.pointingHand)
-            }
-          }
-        }
-        .padding(.top, 8)
-      }
-
-      GroupBox("Entries") {
-        VStack(alignment: .leading, spacing: 10) {
-          if appState.filteredJournalEntries.isEmpty {
-            Text("No journal entries available")
-              .foregroundStyle(.secondary)
-          } else {
-            ForEach(appState.filteredJournalEntries) { entry in
-              VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                  Text(entry.title ?? "Untitled entry")
-                    .font(.headline)
-                  if entry.pinned {
-                    Image(systemName: "pin.fill")
-                      .foregroundStyle(.orange)
-                  }
-                  Spacer()
-                  Text(entry.date, style: .date)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-
-                Text(entry.content)
-                  .lineLimit(3)
-                  .font(.subheadline)
-
-                HStack(spacing: 8) {
-                  if !entry.tags.isEmpty {
-                    Text(entry.tags.joined(separator: ", "))
-                      .font(.caption)
-                      .foregroundStyle(.secondary)
-                  }
-
-                  Spacer()
-
-                  Button(entry.pinned ? "Unpin" : "Pin") {
-                    Task {
-                      await appState.toggleJournalPin(id: entry.id)
-                    }
-                  }
-                  .buttonStyle(.bordered)
-          .hoverCursor(.pointingHand)
-
-                  Button("Edit") {
-                    editingEntry = entry
-                  }
-                  .buttonStyle(.bordered)
-          .hoverCursor(.pointingHand)
-
-                  Button("Delete", role: .destructive) {
-                    Task {
-                      await appState.deleteJournalEntry(id: entry.id)
-                    }
-                  }
-                  .buttonStyle(.borderless)
-          .hoverCursor(.pointingHand)
-                }
-              }
-              .padding(10)
-              .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10))
-            }
-          }
-        }
-        .padding(.top, 8)
-      }
+    VStack(alignment: .leading, spacing: 18) {
+      composer
+      entriesSection
     }
     .sheet(item: $editingEntry) { entry in
       JournalEntryEditorView(entry: entry) { updatedTitle, updatedContent, updatedMood, updatedTags in
@@ -2879,15 +3020,343 @@ private struct JournalSectionView: View {
     }
   }
 
+  // MARK: Composer
+
+  private var composer: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      TextField("Title (optional)", text: $newEntryTitle)
+        .textFieldStyle(.plain)
+        .serenityInputField()
+
+      ZStack(alignment: .topLeading) {
+        TextEditor(text: $newEntryContent)
+          .serenityTextArea(minHeight: 140)
+        if newEntryContent.isEmpty {
+          Text("What's on your mind?")
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 14)
+            .allowsHitTesting(false)
+        }
+      }
+
+      VStack(alignment: .leading, spacing: 8) {
+        Text("How are you feeling?")
+          .font(SerenityType.caption.weight(.medium))
+          .foregroundStyle(SerenityPalette.textSecondary)
+        HStack(spacing: 8) {
+          ForEach(journalMoods, id: \.rawValue) { mood in
+            Button {
+              newEntryMood = (newEntryMood == mood) ? nil : mood
+            } label: {
+              Text("\(Self.emoji(for: mood))  \(mood.rawValue.capitalized)")
+            }
+            .buttonStyle(SerenityPillButtonStyle(selected: newEntryMood == mood))
+            .hoverCursor(.pointingHand)
+          }
+        }
+      }
+
+      tagsField
+
+      HStack {
+        Spacer()
+        Button("Save Entry") {
+          submitNewEntry()
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .disabled(saveDisabled)
+        .opacity(saveDisabled ? 0.5 : 1)
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(16)
+    .serenityPanel(cornerRadius: 14)
+  }
+
+  private var tagsField: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if !newEntryTagList.isEmpty {
+        SerenityFlowLayout(spacing: 6) {
+          ForEach(newEntryTagList, id: \.self) { tag in
+            tagChip(tag)
+          }
+        }
+      }
+
+      TextField(tagPlaceholder, text: $tagInputText)
+        .textFieldStyle(.plain)
+        .serenityInputField()
+        .onChange(of: tagInputText) { _, newValue in
+          handleTagInputChange(newValue)
+        }
+        .onSubmit {
+          commitPendingTag()
+        }
+    }
+  }
+
+  private var tagPlaceholder: String {
+    newEntryTagList.isEmpty
+      ? "Add a tag, press comma or return"
+      : "Add another tag…"
+  }
+
+  private func tagChip(_ tag: String) -> some View {
+    HStack(spacing: 6) {
+      Text(tag)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textPrimary)
+      Button {
+        removeTag(tag)
+      } label: {
+        Image(systemName: "xmark")
+          .font(.system(size: 9, weight: .semibold))
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+    .background(SerenityPalette.headerIconBackground, in: RoundedRectangle(cornerRadius: 6))
+    .overlay(
+      RoundedRectangle(cornerRadius: 6, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+  }
+
+  private func handleTagInputChange(_ value: String) {
+    guard value.contains(",") else { return }
+    let parts = value.split(separator: ",", omittingEmptySubsequences: false)
+    let toCommit = parts.dropLast()
+      .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+    for tag in toCommit where !newEntryTagList.contains(tag) {
+      newEntryTagList.append(tag)
+    }
+    tagInputText = String(parts.last ?? "")
+  }
+
+  private func commitPendingTag() {
+    let trimmed = tagInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+    tagInputText = ""
+    guard !trimmed.isEmpty, !newEntryTagList.contains(trimmed) else { return }
+    newEntryTagList.append(trimmed)
+  }
+
+  private func removeTag(_ tag: String) {
+    newEntryTagList.removeAll { $0 == tag }
+  }
+
+  private func submitNewEntry() {
+    let title = newEntryTitle
+    let content = newEntryContent
+    let mood = newEntryMood
+    let pendingTag = tagInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+    var tags = newEntryTagList
+    if !pendingTag.isEmpty, !tags.contains(pendingTag) {
+      tags.append(pendingTag)
+    }
+
+    Task {
+      await appState.createJournalEntry(
+        title: title,
+        content: content,
+        mood: mood,
+        tags: tags
+      )
+    }
+
+    newEntryTitle = ""
+    newEntryContent = ""
+    newEntryMood = nil
+    newEntryTagList = []
+    tagInputText = ""
+  }
+
+  private var saveDisabled: Bool {
+    newEntryContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  // MARK: Entries
+
+  private var entriesSection: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      entriesHeader
+      Divider().overlay(SerenityPalette.thinBorder)
+      entriesContent
+    }
+  }
+
+  private var entriesHeader: some View {
+    HStack(spacing: 10) {
+      Text("Entries")
+        .font(SerenityType.bodyLarge.weight(.semibold))
+      Text(entryCountLabel)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+      Spacer()
+      dateRangeChip
+    }
+    .padding(.bottom, 10)
+  }
+
+  private var entryCountLabel: String {
+    let count = appState.filteredJournalEntries.count
+    return "\(count) \(count == 1 ? "entry" : "entries")"
+  }
+
+  private var dateRangeChip: some View {
+    Button {
+      datePopoverOpen.toggle()
+    } label: {
+      HStack(spacing: 6) {
+        Image(systemName: "calendar")
+          .font(.system(size: 11, weight: .medium))
+        Text("Date range")
+        Image(systemName: "chevron.down")
+          .font(.system(size: 9, weight: .semibold))
+      }
+    }
+    .buttonStyle(SerenityPillButtonStyle(selected: appState.journalDateRangeEnabled))
+    .hoverCursor(.pointingHand)
+    .popover(isPresented: $datePopoverOpen, arrowEdge: .top) {
+      JournalDateRangePicker(
+        isEnabled: $appState.journalDateRangeEnabled,
+        startDate: $appState.journalRangeStartDate,
+        endDate: $appState.journalRangeEndDate,
+        onApply: {
+          Task { await appState.refreshCoreWorkflowData() }
+        },
+        onClose: {
+          datePopoverOpen = false
+        }
+      )
+    }
+  }
+
+  @ViewBuilder
+  private var entriesContent: some View {
+    if appState.filteredJournalEntries.isEmpty {
+      VStack(spacing: 8) {
+        Image(systemName: "book.closed")
+          .font(.system(size: 32, weight: .regular))
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Text("No entries yet")
+          .font(SerenityType.bodyLarge.weight(.semibold))
+        Text("Your reflections will appear here.")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 36)
+    } else {
+      VStack(spacing: 8) {
+        ForEach(appState.filteredJournalEntries) { entry in
+          entryRow(entry)
+        }
+      }
+      .padding(.top, 12)
+    }
+  }
+
+  private func entryRow(_ entry: JournalEntryEntity) -> some View {
+    HStack(alignment: .top, spacing: 12) {
+      if let mood = entry.mood {
+        ZStack {
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(SerenityPalette.headerIconBackground)
+          Text(Self.emoji(for: mood))
+            .font(.system(size: 16))
+        }
+        .frame(width: 28, height: 28)
+      }
+
+      VStack(alignment: .leading, spacing: 6) {
+        HStack(spacing: 6) {
+          Text(displayTitle(for: entry))
+            .font(SerenityType.bodyMedium)
+            .foregroundStyle(SerenityPalette.textPrimary)
+          if entry.pinned {
+            Image(systemName: "pin.fill")
+              .font(.system(size: 11))
+              .foregroundStyle(.orange)
+          }
+          Spacer()
+          Text(entry.date, style: .date)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+
+        Text(entry.content)
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(2)
+          .frame(maxWidth: .infinity, alignment: .leading)
+
+        if !entry.tags.isEmpty {
+          Text(entry.tags.joined(separator: " · "))
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+      }
+
+      HStack(spacing: 4) {
+        rowAction(systemName: entry.pinned ? "pin.slash" : "pin") {
+          Task { await appState.toggleJournalPin(id: entry.id) }
+        }
+        rowAction(systemName: "pencil") {
+          editingEntry = entry
+        }
+        rowAction(systemName: "trash") {
+          Task { await appState.deleteJournalEntry(id: entry.id) }
+        }
+      }
+      .opacity(hoveredEntryId == entry.id ? 1 : 0)
+      .animation(.easeOut(duration: 0.12), value: hoveredEntryId)
+    }
+    .padding(12)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+    .onHover { isHovering in
+      hoveredEntryId = isHovering ? entry.id : nil
+    }
+  }
+
+  private func rowAction(systemName: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Image(systemName: systemName)
+        .font(.system(size: 12, weight: .medium))
+        .frame(width: 24, height: 24)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+  }
+
+  private func displayTitle(for entry: JournalEntryEntity) -> String {
+    if let title = entry.title, !title.isEmpty { return title }
+    return "Untitled entry"
+  }
+
   private var journalMoods: [JournalMood] {
     [.happy, .neutral, .sad, .excited, .stressed]
   }
 
-  private func csvValues(from value: String) -> [String] {
-    value
-      .split(separator: ",")
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
+  private static func emoji(for mood: JournalMood) -> String {
+    switch mood {
+    case .happy: return "😊"
+    case .neutral: return "😐"
+    case .sad: return "😢"
+    case .excited: return "✨"
+    case .stressed: return "😣"
+    }
   }
 }
 
