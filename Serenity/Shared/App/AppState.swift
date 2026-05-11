@@ -1677,11 +1677,12 @@ final class AppState: ObservableObject {
     }
   }
 
-  func createProject(name: String, description: String, color: String) async {
+  @discardableResult
+  func createProject(name: String, description: String, color: String) async -> ProjectEntity? {
     let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedName.isEmpty else {
       showToast("Project name cannot be empty")
-      return
+      return nil
     }
 
     let now = Date()
@@ -1701,8 +1702,10 @@ final class AppState: ObservableObject {
       try await createProject(project)
       showToast("Project created")
       await refreshCoreWorkflowData()
+      return project
     } catch {
       showError(title: "Failed to create project", message: error.localizedDescription)
+      return nil
     }
   }
 

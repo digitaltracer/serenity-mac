@@ -1629,6 +1629,12 @@ struct IntegrationsSectionView: View {
 }
 
 
+private func tagsIncludingPendingInput(_ tags: [String], input: String) -> [String] {
+  let pendingTag = input.trimmingCharacters(in: .whitespacesAndNewlines)
+  guard !pendingTag.isEmpty, !tags.contains(pendingTag) else { return tags }
+  return tags + [pendingTag]
+}
+
 private struct ActionHubSectionView: View {
   @EnvironmentObject private var appState: AppState
 
@@ -1666,7 +1672,8 @@ private struct ActionHubSectionView: View {
 
   @State private var newTaskTitle = ""
   @State private var newTaskDescription = ""
-  @State private var newTaskTags = ""
+  @State private var newTaskTags: [String] = []
+  @State private var newTaskTagInput = ""
   @State private var newTaskProjectID = ""
   @State private var newTaskPriority: TaskPriority = .medium
   @State private var includeDueDate = false
@@ -1675,6 +1682,10 @@ private struct ActionHubSectionView: View {
   @State private var selectedCalendarDate = Calendar.current.startOfDay(for: Date())
   @State private var subtaskDraftByTaskID: [String: String] = [:]
   @State private var editingTask: TaskEntity?
+  @State private var showQuickProjectCreator = false
+  @State private var quickProjectName = ""
+  @State private var quickProjectDescription = ""
+  @State private var quickProjectColor: Color = ProjectColorCodec.fallbackColor
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -1852,22 +1863,37 @@ private struct ActionHubSectionView: View {
           .lineLimit(2...4)
           .serenityInputField()
 
-        TextField("Tags (comma-separated)", text: $newTaskTags)
-          .textFieldStyle(.plain)
-          .serenityInputField()
+        SerenityTagInputField(tags: $newTaskTags, inputText: $newTaskTagInput)
 
         HStack(alignment: .top, spacing: 12) {
           VStack(alignment: .leading, spacing: 6) {
             Text("Project")
               .font(SerenityType.caption)
               .foregroundStyle(SerenityPalette.textSecondary)
-            Picker("Project", selection: $newTaskProjectID) {
-              Text("No project").tag("")
-              ForEach(assignableProjects) { project in
-                Text(project.name).tag(project.id)
+            SerenityDropdownField(
+              placeholder: "No project",
+              selection: $newTaskProjectID,
+              options: projectDropdownOptions
+            ) {
+              Divider()
+                .overlay(SerenityPalette.thinBorder)
+              Button {
+                showQuickProjectCreator = true
+              } label: {
+                HStack(spacing: 8) {
+                  Image(systemName: "plus.circle.fill")
+                    .foregroundStyle(SerenityPalette.accent)
+                  Text("Create new project")
+                    .font(SerenityType.bodyMedium)
+                    .foregroundStyle(SerenityPalette.textPrimary)
+                  Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
               }
+              .buttonStyle(.plain)
+              .hoverCursor(.pointingHand)
             }
-            .labelsHidden()
             .frame(maxWidth: .infinity, alignment: .leading)
           }
 
@@ -1875,17 +1901,19 @@ private struct ActionHubSectionView: View {
             Text("Priority")
               .font(SerenityType.caption)
               .foregroundStyle(SerenityPalette.textSecondary)
-            Picker("Priority", selection: $newTaskPriority) {
-              ForEach(TaskPriority.allCases, id: \.rawValue) { priority in
-                Text(priority.rawValue.capitalized)
-                  .tag(priority)
-              }
-            }
-            .labelsHidden()
+            SerenityDropdownField(
+              placeholder: "Priority",
+              selection: $newTaskPriority,
+              options: priorityDropdownOptions
+            )
             .frame(maxWidth: .infinity, alignment: .leading)
           }
         }
         .frame(maxWidth: .infinity)
+
+        if showQuickProjectCreator {
+          quickProjectCreator
+        }
 
         HStack(spacing: 12) {
           Toggle("Due date", isOn: $includeDueDate)
@@ -1904,7 +1932,7 @@ private struct ActionHubSectionView: View {
           Button("Create Task") {
             let title = newTaskTitle
             let description = newTaskDescription
-            let tags = csvValues(from: newTaskTags)
+            let tags = tagsIncludingPendingInput(newTaskTags, input: newTaskTagInput)
             let projectID = newTaskProjectID.isEmpty ? nil : newTaskProjectID
             let priority = newTaskPriority
             let taskDueDate = includeDueDate ? dueDate : nil
@@ -1923,11 +1951,14 @@ private struct ActionHubSectionView: View {
               guard created else { return }
               newTaskTitle = ""
               newTaskDescription = ""
-              newTaskTags = ""
+              newTaskTags = []
+              newTaskTagInput = ""
               newTaskProjectID = ""
               searchQuery = ""
               taskFilter = .all
               includeDueDate = false
+              resetQuickProjectForm()
+              showQuickProjectCreator = false
               showQuickAddForm = false
             }
           }
@@ -1936,6 +1967,10 @@ private struct ActionHubSectionView: View {
           .disabled(newTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
           Button("Cancel") {
+            newTaskTags = []
+            newTaskTagInput = ""
+            resetQuickProjectForm()
+            showQuickProjectCreator = false
             showQuickAddForm = false
           }
           .buttonStyle(SerenitySecondaryButtonStyle())
@@ -1970,6 +2005,70 @@ private struct ActionHubSectionView: View {
     .overlay(
       RoundedRectangle(cornerRadius: 16, style: .continuous)
         .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private var quickProjectCreator: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        Label(assignableProjects.isEmpty ? "Create a project to organize this task" : "New project", systemImage: "folder.badge.plus")
+          .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.textPrimary)
+      }
+
+      TextField("Project name", text: $quickProjectName)
+        .textFieldStyle(.plain)
+        .serenityInputField()
+
+      TextField("Description (optional)", text: $quickProjectDescription)
+        .textFieldStyle(.plain)
+        .serenityInputField()
+
+      HStack(spacing: 10) {
+        ColorPicker("Project color", selection: $quickProjectColor, supportsOpacity: false)
+          .labelsHidden()
+        Text(ProjectColorCodec.hex(from: quickProjectColor))
+          .font(.caption.monospaced())
+          .foregroundStyle(SerenityPalette.textSecondary)
+
+        Spacer()
+
+        Button("Cancel") {
+          resetQuickProjectForm()
+          showQuickProjectCreator = false
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button("Create Project") {
+          let name = quickProjectName
+          let description = quickProjectDescription
+          let colorHex = ProjectColorCodec.hex(from: quickProjectColor)
+
+          Task {
+            guard let project = await appState.createProject(
+              name: name,
+              description: description,
+              color: colorHex
+            ) else {
+              return
+            }
+
+            newTaskProjectID = project.id
+            resetQuickProjectForm()
+            showQuickProjectCreator = false
+          }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .disabled(quickProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+    }
+    .padding(12)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
     )
   }
 
@@ -2493,6 +2592,17 @@ private struct ActionHubSectionView: View {
     }
   }
 
+  private func priorityIcon(_ priority: TaskPriority) -> String {
+    switch priority {
+    case .low:
+      return "arrow.down.circle"
+    case .medium:
+      return "equal.circle"
+    case .high:
+      return "exclamationmark.circle"
+    }
+  }
+
   private func subtaskBinding(for taskID: String) -> Binding<String> {
     Binding(
       get: { subtaskDraftByTaskID[taskID, default: ""] },
@@ -2504,17 +2614,40 @@ private struct ActionHubSectionView: View {
     appState.projects.filter { !$0.archived }
   }
 
+  private var projectDropdownOptions: [SerenityDropdownOption<String>] {
+    [SerenityDropdownOption(value: "", title: "No project", systemImage: "minus.circle")] +
+      assignableProjects.map { project in
+        SerenityDropdownOption(
+          value: project.id,
+          title: project.name,
+          subtitle: project.description,
+          tint: ProjectColorCodec.color(from: project.color) ?? SerenityPalette.accent
+        )
+      }
+  }
+
+  private var priorityDropdownOptions: [SerenityDropdownOption<TaskPriority>] {
+    TaskPriority.allCases.map { priority in
+      SerenityDropdownOption(
+        value: priority,
+        title: priority.rawValue.capitalized,
+        systemImage: priorityIcon(priority),
+        tint: priorityColor(priority)
+      )
+    }
+  }
+
   private func projectName(for projectID: String?) -> String? {
     guard let projectID else { return nil }
     return appState.projects.first(where: { $0.id == projectID })?.name
   }
 
-  private func csvValues(from value: String) -> [String] {
-    value
-      .split(separator: ",")
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
+  private func resetQuickProjectForm() {
+    quickProjectName = ""
+    quickProjectDescription = ""
+    quickProjectColor = ProjectColorCodec.fallbackColor
   }
+
 }
 
 private struct TodaySectionView: View {
@@ -2704,49 +2837,6 @@ private struct TodaySectionView: View {
   private var completionPercent: Double {
     guard totalTodayCount > 0 else { return 0 }
     return Double(completedTodayCount) / Double(totalTodayCount)
-  }
-}
-
-private struct SerenityFlowLayout: Layout {
-  var spacing: CGFloat = 6
-
-  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-    let maxWidth = proposal.width ?? .infinity
-    var x: CGFloat = 0
-    var y: CGFloat = 0
-    var rowHeight: CGFloat = 0
-
-    for subview in subviews {
-      let size = subview.sizeThatFits(.unspecified)
-      if x + size.width > maxWidth && x > 0 {
-        x = 0
-        y += rowHeight + spacing
-        rowHeight = 0
-      }
-      x += size.width + spacing
-      rowHeight = max(rowHeight, size.height)
-    }
-
-    let resolvedWidth = maxWidth.isFinite ? maxWidth : x
-    return CGSize(width: resolvedWidth, height: y + rowHeight)
-  }
-
-  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-    var x: CGFloat = bounds.minX
-    var y: CGFloat = bounds.minY
-    var rowHeight: CGFloat = 0
-
-    for subview in subviews {
-      let size = subview.sizeThatFits(.unspecified)
-      if x + size.width > bounds.maxX && x > bounds.minX {
-        x = bounds.minX
-        y += rowHeight + spacing
-        rowHeight = 0
-      }
-      subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-      x += size.width + spacing
-      rowHeight = max(rowHeight, size.height)
-    }
   }
 }
 
@@ -3076,89 +3166,14 @@ private struct JournalSectionView: View {
   }
 
   private var tagsField: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      if !newEntryTagList.isEmpty {
-        SerenityFlowLayout(spacing: 6) {
-          ForEach(newEntryTagList, id: \.self) { tag in
-            tagChip(tag)
-          }
-        }
-      }
-
-      TextField(tagPlaceholder, text: $tagInputText)
-        .textFieldStyle(.plain)
-        .serenityInputField()
-        .onChange(of: tagInputText) { _, newValue in
-          handleTagInputChange(newValue)
-        }
-        .onSubmit {
-          commitPendingTag()
-        }
-    }
-  }
-
-  private var tagPlaceholder: String {
-    newEntryTagList.isEmpty
-      ? "Add a tag, press comma or return"
-      : "Add another tag…"
-  }
-
-  private func tagChip(_ tag: String) -> some View {
-    HStack(spacing: 6) {
-      Text(tag)
-        .font(SerenityType.caption)
-        .foregroundStyle(SerenityPalette.textPrimary)
-      Button {
-        removeTag(tag)
-      } label: {
-        Image(systemName: "xmark")
-          .font(.system(size: 9, weight: .semibold))
-          .foregroundStyle(SerenityPalette.textSecondary)
-      }
-      .buttonStyle(.plain)
-      .hoverCursor(.pointingHand)
-    }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
-    .background(SerenityPalette.headerIconBackground, in: RoundedRectangle(cornerRadius: 6))
-    .overlay(
-      RoundedRectangle(cornerRadius: 6, style: .continuous)
-        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
-    )
-  }
-
-  private func handleTagInputChange(_ value: String) {
-    guard value.contains(",") else { return }
-    let parts = value.split(separator: ",", omittingEmptySubsequences: false)
-    let toCommit = parts.dropLast()
-      .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-    for tag in toCommit where !newEntryTagList.contains(tag) {
-      newEntryTagList.append(tag)
-    }
-    tagInputText = String(parts.last ?? "")
-  }
-
-  private func commitPendingTag() {
-    let trimmed = tagInputText.trimmingCharacters(in: .whitespacesAndNewlines)
-    tagInputText = ""
-    guard !trimmed.isEmpty, !newEntryTagList.contains(trimmed) else { return }
-    newEntryTagList.append(trimmed)
-  }
-
-  private func removeTag(_ tag: String) {
-    newEntryTagList.removeAll { $0 == tag }
+    SerenityTagInputField(tags: $newEntryTagList, inputText: $tagInputText)
   }
 
   private func submitNewEntry() {
     let title = newEntryTitle
     let content = newEntryContent
     let mood = newEntryMood
-    let pendingTag = tagInputText.trimmingCharacters(in: .whitespacesAndNewlines)
-    var tags = newEntryTagList
-    if !pendingTag.isEmpty, !tags.contains(pendingTag) {
-      tags.append(pendingTag)
-    }
+    let tags = tagsIncludingPendingInput(newEntryTagList, input: tagInputText)
 
     Task {
       await appState.createJournalEntry(
@@ -6458,7 +6473,8 @@ private struct TaskEditorView: View {
   @State private var hasDueDate: Bool
   @State private var dueDate: Date
   @State private var selectedProjectID: String
-  @State private var tags: String
+  @State private var tags: [String]
+  @State private var tagInputText = ""
 
   init(
     task: TaskEntity,
@@ -6474,7 +6490,7 @@ private struct TaskEditorView: View {
     _hasDueDate = State(initialValue: task.dueDate != nil)
     _dueDate = State(initialValue: task.dueDate ?? Date())
     _selectedProjectID = State(initialValue: task.projectId ?? "")
-    _tags = State(initialValue: task.tags.joined(separator: ", "))
+    _tags = State(initialValue: task.tags)
   }
 
   var body: some View {
@@ -6492,11 +6508,11 @@ private struct TaskEditorView: View {
         .serenityInputField()
 
       HStack(spacing: 12) {
-        Picker("Priority", selection: $priority) {
-          ForEach(TaskPriority.allCases, id: \.rawValue) { value in
-            Text(value.rawValue.capitalized).tag(value)
-          }
-        }
+        SerenityDropdownField(
+          placeholder: "Priority",
+          selection: $priority,
+          options: priorityDropdownOptions
+        )
         .frame(maxWidth: 180)
 
         Toggle("Due date", isOn: $hasDueDate)
@@ -6508,17 +6524,14 @@ private struct TaskEditorView: View {
         }
       }
 
-      Picker("Project", selection: $selectedProjectID) {
-        Text("No project").tag("")
-        ForEach(availableProjects) { project in
-          Text(project.name).tag(project.id)
-        }
-      }
+      SerenityDropdownField(
+        placeholder: "No project",
+        selection: $selectedProjectID,
+        options: projectDropdownOptions
+      )
       .frame(maxWidth: 260)
 
-      TextField("Tags (comma-separated)", text: $tags)
-        .textFieldStyle(.plain)
-        .serenityInputField()
+      SerenityTagInputField(tags: $tags, inputText: $tagInputText)
 
       HStack {
         Spacer()
@@ -6528,18 +6541,13 @@ private struct TaskEditorView: View {
         .hoverCursor(.pointingHand)
 
         Button("Save") {
-          let parsedTags = tags
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
           onSave(
             title,
             description,
             priority,
             hasDueDate ? dueDate : nil,
             selectedProjectID.isEmpty ? nil : selectedProjectID,
-            parsedTags
+            tagsIncludingPendingInput(tags, input: tagInputText)
           )
           dismiss()
         }
@@ -6548,6 +6556,51 @@ private struct TaskEditorView: View {
       }
     }
     .padding(20)
+  }
+
+  private var projectDropdownOptions: [SerenityDropdownOption<String>] {
+    [SerenityDropdownOption(value: "", title: "No project", systemImage: "minus.circle")] +
+      availableProjects.map { project in
+        SerenityDropdownOption(
+          value: project.id,
+          title: project.name,
+          subtitle: project.description,
+          tint: ProjectColorCodec.color(from: project.color) ?? SerenityPalette.accent
+        )
+      }
+  }
+
+  private var priorityDropdownOptions: [SerenityDropdownOption<TaskPriority>] {
+    TaskPriority.allCases.map { value in
+      SerenityDropdownOption(
+        value: value,
+        title: value.rawValue.capitalized,
+        systemImage: priorityIcon(value),
+        tint: priorityColor(value)
+      )
+    }
+  }
+
+  private func priorityIcon(_ value: TaskPriority) -> String {
+    switch value {
+    case .low:
+      return "arrow.down.circle"
+    case .medium:
+      return "equal.circle"
+    case .high:
+      return "exclamationmark.circle"
+    }
+  }
+
+  private func priorityColor(_ value: TaskPriority) -> Color {
+    switch value {
+    case .low:
+      return .mint
+    case .medium:
+      return .orange
+    case .high:
+      return .red
+    }
   }
 }
 
@@ -6560,7 +6613,8 @@ private struct JournalEntryEditorView: View {
   @State private var title: String
   @State private var content: String
   @State private var mood: JournalMood?
-  @State private var tags: String
+  @State private var tags: [String]
+  @State private var tagInputText = ""
 
   init(entry: JournalEntryEntity, onSave: @escaping (String, String, JournalMood?, [String]) -> Void) {
     self.entry = entry
@@ -6568,7 +6622,7 @@ private struct JournalEntryEditorView: View {
     _title = State(initialValue: entry.title ?? "")
     _content = State(initialValue: entry.content)
     _mood = State(initialValue: entry.mood)
-    _tags = State(initialValue: entry.tags.joined(separator: ", "))
+    _tags = State(initialValue: entry.tags)
   }
 
   var body: some View {
@@ -6591,9 +6645,7 @@ private struct JournalEntryEditorView: View {
       }
       .frame(maxWidth: 240)
 
-      TextField("Tags (comma-separated)", text: $tags)
-        .textFieldStyle(.plain)
-        .serenityInputField()
+      SerenityTagInputField(tags: $tags, inputText: $tagInputText)
 
       HStack {
         Spacer()
@@ -6602,12 +6654,7 @@ private struct JournalEntryEditorView: View {
         }
         .hoverCursor(.pointingHand)
         Button("Save") {
-          let splitTags = tags
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-          onSave(title, content, mood, splitTags)
+          onSave(title, content, mood, tagsIncludingPendingInput(tags, input: tagInputText))
           dismiss()
         }
         .buttonStyle(.borderedProminent)

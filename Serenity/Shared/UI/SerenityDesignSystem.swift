@@ -205,6 +205,346 @@ struct SerenityPillButtonStyle: ButtonStyle {
   }
 }
 
+struct SerenityDropdownOption<Value: Hashable>: Identifiable {
+  let value: Value
+  let title: String
+  let subtitle: String?
+  let systemImage: String?
+  let tint: Color?
+
+  var id: Value { value }
+
+  init(
+    value: Value,
+    title: String,
+    subtitle: String? = nil,
+    systemImage: String? = nil,
+    tint: Color? = nil
+  ) {
+    self.value = value
+    self.title = title
+    self.subtitle = subtitle
+    self.systemImage = systemImage
+    self.tint = tint
+  }
+}
+
+struct SerenityFlowLayout: Layout {
+  var spacing: CGFloat = 6
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let maxWidth = proposal.width ?? .infinity
+    var x: CGFloat = 0
+    var y: CGFloat = 0
+    var rowHeight: CGFloat = 0
+
+    for subview in subviews {
+      let size = subview.sizeThatFits(.unspecified)
+      if x + size.width > maxWidth && x > 0 {
+        x = 0
+        y += rowHeight + spacing
+        rowHeight = 0
+      }
+      x += size.width + spacing
+      rowHeight = max(rowHeight, size.height)
+    }
+
+    let resolvedWidth = maxWidth.isFinite ? maxWidth : x
+    return CGSize(width: resolvedWidth, height: y + rowHeight)
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    var x: CGFloat = bounds.minX
+    var y: CGFloat = bounds.minY
+    var rowHeight: CGFloat = 0
+
+    for subview in subviews {
+      let size = subview.sizeThatFits(.unspecified)
+      if x + size.width > bounds.maxX && x > bounds.minX {
+        x = bounds.minX
+        y += rowHeight + spacing
+        rowHeight = 0
+      }
+      subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+      x += size.width + spacing
+      rowHeight = max(rowHeight, size.height)
+    }
+  }
+}
+
+struct SerenityTagInputField: View {
+  @Binding var tags: [String]
+  @Binding var inputText: String
+
+  let emptyPlaceholder: String
+  let filledPlaceholder: String
+
+  init(
+    tags: Binding<[String]>,
+    inputText: Binding<String>,
+    emptyPlaceholder: String = "Add a tag, press comma or return",
+    filledPlaceholder: String = "Add another tag..."
+  ) {
+    _tags = tags
+    _inputText = inputText
+    self.emptyPlaceholder = emptyPlaceholder
+    self.filledPlaceholder = filledPlaceholder
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if !tags.isEmpty {
+        SerenityFlowLayout(spacing: 6) {
+          ForEach(tags, id: \.self) { tag in
+            tagChip(tag)
+          }
+        }
+      }
+
+      TextField(tags.isEmpty ? emptyPlaceholder : filledPlaceholder, text: $inputText)
+        .textFieldStyle(.plain)
+        .serenityInputField()
+        .onChange(of: inputText) { _, newValue in
+          handleInputChange(newValue)
+        }
+        .onSubmit {
+          commitPendingTag()
+        }
+    }
+  }
+
+  func committedTagsIncludingPendingInput() -> [String] {
+    let pendingTag = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !pendingTag.isEmpty, !tags.contains(pendingTag) else { return tags }
+    return tags + [pendingTag]
+  }
+
+  private func tagChip(_ tag: String) -> some View {
+    HStack(spacing: 6) {
+      Text(tag)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textPrimary)
+      Button {
+        removeTag(tag)
+      } label: {
+        Image(systemName: "xmark")
+          .font(.system(size: 9, weight: .semibold))
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+      .buttonStyle(.plain)
+    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+    .background(SerenityPalette.headerIconBackground, in: RoundedRectangle(cornerRadius: 6))
+    .overlay(
+      RoundedRectangle(cornerRadius: 6, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+  }
+
+  private func handleInputChange(_ value: String) {
+    guard value.contains(",") else { return }
+    let parts = value.split(separator: ",", omittingEmptySubsequences: false)
+    let tagsToCommit = parts.dropLast()
+      .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+    for tag in tagsToCommit where !tags.contains(tag) {
+      tags.append(tag)
+    }
+    inputText = String(parts.last ?? "")
+  }
+
+  private func commitPendingTag() {
+    let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+    inputText = ""
+    guard !trimmed.isEmpty, !tags.contains(trimmed) else { return }
+    tags.append(trimmed)
+  }
+
+  private func removeTag(_ tag: String) {
+    tags.removeAll { $0 == tag }
+  }
+}
+
+struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
+  let placeholder: String
+  let options: [SerenityDropdownOption<Value>]
+  let maxMenuHeight: CGFloat
+  let footerDismissesOnTap: Bool
+  let footer: Footer
+
+  @Binding var selection: Value
+  @State private var showingPopover = false
+  @State private var hovered = false
+
+  private var selectedOption: SerenityDropdownOption<Value>? {
+    options.first { $0.value == selection }
+  }
+
+  var body: some View {
+    Button {
+      showingPopover.toggle()
+    } label: {
+      HStack(spacing: 9) {
+        if let selectedOption, let systemImage = selectedOption.systemImage {
+          Image(systemName: systemImage)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(selectedOption.tint ?? SerenityPalette.accent)
+        } else if let selectedOption, let tint = selectedOption.tint {
+          Circle()
+            .fill(tint)
+            .frame(width: 9, height: 9)
+        }
+
+        Text(selectedOption?.title ?? placeholder)
+          .font(SerenityType.body)
+          .foregroundStyle(selectedOption == nil ? SerenityPalette.textSecondary : SerenityPalette.textPrimary)
+          .lineLimit(1)
+
+        Spacer(minLength: 0)
+
+        Image(systemName: "chevron.down")
+          .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .rotationEffect(.degrees(showingPopover ? 180 : 0))
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 9)
+      .frame(minWidth: 160, minHeight: 40, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .fill(hovered || showingPopover ? SerenityPalette.inputBackgroundHover : SerenityPalette.inputBackground)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .stroke(hovered || showingPopover ? SerenityPalette.border : SerenityPalette.thinBorder, lineWidth: 1)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .stroke(SerenityPalette.highlightStroke, lineWidth: 1)
+      )
+      .shadow(color: SerenityPalette.accent.opacity(hovered || showingPopover ? 0.12 : 0.06), radius: hovered || showingPopover ? 8 : 5, x: 0, y: 1)
+    }
+    .buttonStyle(.plain)
+    .onHover { isHovering in
+      hovered = isHovering
+    }
+    .animation(.easeOut(duration: 0.16), value: hovered)
+    .animation(.easeOut(duration: 0.16), value: showingPopover)
+    .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
+      dropdownMenu
+        .padding(8)
+        .frame(minWidth: 220)
+    }
+  }
+
+  private var dropdownMenu: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 4) {
+          ForEach(options) { option in
+            dropdownRow(option)
+          }
+        }
+      }
+      .frame(maxHeight: maxMenuHeight)
+
+      footer
+        .simultaneousGesture(
+          TapGesture().onEnded {
+            if footerDismissesOnTap {
+              showingPopover = false
+            }
+          }
+        )
+    }
+    .background(SerenityPalette.panelBackground)
+  }
+
+  private func dropdownRow(_ option: SerenityDropdownOption<Value>) -> some View {
+    Button {
+      selection = option.value
+      showingPopover = false
+    } label: {
+      HStack(spacing: 9) {
+        if let systemImage = option.systemImage {
+          Image(systemName: systemImage)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(option.tint ?? SerenityPalette.accent)
+        } else if let tint = option.tint {
+          Circle()
+            .fill(tint)
+            .frame(width: 9, height: 9)
+        }
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(option.title)
+            .font(SerenityType.bodyMedium)
+            .foregroundStyle(SerenityPalette.textPrimary)
+            .lineLimit(1)
+
+          if let subtitle = option.subtitle, !subtitle.isEmpty {
+            Text(subtitle)
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+              .lineLimit(1)
+          }
+        }
+
+        Spacer(minLength: 8)
+
+        if option.value == selection {
+          Image(systemName: "checkmark")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(SerenityPalette.accent)
+        }
+      }
+      .padding(.horizontal, 10)
+      .padding(.vertical, 8)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill(option.value == selection ? SerenityPalette.activeItemBackground.opacity(0.72) : Color.clear)
+      )
+    }
+    .buttonStyle(.plain)
+  }
+}
+
+extension SerenityDropdownField where Footer == EmptyView {
+  init(
+    placeholder: String,
+    selection: Binding<Value>,
+    options: [SerenityDropdownOption<Value>],
+    maxMenuHeight: CGFloat = 240
+  ) {
+    self.placeholder = placeholder
+    self._selection = selection
+    self.options = options
+    self.maxMenuHeight = maxMenuHeight
+    self.footerDismissesOnTap = false
+    self.footer = EmptyView()
+  }
+}
+
+extension SerenityDropdownField {
+  init(
+    placeholder: String,
+    selection: Binding<Value>,
+    options: [SerenityDropdownOption<Value>],
+    maxMenuHeight: CGFloat = 240,
+    footerDismissesOnTap: Bool = true,
+    @ViewBuilder footer: () -> Footer
+  ) {
+    self.placeholder = placeholder
+    self._selection = selection
+    self.options = options
+    self.maxMenuHeight = maxMenuHeight
+    self.footerDismissesOnTap = footerDismissesOnTap
+    self.footer = footer()
+  }
+}
+
 struct SerenityInputFieldModifier: ViewModifier {
   @State private var hovered = false
 
