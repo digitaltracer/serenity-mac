@@ -344,7 +344,7 @@ private struct TopBarButton: View {
   var body: some View {
     Button(action: action) {
       Image(systemName: symbol)
-        .font(.system(size: SerenityChromeMetrics.buttonIconSize, weight: .semibold))
+        .font(SerenityType.scaledSystem(size: SerenityChromeMetrics.buttonIconSize, weight: .semibold))
         .foregroundStyle(SerenityPalette.textSecondary)
         .frame(width: SerenityChromeMetrics.buttonSize, height: SerenityChromeMetrics.buttonSize)
         .contentShape(Rectangle())
@@ -379,7 +379,7 @@ private struct SerenitySidebar: View {
 
       VStack(alignment: .leading, spacing: 0) {
         Text("NAVIGATION")
-          .font(.system(size: 11, weight: .semibold))
+          .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
           .tracking(1.1)
           .foregroundStyle(SerenityPalette.textSecondary)
           .padding(.horizontal, 18)
@@ -420,7 +420,7 @@ private struct SerenitySidebar: View {
           .fill(SerenityPalette.headerIconBackground)
           .frame(width: SerenityChromeMetrics.sidebarHeaderIconSize, height: SerenityChromeMetrics.sidebarHeaderIconSize)
         Image(systemName: "square.and.pencil")
-          .font(.system(size: 14, weight: .semibold))
+          .font(SerenityType.scaledSystem(size: 14, weight: .semibold))
           .foregroundStyle(SerenityPalette.accent)
       }
 
@@ -450,7 +450,7 @@ private struct SerenitySidebar: View {
       HStack(spacing: 10) {
         Image(systemName: section.systemImage)
           .frame(width: 18)
-          .font(.system(size: 14, weight: .semibold))
+          .font(SerenityType.scaledSystem(size: 14, weight: .semibold))
 
         Text(section.title)
           .font(SerenityType.bodyLarge.weight(.medium))
@@ -570,17 +570,17 @@ private enum SerenityContentDensity {
 
   var sectionTitleFont: Font {
     switch self {
-    case .regular: return .system(size: 28, weight: .semibold)
-    case .compact: return .system(size: 24, weight: .semibold)
-    case .tight: return .system(size: 21, weight: .medium)
+    case .regular: return SerenityType.scaledSystem(size: 28, weight: .semibold)
+    case .compact: return SerenityType.scaledSystem(size: 24, weight: .semibold)
+    case .tight: return SerenityType.scaledSystem(size: 21, weight: .medium)
     }
   }
 
   var sectionSubtitleFont: Font {
     switch self {
-    case .regular: return .system(size: 17, weight: .regular)
-    case .compact: return .system(size: 15, weight: .regular)
-    case .tight: return .system(size: 14, weight: .regular)
+    case .regular: return SerenityType.scaledSystem(size: 17, weight: .regular)
+    case .compact: return SerenityType.scaledSystem(size: 15, weight: .regular)
+    case .tight: return SerenityType.scaledSystem(size: 14, weight: .regular)
     }
   }
 
@@ -792,7 +792,7 @@ private struct SectionView: View {
           .fill(SerenityPalette.headerIconBackground)
           .frame(width: density.sectionIconContainer, height: density.sectionIconContainer)
         Image(systemName: section.systemImage)
-          .font(.system(size: density.sectionIconSize, weight: .semibold))
+          .font(SerenityType.scaledSystem(size: density.sectionIconSize, weight: .semibold))
           .foregroundStyle(SerenityPalette.accent)
       }
 
@@ -895,7 +895,7 @@ private struct QuickCaptureEditor: NSViewRepresentable {
     textView.textContainer?.widthTracksTextView = true
     textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
     textView.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
-    textView.font = .systemFont(ofSize: fontSize, weight: .regular)
+    textView.font = .systemFont(ofSize: SerenityType.scaledSize(fontSize), weight: .regular)
     textView.textColor = NSColor(SerenityPalette.textPrimary)
     textView.insertionPointColor = NSColor(SerenityPalette.textPrimary)
     textView.typingAttributes[.foregroundColor] = NSColor(SerenityPalette.textPrimary)
@@ -920,7 +920,7 @@ private struct QuickCaptureEditor: NSViewRepresentable {
       textView.string = text
     }
 
-    textView.font = .systemFont(ofSize: fontSize, weight: .regular)
+    textView.font = .systemFont(ofSize: SerenityType.scaledSize(fontSize), weight: .regular)
     textView.textColor = NSColor(SerenityPalette.textPrimary)
     textView.insertionPointColor = NSColor(SerenityPalette.textPrimary)
     textView.typingAttributes[.foregroundColor] = NSColor(SerenityPalette.textPrimary)
@@ -968,7 +968,7 @@ private struct QuickCaptureEditor: View {
 
   var body: some View {
     TextEditor(text: $text)
-      .font(.system(size: fontSize, weight: .regular))
+      .font(SerenityType.scaledSystem(size: fontSize, weight: .regular))
       .foregroundStyle(SerenityPalette.textPrimary)
       .scrollContentBackground(.hidden)
       .focused($editorFocused)
@@ -1011,12 +1011,12 @@ private struct HomeSectionView: View {
           .frame(width: density.heroAvatarSize, height: density.heroAvatarSize)
           .shadow(color: SerenityPalette.accent.opacity(0.35), radius: 22)
         Text("S")
-          .font(.system(size: density.heroLetterSize, weight: .medium))
+          .font(SerenityType.scaledSystem(size: density.heroLetterSize, weight: .medium))
           .foregroundStyle(SerenityPalette.accent)
       }
 
       Text("Serenity Notes")
-        .font(.system(size: density.heroTitleSize, weight: density.heroTitleWeight))
+        .font(SerenityType.scaledSystem(size: density.heroTitleSize, weight: density.heroTitleWeight))
       Text("Boost your productivity and mindfulness with a powerful integrated task management and journaling experience.")
         .font(density.sectionSubtitleFont)
         .foregroundStyle(SerenityPalette.textSecondary)
@@ -1154,7 +1154,7 @@ private struct HomeSectionView: View {
             .fill(SerenityPalette.headerIconBackground)
             .frame(width: density.featureIconContainer, height: density.featureIconContainer)
           Image(systemName: icon)
-            .font(.system(size: density.featureIconSize, weight: .semibold))
+            .font(SerenityType.scaledSystem(size: density.featureIconSize, weight: .semibold))
             .foregroundStyle(SerenityPalette.accent)
         }
         Text(title)
@@ -1245,7 +1245,7 @@ struct IntegrationsSectionView: View {
           .fill(SerenityPalette.headerIconBackground)
           .frame(width: 40, height: 40)
         Image(systemName: "arrow.triangle.2.circlepath")
-          .font(.system(size: 17, weight: .semibold))
+          .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
           .foregroundStyle(SerenityPalette.accent)
       }
 
@@ -1416,7 +1416,7 @@ struct IntegrationsSectionView: View {
         .fill(accent.opacity(0.18))
         .frame(width: 36, height: 36)
       Image(systemName: systemName)
-        .font(.system(size: 15, weight: .semibold))
+        .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
         .foregroundStyle(accent)
     }
   }
@@ -1570,14 +1570,14 @@ struct IntegrationsSectionView: View {
             EmptyView()
           case .syncing:
             Label("Syncing...", systemImage: "arrow.triangle.2.circlepath")
-              .font(.caption)
+              .font(SerenityType.caption)
           case .succeeded(let message):
             Text(message)
-              .font(.caption)
+              .font(SerenityType.caption)
               .foregroundStyle(.green)
           case .failed(let message):
             Text(message)
-              .font(.caption)
+              .font(SerenityType.caption)
               .foregroundStyle(.red)
           }
         }
@@ -1589,9 +1589,9 @@ struct IntegrationsSectionView: View {
           ForEach(appState.cloudSyncConflicts) { conflict in
             VStack(alignment: .leading, spacing: 6) {
               Text("\(conflict.entityType.rawValue.capitalized): \(conflict.summary)")
-                .font(.subheadline)
+                .font(SerenityType.bodyMedium)
               Text("Local: \(conflict.localUpdatedAt.formatted()) | Remote: \(conflict.remoteUpdatedAt.formatted())")
-                .font(.caption)
+                .font(SerenityType.caption)
                 .foregroundStyle(.secondary)
 
               HStack {
@@ -1619,7 +1619,7 @@ struct IntegrationsSectionView: View {
 
         ForEach(appState.cloudSyncDiagnostics, id: \.self) { line in
           Text(line)
-            .font(.caption)
+            .font(SerenityType.caption)
             .foregroundStyle(.secondary)
         }
       }
@@ -1681,6 +1681,7 @@ private struct ActionHubSectionView: View {
   @State private var calendarVisibleMonth = Calendar.current.startOfMonth(for: Date())
   @State private var selectedCalendarDate = Calendar.current.startOfDay(for: Date())
   @State private var subtaskDraftByTaskID: [String: String] = [:]
+  @State private var expandedDescriptionTaskIDs: Set<String> = []
   @State private var editingTask: TaskEntity?
   @State private var showQuickProjectCreator = false
   @State private var quickProjectName = ""
@@ -1747,7 +1748,7 @@ private struct ActionHubSectionView: View {
             .foregroundStyle(SerenityPalette.textSecondary)
           TextField("Search tasks, projects, or tags...", text: $searchQuery)
             .textFieldStyle(.plain)
-            .font(.system(size: 17, weight: .regular))
+            .font(SerenityType.scaledSystem(size: 17, weight: .regular))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -1858,10 +1859,7 @@ private struct ActionHubSectionView: View {
           .textFieldStyle(.plain)
           .serenityInputField()
 
-        TextField("Description (optional)", text: $newTaskDescription, axis: .vertical)
-          .textFieldStyle(.plain)
-          .lineLimit(2...4)
-          .serenityInputField()
+        TaskMarkdownDescriptionField(text: $newTaskDescription)
 
         SerenityTagInputField(tags: $newTaskTags, inputText: $newTaskTagInput)
 
@@ -1982,10 +1980,10 @@ private struct ActionHubSectionView: View {
         } label: {
           VStack(spacing: 8) {
             Image(systemName: "plus")
-              .font(.system(size: 28, weight: .light))
+              .font(SerenityType.scaledSystem(size: 28, weight: .light))
               .foregroundStyle(SerenityPalette.textSecondary)
             Text("Add new task...")
-              .font(.system(size: 18, weight: .medium))
+              .font(SerenityType.scaledSystem(size: 18, weight: .medium))
               .foregroundStyle(SerenityPalette.textSecondary)
           }
           .frame(maxWidth: .infinity, minHeight: 178)
@@ -2028,7 +2026,7 @@ private struct ActionHubSectionView: View {
         ColorPicker("Project color", selection: $quickProjectColor, supportsOpacity: false)
           .labelsHidden()
         Text(ProjectColorCodec.hex(from: quickProjectColor))
-          .font(.caption.monospaced())
+          .font(SerenityType.scaledSystem(size: 11, weight: .regular, design: .monospaced))
           .foregroundStyle(SerenityPalette.textSecondary)
 
         Spacer()
@@ -2095,7 +2093,7 @@ private struct ActionHubSectionView: View {
           .hoverCursor(.pointingHand)
 
         Text(task.title)
-          .font(.system(size: 20, weight: .medium))
+          .font(SerenityType.scaledSystem(size: 20, weight: .medium))
           .strikethrough(task.completed)
           .lineLimit(2)
 
@@ -2119,10 +2117,7 @@ private struct ActionHubSectionView: View {
       }
 
       if let description = task.description, !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        Text(description)
-          .font(SerenityType.body)
-          .foregroundStyle(SerenityPalette.textSecondary)
-          .lineLimit(3)
+        taskDescriptionPreview(taskID: task.id, description: description)
       }
 
       if !task.tags.isEmpty {
@@ -2146,7 +2141,7 @@ private struct ActionHubSectionView: View {
                 Image(systemName: subtask.completed ? "checkmark.circle.fill" : "circle")
                   .foregroundStyle(subtask.completed ? .green : SerenityPalette.textSecondary)
                 Text(subtask.title)
-                  .font(.caption)
+                  .font(SerenityType.caption)
                   .strikethrough(subtask.completed)
                 Spacer()
               }
@@ -2193,6 +2188,51 @@ private struct ActionHubSectionView: View {
     )
   }
 
+  private func taskDescriptionPreview(taskID: String, description: String) -> some View {
+    let shouldCollapse = TaskMarkdownParser.shouldCollapseInTaskList(description)
+    let isExpanded = expandedDescriptionTaskIDs.contains(taskID)
+
+    return VStack(alignment: .leading, spacing: 6) {
+      GitHubFlavoredMarkdownView(markdown: description, compact: !isExpanded)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxHeight: shouldCollapse && !isExpanded ? 132 : nil, alignment: .top)
+        .clipped()
+        .mask(alignment: .bottom) {
+          if shouldCollapse && !isExpanded {
+            VStack(spacing: 0) {
+              Rectangle()
+              LinearGradient(
+                colors: [.black, .black.opacity(0)],
+                startPoint: .top,
+                endPoint: .bottom
+              )
+              .frame(height: 28)
+            }
+          } else {
+            Rectangle()
+          }
+        }
+
+      if shouldCollapse {
+        Button {
+          withAnimation(.easeInOut(duration: 0.18)) {
+            if isExpanded {
+              expandedDescriptionTaskIDs.remove(taskID)
+            } else {
+              expandedDescriptionTaskIDs.insert(taskID)
+            }
+          }
+        } label: {
+          Label(isExpanded ? "Show less" : "Read more", systemImage: isExpanded ? "chevron.up" : "chevron.down")
+            .font(SerenityType.caption.weight(.semibold))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(SerenityPalette.accent)
+        .hoverCursor(.pointingHand)
+      }
+    }
+  }
+
   private var projectsView: some View {
     GroupBox("Projects") {
       VStack(alignment: .leading, spacing: 10) {
@@ -2203,10 +2243,10 @@ private struct ActionHubSectionView: View {
           ForEach(appState.projects) { project in
             HStack {
               Text(project.name)
-                .font(.title3)
+                .font(SerenityType.scaledSystem(size: 20, weight: .regular))
               Spacer()
               Text(project.archived ? "Archived" : "Active")
-                .font(.caption)
+                .font(SerenityType.caption)
                 .foregroundStyle(project.archived ? SerenityPalette.textSecondary : .green)
             }
             .padding(.vertical, 4)
@@ -2238,7 +2278,7 @@ private struct ActionHubSectionView: View {
             shiftCalendarMonth(by: -1)
           } label: {
             Image(systemName: "chevron.left")
-              .font(.system(size: 11, weight: .semibold))
+              .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
               .frame(width: 26, height: 26)
           }
           .buttonStyle(SerenitySecondaryButtonStyle())
@@ -2252,7 +2292,7 @@ private struct ActionHubSectionView: View {
             shiftCalendarMonth(by: 1)
           } label: {
             Image(systemName: "chevron.right")
-              .font(.system(size: 11, weight: .semibold))
+              .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
               .frame(width: 26, height: 26)
           }
           .buttonStyle(SerenitySecondaryButtonStyle())
@@ -2547,7 +2587,7 @@ private struct ActionHubSectionView: View {
         .stroke(SerenityPalette.accent, style: StrokeStyle(lineWidth: 11, lineCap: .round))
         .rotationEffect(.degrees(-90))
       Text("\(percent)%")
-        .font(.title2.bold())
+        .font(SerenityType.scaledSystem(size: 22, weight: .bold))
     }
     .frame(width: 108, height: 108)
   }
@@ -2562,7 +2602,7 @@ private struct ActionHubSectionView: View {
       Spacer()
       Text(value)
         .foregroundStyle(tint)
-        .font(.title3.weight(.semibold))
+        .font(SerenityType.scaledSystem(size: 20, weight: .semibold))
     }
   }
 
@@ -2686,7 +2726,7 @@ private struct TodaySectionView: View {
   private var header: some View {
     HStack(alignment: .center, spacing: 12) {
       Image(systemName: "calendar")
-        .font(.system(size: 22, weight: .semibold))
+        .font(SerenityType.scaledSystem(size: 22, weight: .semibold))
         .foregroundStyle(SerenityPalette.accent)
 
       VStack(alignment: .leading, spacing: 2) {
@@ -2710,7 +2750,7 @@ private struct TodaySectionView: View {
         .font(SerenityType.sectionTitle)
 
       Text("\(Int(completionPercent * 100))%")
-        .font(.system(size: 38, weight: .semibold))
+        .font(SerenityType.scaledSystem(size: 38, weight: .semibold))
 
       ProgressView(value: completionPercent)
         .progressViewStyle(.linear)
@@ -2764,7 +2804,7 @@ private struct TodaySectionView: View {
     if appState.todayTasks.isEmpty {
       VStack(spacing: 10) {
         Image(systemName: "calendar")
-          .font(.system(size: 32, weight: .regular))
+          .font(SerenityType.scaledSystem(size: 32, weight: .regular))
           .foregroundStyle(SerenityPalette.textSecondary.opacity(0.7))
         Text("No tasks scheduled for today")
           .font(SerenityType.bodyLarge.weight(.medium))
@@ -2794,7 +2834,7 @@ private struct TodaySectionView: View {
               Task { await appState.toggleTaskCompletion(id: task.id) }
             } label: {
               Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 18, weight: .regular))
+                .font(SerenityType.scaledSystem(size: 18, weight: .regular))
                 .foregroundStyle(task.completed ? Color.green : SerenityPalette.textSecondary)
             }
             .buttonStyle(.plain)
@@ -2808,7 +2848,7 @@ private struct TodaySectionView: View {
 
             if let dueDate = task.dueDate {
               Text(dueDate, style: .time)
-                .font(.caption)
+                .font(SerenityType.caption)
                 .foregroundStyle(SerenityPalette.textSecondary)
             }
           }
@@ -2911,7 +2951,7 @@ private struct JournalDateRangePicker: View {
     HStack(spacing: 8) {
       Button { shiftMonth(by: -1) } label: {
         Image(systemName: "chevron.left")
-          .font(.system(size: 11, weight: .semibold))
+          .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
           .frame(width: 24, height: 24)
       }
       .buttonStyle(SerenitySecondaryButtonStyle())
@@ -2923,7 +2963,7 @@ private struct JournalDateRangePicker: View {
 
       Button { shiftMonth(by: 1) } label: {
         Image(systemName: "chevron.right")
-          .font(.system(size: 11, weight: .semibold))
+          .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
           .frame(width: 24, height: 24)
       }
       .buttonStyle(SerenitySecondaryButtonStyle())
@@ -3013,7 +3053,7 @@ private struct JournalDateRangePicker: View {
       }
       Spacer()
       Image(systemName: "arrow.right")
-        .font(.system(size: 11, weight: .semibold))
+        .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
         .foregroundStyle(SerenityPalette.textSecondary)
       Spacer()
       VStack(alignment: .trailing, spacing: 2) {
@@ -3088,6 +3128,7 @@ private struct JournalSectionView: View {
   @State private var editingEntry: JournalEntryEntity?
   @State private var datePopoverOpen = false
   @State private var hoveredEntryId: String?
+  @FocusState private var newEntryContentFocused: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
@@ -3120,8 +3161,10 @@ private struct JournalSectionView: View {
 
       ZStack(alignment: .topLeading) {
         TextEditor(text: $newEntryContent)
+          .focused($newEntryContentFocused)
           .serenityTextArea(minHeight: 140)
-        if newEntryContent.isEmpty {
+
+        if newEntryContent.isEmpty && !newEntryContentFocused {
           Text("What's on your mind?")
             .font(SerenityType.body)
             .foregroundStyle(SerenityPalette.textSecondary)
@@ -3229,10 +3272,10 @@ private struct JournalSectionView: View {
     } label: {
       HStack(spacing: 6) {
         Image(systemName: "calendar")
-          .font(.system(size: 11, weight: .medium))
+          .font(SerenityType.scaledSystem(size: 11, weight: .medium))
         Text("Date range")
         Image(systemName: "chevron.down")
-          .font(.system(size: 9, weight: .semibold))
+          .font(SerenityType.scaledSystem(size: 9, weight: .semibold))
       }
     }
     .buttonStyle(SerenityPillButtonStyle(selected: appState.journalDateRangeEnabled))
@@ -3257,7 +3300,7 @@ private struct JournalSectionView: View {
     if appState.filteredJournalEntries.isEmpty {
       VStack(spacing: 8) {
         Image(systemName: "book.closed")
-          .font(.system(size: 32, weight: .regular))
+          .font(SerenityType.scaledSystem(size: 32, weight: .regular))
           .foregroundStyle(SerenityPalette.textSecondary)
         Text("No entries yet")
           .font(SerenityType.bodyLarge.weight(.semibold))
@@ -3284,7 +3327,7 @@ private struct JournalSectionView: View {
           RoundedRectangle(cornerRadius: 8, style: .continuous)
             .fill(SerenityPalette.headerIconBackground)
           Text(Self.emoji(for: mood))
-            .font(.system(size: 16))
+            .font(SerenityType.scaledSystem(size: 16))
         }
         .frame(width: 28, height: 28)
       }
@@ -3296,7 +3339,7 @@ private struct JournalSectionView: View {
             .foregroundStyle(SerenityPalette.textPrimary)
           if entry.pinned {
             Image(systemName: "pin.fill")
-              .font(.system(size: 11))
+              .font(SerenityType.scaledSystem(size: 11))
               .foregroundStyle(.orange)
           }
           Spacer()
@@ -3346,7 +3389,7 @@ private struct JournalSectionView: View {
   private func rowAction(systemName: String, action: @escaping () -> Void) -> some View {
     Button(action: action) {
       Image(systemName: systemName)
-        .font(.system(size: 12, weight: .medium))
+        .font(SerenityType.scaledSystem(size: 12, weight: .medium))
         .frame(width: 24, height: 24)
         .foregroundStyle(SerenityPalette.textSecondary)
         .contentShape(Rectangle())
@@ -3454,17 +3497,17 @@ private struct GoalsSectionView: View {
                 HStack {
                   VStack(alignment: .leading, spacing: 3) {
                     Text(goal.title)
-                      .font(.headline)
+                      .font(SerenityType.bodyLarge.weight(.semibold))
 
                     Text("\(goal.progress.current, specifier: "%.0f") / \(goal.progress.target, specifier: "%.0f") (\(goal.progress.percentage, specifier: "%.0f")%)")
-                      .font(.caption)
+                      .font(SerenityType.caption)
                       .foregroundStyle(.secondary)
                   }
 
                   Spacer()
 
                   Text(goal.status.rawValue.capitalized)
-                    .font(.caption)
+                    .font(SerenityType.caption)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
                     .background(goal.status == .completed ? Color.green.opacity(0.2) : Color.blue.opacity(0.2), in: Capsule())
@@ -3532,7 +3575,7 @@ private struct ProjectsSectionView: View {
           HStack(spacing: 10) {
             ColorPicker("Project color", selection: $newProjectColor, supportsOpacity: false)
             Text(ProjectColorCodec.hex(from: newProjectColor))
-              .font(.caption.monospaced())
+              .font(SerenityType.scaledSystem(size: 11, weight: .regular, design: .monospaced))
               .foregroundStyle(.secondary)
           }
 
@@ -3579,16 +3622,16 @@ private struct ProjectsSectionView: View {
                 HStack {
                   VStack(alignment: .leading, spacing: 3) {
                     Text(project.name)
-                      .font(.headline)
+                      .font(SerenityType.bodyLarge.weight(.semibold))
                     Text(project.description ?? "No description")
-                      .font(.caption)
+                      .font(SerenityType.caption)
                       .foregroundStyle(.secondary)
                     HStack(spacing: 6) {
                       Circle()
                         .fill(ProjectColorCodec.color(from: project.color) ?? Color.secondary)
                         .frame(width: 10, height: 10)
                       Text("Color: \(project.color)")
-                        .font(.caption2)
+                        .font(SerenityType.scaledSystem(size: 10, weight: .regular))
                         .foregroundStyle(.secondary)
                     }
                   }
@@ -3597,7 +3640,7 @@ private struct ProjectsSectionView: View {
 
                   if project.archived {
                     Text("Archived")
-                      .font(.caption)
+                      .font(SerenityType.caption)
                       .padding(.horizontal, 8)
                       .padding(.vertical, 2)
                       .background(Color.secondary.opacity(0.2), in: Capsule())
@@ -3663,7 +3706,7 @@ struct InsightsSectionView: View {
       GroupBox("AI Status and Settings") {
         VStack(alignment: .leading, spacing: 10) {
           Text(appState.aiStatusMessage)
-            .font(.caption)
+            .font(SerenityType.caption)
             .foregroundStyle(.secondary)
 
           HStack {
@@ -3809,7 +3852,7 @@ struct InsightsSectionView: View {
                   VStack(alignment: .leading, spacing: 2) {
                     Text(credential.name)
                     Text("\(credential.provider.rawValue.capitalized) • priority \(credential.priority)")
-                      .font(.caption)
+                      .font(SerenityType.caption)
                       .foregroundStyle(.secondary)
                   }
                   Spacer()
@@ -3860,7 +3903,7 @@ struct InsightsSectionView: View {
         VStack(alignment: .leading, spacing: 10) {
           if !appState.aiCredentials.contains(where: { $0.enabled }) {
             Text("No-key mode: add and enable at least one provider credential to run AI actions.")
-              .font(.caption)
+              .font(SerenityType.caption)
               .foregroundStyle(.orange)
           }
 
@@ -3930,11 +3973,11 @@ struct InsightsSectionView: View {
             ForEach(appState.aiInsights.prefix(12)) { insight in
               VStack(alignment: .leading, spacing: 8) {
                 Text(insight.title)
-                  .font(.headline)
+                  .font(SerenityType.bodyLarge.weight(.semibold))
                 Text(insight.description)
-                  .font(.subheadline)
+                  .font(SerenityType.bodyMedium)
                 Text("Confidence: \(Int(insight.confidence * 100))%")
-                  .font(.caption)
+                  .font(SerenityType.caption)
                   .foregroundStyle(.secondary)
 
                 TextField("Notes", text: Binding(
@@ -4008,14 +4051,14 @@ struct InsightsSectionView: View {
               VStack(alignment: .leading, spacing: 6) {
                 HStack {
                   Text(recap.title)
-                    .font(.headline)
+                    .font(SerenityType.bodyLarge.weight(.semibold))
                   Spacer()
                   Text(recap.type.rawValue.capitalized)
-                    .font(.caption)
+                    .font(SerenityType.caption)
                     .foregroundStyle(.secondary)
                 }
                 Text(recap.summary)
-                  .font(.subheadline)
+                  .font(SerenityType.bodyMedium)
                 HStack {
                   Button("Mark viewed") {
                     Task {
@@ -4051,12 +4094,12 @@ struct InsightsSectionView: View {
                   Text(summary.title)
                   Spacer()
                   Text("\(summary.wordCount) words")
-                    .font(.caption)
+                    .font(SerenityType.caption)
                     .foregroundStyle(.secondary)
                 }
                 Text(summary.content)
                   .lineLimit(3)
-                  .font(.caption)
+                  .font(SerenityType.caption)
                 HStack {
                   Button("Export") {
                     Task {
@@ -4079,14 +4122,14 @@ struct InsightsSectionView: View {
 
           if let path = appState.lastSummaryExportPath {
             Text("Last exported summary: \(path)")
-              .font(.caption)
+              .font(SerenityType.caption)
               .foregroundStyle(.secondary)
               .textSelection(.enabled)
           }
 
           Divider()
           Text("Recent Usage")
-            .font(.subheadline)
+            .font(SerenityType.bodyMedium)
           if appState.aiUsageEntries.isEmpty {
             Text("No usage records yet.")
               .foregroundStyle(.secondary)
@@ -4096,10 +4139,10 @@ struct InsightsSectionView: View {
                 Text("\(usage.provider.rawValue.capitalized) • \(usage.operation.rawValue)")
                 Spacer()
                 Text("\(usage.totalTokens) tokens")
-                  .font(.caption)
+                  .font(SerenityType.caption)
                   .foregroundStyle(.secondary)
               }
-              .font(.caption)
+              .font(SerenityType.caption)
             }
           }
         }
@@ -4282,7 +4325,7 @@ private struct AISummariesSectionView: View {
     if filtered.isEmpty {
       VStack(spacing: 10) {
         Image(systemName: "sparkles")
-          .font(.system(size: 30, weight: .regular))
+          .font(SerenityType.scaledSystem(size: 30, weight: .regular))
           .foregroundStyle(SerenityPalette.textSecondary.opacity(0.7))
         Text("No summaries yet")
           .font(SerenityType.bodyLarge.weight(.medium))
@@ -4523,7 +4566,7 @@ private struct DatabaseSectionView: View {
           } else {
             ForEach(appState.databaseManagementLines, id: \.self) { line in
               Text(line)
-                .font(.caption)
+                .font(SerenityType.caption)
                 .textSelection(.enabled)
             }
           }
@@ -4561,7 +4604,7 @@ private struct DatabaseSectionView: View {
   private func statMetricCard(title: String, value: String) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       Text(title.uppercased())
-        .font(.caption2)
+        .font(SerenityType.scaledSystem(size: 10, weight: .regular))
         .foregroundStyle(SerenityPalette.textSecondary)
       Text(value)
         .font(SerenityType.pageTitle)
@@ -5252,28 +5295,28 @@ private struct LocalLockOverlayView: View {
                 .shadow(color: Color(red: 0.38, green: 0.47, blue: 0.97).opacity(0.28), radius: 14, y: 8)
 
               Image(systemName: "lock")
-                .font(.system(size: 24, weight: .semibold))
+                .font(SerenityType.scaledSystem(size: 24, weight: .semibold))
                 .foregroundStyle(Color.white)
             }
 
             Text("Serenity Notes")
-              .font(.system(size: 32, weight: .semibold, design: .rounded))
+              .font(SerenityType.scaledSystem(size: 32, weight: .semibold, design: .rounded))
               .foregroundStyle(Color.white.opacity(0.97))
 
             Text("Enter your master password to unlock")
-              .font(.system(size: 15, weight: .regular, design: .rounded))
+              .font(SerenityType.scaledSystem(size: 15, weight: .regular, design: .rounded))
               .foregroundStyle(Color(red: 0.66, green: 0.72, blue: 0.82))
           }
           .frame(maxWidth: .infinity)
 
           VStack(alignment: .leading, spacing: 8) {
             Text("Master Password")
-              .font(.system(size: 13, weight: .medium, design: .rounded))
+              .font(SerenityType.scaledSystem(size: 13, weight: .medium, design: .rounded))
               .foregroundStyle(Color(red: 0.74, green: 0.79, blue: 0.88))
 
             HStack(spacing: 10) {
               Image(systemName: "key")
-                .font(.system(size: 15, weight: .semibold))
+                .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
                 .foregroundStyle(Color(red: 0.61, green: 0.67, blue: 0.78))
 
               Group {
@@ -5285,7 +5328,7 @@ private struct LocalLockOverlayView: View {
                     .textFieldStyle(.plain)
                 }
               }
-              .font(.system(size: 15, weight: .medium, design: .rounded))
+              .font(SerenityType.scaledSystem(size: 15, weight: .medium, design: .rounded))
               .foregroundStyle(Color(red: 0.84, green: 0.89, blue: 0.97))
               .focused($passwordFieldFocused)
               .submitLabel(.go)
@@ -5298,7 +5341,7 @@ private struct LocalLockOverlayView: View {
                 revealPassword.toggle()
               } label: {
                 Image(systemName: revealPassword ? "eye.slash" : "eye")
-                  .font(.system(size: 15, weight: .semibold))
+                  .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
                   .foregroundStyle(Color(red: 0.56, green: 0.63, blue: 0.75))
               }
               .buttonStyle(.plain)
@@ -5349,7 +5392,7 @@ private struct LocalLockOverlayView: View {
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
           }
-          .font(.system(size: 16, weight: .semibold, design: .rounded))
+          .font(SerenityType.scaledSystem(size: 16, weight: .semibold, design: .rounded))
           .foregroundStyle(unlockDisabled ? Color.white.opacity(0.62) : Color(red: 0.08, green: 0.11, blue: 0.20))
           .frame(maxWidth: .infinity)
           .padding(.vertical, 11)
@@ -5381,7 +5424,7 @@ private struct LocalLockOverlayView: View {
               .frame(maxWidth: .infinity)
               .contentShape(Rectangle())
             }
-            .font(.system(size: 16, weight: .semibold, design: .rounded))
+            .font(SerenityType.scaledSystem(size: 16, weight: .semibold, design: .rounded))
             .foregroundStyle(Color(red: 0.82, green: 0.88, blue: 0.97))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
@@ -5404,7 +5447,7 @@ private struct LocalLockOverlayView: View {
                 .fill(Color(red: 0.30, green: 0.37, blue: 0.49))
                 .frame(height: 1)
               Text("or")
-                .font(.system(size: 14, weight: .regular, design: .rounded))
+                .font(SerenityType.scaledSystem(size: 14, weight: .regular, design: .rounded))
                 .foregroundStyle(Color(red: 0.56, green: 0.62, blue: 0.73))
               Rectangle()
                 .fill(Color(red: 0.30, green: 0.37, blue: 0.49))
@@ -5417,17 +5460,17 @@ private struct LocalLockOverlayView: View {
             appState.showToast("Open Settings to reset your local lock password.")
           }
           .buttonStyle(.plain)
-          .font(.system(size: 14, weight: .medium, design: .rounded))
+          .font(SerenityType.scaledSystem(size: 14, weight: .medium, design: .rounded))
           .foregroundStyle(Color(red: 0.43, green: 0.67, blue: 0.98))
           .frame(maxWidth: .infinity, alignment: .center)
           .hoverCursor(.pointingHand)
 
           VStack(alignment: .leading, spacing: 6) {
             Label("Your data is protected", systemImage: "shield")
-              .font(.system(size: 14, weight: .semibold, design: .rounded))
+              .font(SerenityType.scaledSystem(size: 14, weight: .semibold, design: .rounded))
               .foregroundStyle(Color(red: 0.71, green: 0.83, blue: 1.0))
             Text("All sensitive information is encrypted with your master password.")
-              .font(.system(size: 13, weight: .regular, design: .rounded))
+              .font(SerenityType.scaledSystem(size: 13, weight: .regular, design: .rounded))
               .foregroundStyle(Color(red: 0.74, green: 0.82, blue: 0.95))
               .fixedSize(horizontal: false, vertical: true)
           }
@@ -5466,7 +5509,7 @@ private struct LocalLockOverlayView: View {
         .shadow(color: Color.black.opacity(0.42), radius: 16, x: 0, y: 10)
 
         Text("Serenity Notes v2.0 • Privacy-First Productivity")
-          .font(.system(size: 11, weight: .regular, design: .rounded))
+          .font(SerenityType.scaledSystem(size: 11, weight: .regular, design: .rounded))
           .foregroundStyle(Color(red: 0.53, green: 0.59, blue: 0.69))
       }
       .padding(.horizontal, 20)
@@ -5548,11 +5591,11 @@ private struct LocalLockOverlayView: View {
   private func statusMessageBox(text: String, tint: Color, border: Color, background: Color) -> some View {
     HStack(alignment: .top, spacing: 8) {
       Image(systemName: "exclamationmark.triangle.fill")
-        .font(.system(size: 12, weight: .semibold))
+        .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
         .foregroundStyle(tint)
         .padding(.top, 2)
       Text(text)
-        .font(.system(size: 13, weight: .medium, design: .rounded))
+        .font(SerenityType.scaledSystem(size: 13, weight: .medium, design: .rounded))
         .foregroundStyle(tint.opacity(0.95))
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -5605,10 +5648,10 @@ private struct MetricTile: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       Text(title)
-        .font(.caption)
+        .font(SerenityType.caption)
         .foregroundStyle(.secondary)
       Text(value)
-        .font(.system(size: 24, weight: .bold, design: .rounded))
+        .font(SerenityType.scaledSystem(size: 24, weight: .bold, design: .rounded))
     }
     .padding(14)
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -5668,7 +5711,7 @@ private struct GlobalSearchSheet: View {
           .foregroundStyle(SerenityPalette.textSecondary)
         TextField("Search tasks, projects, journal, or goals", text: queryBinding)
           .textFieldStyle(.plain)
-          .font(.system(size: 16, weight: .regular))
+          .font(SerenityType.scaledSystem(size: 16, weight: .regular))
           .focused($queryFocused)
       }
       .padding(.horizontal, 14)
@@ -5699,7 +5742,7 @@ private struct GlobalSearchSheet: View {
             ForEach(groupedResults, id: \.0.id) { type, results in
               VStack(alignment: .leading, spacing: 8) {
                 Text(type.title.uppercased())
-                  .font(.caption.weight(.semibold))
+                  .font(SerenityType.caption.weight(.semibold))
                   .foregroundStyle(SerenityPalette.textSecondary)
                 ForEach(results) { result in
                   Button {
@@ -6272,7 +6315,7 @@ private struct DueDateSelectionField: View {
         Spacer(minLength: 0)
 
         Image(systemName: "chevron.down")
-          .font(.system(size: 10, weight: .semibold))
+          .font(SerenityType.scaledSystem(size: 10, weight: .semibold))
           .foregroundStyle(SerenityPalette.textSecondary)
       }
       .padding(.horizontal, 12)
@@ -6322,7 +6365,7 @@ private struct DueDateCalendarPopover: View {
           shiftMonth(by: -1)
         } label: {
           Image(systemName: "chevron.left")
-            .font(.system(size: 11, weight: .semibold))
+            .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
             .frame(width: 24, height: 24)
         }
         .buttonStyle(SerenitySecondaryButtonStyle())
@@ -6336,7 +6379,7 @@ private struct DueDateCalendarPopover: View {
           shiftMonth(by: 1)
         } label: {
           Image(systemName: "chevron.right")
-            .font(.system(size: 11, weight: .semibold))
+            .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
             .frame(width: 24, height: 24)
         }
         .buttonStyle(SerenitySecondaryButtonStyle())
@@ -6460,6 +6503,756 @@ private struct DueDateCalendarPopover: View {
   }
 }
 
+private struct TaskMarkdownDescriptionField: View {
+  @Binding var text: String
+  var minHeight: CGFloat = 132
+  @FocusState private var isFocused: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 8) {
+        Text("Description")
+          .font(SerenityType.caption.weight(.semibold))
+          .foregroundStyle(SerenityPalette.textSecondary)
+
+        Spacer(minLength: 0)
+
+        Label("Markdown", systemImage: "text.badge.checkmark")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      ZStack(alignment: .topLeading) {
+        TextEditor(text: $text)
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textPrimary)
+          .focused($isFocused)
+          .serenityTextArea(minHeight: minHeight)
+
+        if text.isEmpty && !isFocused {
+          Text("Description (optional)")
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary.opacity(0.76))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .allowsHitTesting(false)
+        }
+      }
+
+      if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Preview")
+            .font(SerenityType.caption.weight(.semibold))
+            .foregroundStyle(SerenityPalette.textSecondary)
+
+          GitHubFlavoredMarkdownView(markdown: text)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+              RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+            )
+        }
+      }
+    }
+  }
+}
+
+private struct GitHubFlavoredMarkdownView: View {
+  let markdown: String
+  var compact = false
+
+  private var blocks: [TaskMarkdownBlock] {
+    TaskMarkdownParser.parse(markdown)
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: compact ? 5 : 8) {
+      ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+        blockView(block)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  @ViewBuilder
+  private func blockView(_ block: TaskMarkdownBlock) -> some View {
+    switch block {
+    case .heading(let level, let text):
+      Text(TaskMarkdownParser.inlineAttributedString(text))
+        .font(headingFont(level: level))
+        .foregroundStyle(SerenityPalette.textPrimary)
+        .lineLimit(compact ? 2 : nil)
+        .padding(.top, compact ? 0 : headingTopPadding(level: level))
+
+    case .paragraph(let text):
+      Text(TaskMarkdownParser.inlineAttributedString(text))
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .lineLimit(compact ? 3 : nil)
+        .fixedSize(horizontal: false, vertical: true)
+
+    case .unorderedListItem(let text):
+      unorderedListRow(text)
+
+    case .orderedListItem(let number, let text):
+      HStack(alignment: .top, spacing: 8) {
+        Text("\(number).")
+          .font(SerenityType.caption.weight(.semibold))
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .frame(width: 24, alignment: .trailing)
+          .padding(.top, 1)
+        Text(TaskMarkdownParser.inlineAttributedString(text))
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(compact ? 2 : nil)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+    case .taskListItem(let completed, let text):
+      HStack(alignment: .top, spacing: 8) {
+        Image(systemName: completed ? "checkmark.square.fill" : "square")
+          .font(SerenityType.caption.weight(.semibold))
+          .foregroundStyle(completed ? .green : SerenityPalette.textSecondary)
+          .padding(.top, 2)
+        Text(TaskMarkdownParser.inlineAttributedString(text))
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .strikethrough(completed)
+          .lineLimit(compact ? 2 : nil)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+    case .blockquote(let text):
+      HStack(alignment: .top, spacing: 10) {
+        RoundedRectangle(cornerRadius: 2)
+          .fill(SerenityPalette.accent.opacity(0.55))
+          .frame(width: 3)
+        GitHubFlavoredMarkdownView(markdown: text, compact: compact)
+      }
+
+    case .image(let image):
+      MarkdownRemoteImage(image: image, compact: compact)
+
+    case .table(let table):
+      markdownTable(table)
+
+    case .disclosure(let disclosure):
+      MarkdownDisclosureSection(disclosure: disclosure, compact: compact)
+
+    case .codeBlock(let text):
+      Text(verbatim: text)
+        .font(SerenityType.scaledSystem(size: 13, weight: .regular, design: .monospaced))
+        .foregroundStyle(SerenityPalette.textPrimary)
+        .lineLimit(compact ? 4 : nil)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(SerenityPalette.inputBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+        )
+
+    case .divider:
+      Rectangle()
+        .fill(SerenityPalette.thinBorder)
+        .frame(height: 1)
+        .padding(.vertical, compact ? 1 : 4)
+    }
+  }
+
+  private func unorderedListRow(_ text: String) -> some View {
+    HStack(alignment: .top, spacing: 8) {
+      Circle()
+        .fill(SerenityPalette.textSecondary)
+        .frame(width: 5, height: 5)
+        .padding(.top, SerenityType.scaledSize(8))
+      Text(TaskMarkdownParser.inlineAttributedString(text))
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .lineLimit(compact ? 2 : nil)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  private func headingFont(level: Int) -> Font {
+    switch level {
+    case 1:
+      return compact ? SerenityType.bodyLarge.weight(.semibold) : SerenityType.sectionTitle
+    case 2:
+      return SerenityType.bodyLarge.weight(.semibold)
+    default:
+      return SerenityType.bodyMedium.weight(.semibold)
+    }
+  }
+
+  private func markdownTable(_ table: TaskMarkdownTable) -> some View {
+    ScrollView(.horizontal, showsIndicators: !compact) {
+      Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+        GridRow {
+          ForEach(Array(table.headers.enumerated()), id: \.offset) { index, header in
+            tableCell(header, column: index, alignment: table.alignments[safe: index] ?? .leading, isHeader: true)
+          }
+        }
+
+        ForEach(Array(table.rows.enumerated()), id: \.offset) { _, row in
+          GridRow {
+            ForEach(Array(table.headers.indices), id: \.self) { index in
+              tableCell(
+                row[safe: index] ?? "",
+                column: index,
+                alignment: table.alignments[safe: index] ?? .leading,
+                isHeader: false
+              )
+            }
+          }
+        }
+      }
+      .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+      )
+    }
+  }
+
+  private func tableCell(_ text: String, column: Int, alignment: TaskMarkdownTableAlignment, isHeader: Bool) -> some View {
+    Text(TaskMarkdownParser.inlineAttributedString(text))
+      .font(isHeader ? SerenityType.caption.weight(.semibold) : SerenityType.body)
+      .foregroundStyle(isHeader ? SerenityPalette.textPrimary : SerenityPalette.textSecondary)
+      .lineLimit(compact ? 2 : nil)
+      .multilineTextAlignment(alignment.textAlignment)
+      .fixedSize(horizontal: false, vertical: true)
+      .padding(.horizontal, 10)
+      .padding(.vertical, isHeader ? 8 : 9)
+      .frame(minWidth: compact ? 96 : 118, maxWidth: compact ? 180 : 240, alignment: alignment.frameAlignment)
+      .background(isHeader ? SerenityPalette.inputBackground : SerenityPalette.innerCardBackground.opacity(column.isMultiple(of: 2) ? 0.72 : 0.46))
+      .overlay(alignment: .trailing) {
+        Rectangle()
+          .fill(SerenityPalette.thinBorder)
+          .frame(width: 1)
+      }
+      .overlay(alignment: .bottom) {
+        Rectangle()
+          .fill(SerenityPalette.thinBorder)
+          .frame(height: 1)
+      }
+  }
+
+  private func headingTopPadding(level: Int) -> CGFloat {
+    level == 1 ? 4 : 2
+  }
+}
+
+private struct MarkdownRemoteImage: View {
+  let image: TaskMarkdownImage
+  let compact: Bool
+
+  var body: some View {
+    if let url = URL(string: image.url), ["http", "https"].contains(url.scheme?.lowercased()) {
+      AsyncImage(url: url) { phase in
+        switch phase {
+        case .empty:
+          imagePlaceholder(label: image.altText.isEmpty ? "Loading image..." : image.altText)
+        case .success(let loadedImage):
+          loadedImage
+            .resizable()
+            .scaledToFit()
+            .frame(maxWidth: .infinity)
+            .frame(maxHeight: compact ? 140 : 320)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+              RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+            )
+            .accessibilityLabel(image.altText.isEmpty ? "Markdown image" : image.altText)
+        case .failure:
+          imagePlaceholder(label: image.altText.isEmpty ? "Image could not be loaded" : image.altText)
+        @unknown default:
+          imagePlaceholder(label: image.altText.isEmpty ? "Image unavailable" : image.altText)
+        }
+      }
+    } else {
+      imagePlaceholder(label: image.altText.isEmpty ? image.url : image.altText)
+    }
+  }
+
+  private func imagePlaceholder(label: String) -> some View {
+    HStack(spacing: 8) {
+      Image(systemName: "photo")
+        .font(SerenityType.caption.weight(.semibold))
+      Text(label)
+        .font(SerenityType.body)
+        .lineLimit(compact ? 2 : nil)
+      Spacer(minLength: 0)
+    }
+    .foregroundStyle(SerenityPalette.textSecondary)
+    .padding(12)
+    .frame(maxWidth: .infinity, minHeight: compact ? 72 : 96, alignment: .leading)
+    .background(SerenityPalette.inputBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+  }
+}
+
+private struct MarkdownDisclosureSection: View {
+  let disclosure: TaskMarkdownDisclosure
+  let compact: Bool
+
+  @State private var isExpanded: Bool
+
+  init(disclosure: TaskMarkdownDisclosure, compact: Bool) {
+    self.disclosure = disclosure
+    self.compact = compact
+    _isExpanded = State(initialValue: disclosure.initiallyExpanded)
+  }
+
+  var body: some View {
+    DisclosureGroup(isExpanded: $isExpanded) {
+      GitHubFlavoredMarkdownView(markdown: disclosure.body, compact: compact)
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    } label: {
+      Text(TaskMarkdownParser.inlineAttributedString(disclosure.summary))
+        .font(SerenityType.bodyMedium.weight(.semibold))
+        .foregroundStyle(SerenityPalette.textPrimary)
+        .lineLimit(compact ? 2 : nil)
+    }
+    .padding(12)
+    .background(SerenityPalette.inputBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+  }
+}
+
+private enum TaskMarkdownBlock {
+  case heading(level: Int, text: String)
+  case paragraph(String)
+  case unorderedListItem(String)
+  case orderedListItem(number: Int, text: String)
+  case taskListItem(completed: Bool, text: String)
+  case blockquote(String)
+  case image(TaskMarkdownImage)
+  case table(TaskMarkdownTable)
+  case disclosure(TaskMarkdownDisclosure)
+  case codeBlock(String)
+  case divider
+}
+
+private struct TaskMarkdownImage {
+  let altText: String
+  let url: String
+}
+
+private struct TaskMarkdownTable {
+  let headers: [String]
+  let alignments: [TaskMarkdownTableAlignment]
+  let rows: [[String]]
+}
+
+private struct TaskMarkdownDisclosure {
+  let summary: String
+  let body: String
+  let initiallyExpanded: Bool
+}
+
+private enum TaskMarkdownTableAlignment {
+  case leading
+  case center
+  case trailing
+
+  var textAlignment: TextAlignment {
+    switch self {
+    case .leading:
+      return .leading
+    case .center:
+      return .center
+    case .trailing:
+      return .trailing
+    }
+  }
+
+  var frameAlignment: Alignment {
+    switch self {
+    case .leading:
+      return .leading
+    case .center:
+      return .center
+    case .trailing:
+      return .trailing
+    }
+  }
+}
+
+private enum TaskMarkdownParser {
+  static func parse(_ markdown: String) -> [TaskMarkdownBlock] {
+    var blocks: [TaskMarkdownBlock] = []
+    var paragraphLines: [String] = []
+    var codeLines: [String] = []
+    var insideCodeBlock = false
+    let rawLines = markdown.components(separatedBy: .newlines)
+    var index = 0
+
+    func flushParagraph() {
+      let paragraph = paragraphLines
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+        .joined(separator: "\n")
+      if !paragraph.isEmpty {
+        blocks.append(.paragraph(paragraph))
+      }
+      paragraphLines.removeAll()
+    }
+
+    while index < rawLines.count {
+      let rawLine = rawLines[index]
+      let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+
+      if line.hasPrefix("```") {
+        if insideCodeBlock {
+          blocks.append(.codeBlock(codeLines.joined(separator: "\n")))
+          codeLines.removeAll()
+          insideCodeBlock = false
+        } else {
+          flushParagraph()
+          insideCodeBlock = true
+        }
+        index += 1
+        continue
+      }
+
+      if insideCodeBlock {
+        codeLines.append(rawLine)
+        index += 1
+        continue
+      }
+
+      guard !line.isEmpty else {
+        flushParagraph()
+        index += 1
+        continue
+      }
+
+      if let disclosure = disclosure(from: rawLines, startIndex: index) {
+        flushParagraph()
+        blocks.append(.disclosure(disclosure.value))
+        index = disclosure.nextIndex
+      } else if let blockquote = blockquote(from: rawLines, startIndex: index) {
+        flushParagraph()
+        blocks.append(.blockquote(blockquote.value))
+        index = blockquote.nextIndex
+      } else if let table = table(from: rawLines, startIndex: index) {
+        flushParagraph()
+        blocks.append(.table(table.value))
+        index = table.nextIndex
+      } else if let image = image(from: line) {
+        flushParagraph()
+        blocks.append(.image(image))
+        index += 1
+      } else if isDivider(line) {
+        flushParagraph()
+        blocks.append(.divider)
+        index += 1
+      } else if let heading = heading(from: line) {
+        flushParagraph()
+        blocks.append(.heading(level: heading.level, text: heading.text))
+        index += 1
+      } else if let task = taskListItem(from: line) {
+        flushParagraph()
+        blocks.append(.taskListItem(completed: task.completed, text: task.text))
+        index += 1
+      } else if let unordered = unorderedListItem(from: line) {
+        flushParagraph()
+        blocks.append(.unorderedListItem(unordered))
+        index += 1
+      } else if let ordered = orderedListItem(from: line) {
+        flushParagraph()
+        blocks.append(.orderedListItem(number: ordered.number, text: ordered.text))
+        index += 1
+      } else {
+        paragraphLines.append(rawLine)
+        index += 1
+      }
+    }
+
+    if insideCodeBlock {
+      blocks.append(.codeBlock(codeLines.joined(separator: "\n")))
+    }
+    flushParagraph()
+    return blocks
+  }
+
+  static func shouldCollapseInTaskList(_ markdown: String) -> Bool {
+    let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return false }
+
+    let lineCount = trimmed.components(separatedBy: .newlines).count
+    if trimmed.count > 320 || lineCount > 6 {
+      return true
+    }
+
+    let blocks = parse(trimmed)
+    if blocks.count > 4 {
+      return true
+    }
+
+    return blocks.contains { block in
+      switch block {
+      case .codeBlock, .disclosure, .image, .table:
+        return true
+      case .heading, .paragraph, .unorderedListItem, .orderedListItem, .taskListItem, .blockquote, .divider:
+        return false
+      }
+    }
+  }
+
+  static func inlineAttributedString(_ markdown: String) -> AttributedString {
+    var options = AttributedString.MarkdownParsingOptions()
+    options.interpretedSyntax = .inlineOnlyPreservingWhitespace
+    return (try? AttributedString(markdown: markdown, options: options)) ?? AttributedString(markdown)
+  }
+
+  private static func heading(from line: String) -> (level: Int, text: String)? {
+    let hashes = line.prefix { $0 == "#" }
+    guard (1...6).contains(hashes.count), line.dropFirst(hashes.count).hasPrefix(" ") else {
+      return nil
+    }
+    let text = line.dropFirst(hashes.count).trimmingCharacters(in: .whitespacesAndNewlines)
+    return (hashes.count, text)
+  }
+
+  private static func taskListItem(from line: String) -> (completed: Bool, text: String)? {
+    for marker in ["- [ ] ", "* [ ] ", "+ [ ] "] where line.hasPrefix(marker) {
+      return (false, String(line.dropFirst(marker.count)))
+    }
+    for marker in ["- [x] ", "* [x] ", "+ [x] ", "- [X] ", "* [X] ", "+ [X] "] where line.hasPrefix(marker) {
+      return (true, String(line.dropFirst(marker.count)))
+    }
+    return nil
+  }
+
+  private static func unorderedListItem(from line: String) -> String? {
+    for marker in ["- ", "* ", "+ "] where line.hasPrefix(marker) {
+      return String(line.dropFirst(marker.count))
+    }
+    return nil
+  }
+
+  private static func orderedListItem(from line: String) -> (number: Int, text: String)? {
+    guard let dotIndex = line.firstIndex(of: ".") else { return nil }
+    let numberText = line[..<dotIndex]
+    guard let number = Int(numberText) else { return nil }
+
+    let remainder = line[line.index(after: dotIndex)...]
+    guard remainder.hasPrefix(" ") else { return nil }
+    return (number, remainder.trimmingCharacters(in: .whitespacesAndNewlines))
+  }
+
+  private static func isDivider(_ line: String) -> Bool {
+    let characters = Set(line)
+    return line.count >= 3 &&
+      (characters == Set<Character>("-") || characters == Set<Character>("*") || characters == Set<Character>("_"))
+  }
+
+  private static func image(from line: String) -> TaskMarkdownImage? {
+    guard line.hasPrefix("!["), line.hasSuffix(")") else { return nil }
+    guard let closeBracket = line.firstIndex(of: "]") else { return nil }
+    let openParen = line.index(after: closeBracket)
+    guard openParen < line.endIndex, line[openParen] == "(" else { return nil }
+
+    let altText = String(line[line.index(line.startIndex, offsetBy: 2)..<closeBracket])
+    let urlStart = line.index(after: openParen)
+    let urlEnd = line.index(before: line.endIndex)
+    let url = line[urlStart..<urlEnd].trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !url.isEmpty else { return nil }
+    return TaskMarkdownImage(altText: altText, url: url)
+  }
+
+  private static func blockquote(from rawLines: [String], startIndex: Int) -> (value: String, nextIndex: Int)? {
+    guard rawLines[startIndex].trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(">") else {
+      return nil
+    }
+
+    var quoteLines: [String] = []
+    var index = startIndex
+    while index < rawLines.count {
+      let line = rawLines[index].trimmingCharacters(in: .whitespacesAndNewlines)
+      guard line.hasPrefix(">") else { break }
+      quoteLines.append(strippingBlockquoteMarker(from: line))
+      index += 1
+    }
+
+    return (quoteLines.joined(separator: "\n"), index)
+  }
+
+  private static func strippingBlockquoteMarker(from line: String) -> String {
+    guard line.hasPrefix(">") else { return line }
+    var stripped = String(line.dropFirst())
+    if stripped.hasPrefix(" ") {
+      stripped.removeFirst()
+    }
+    return stripped
+  }
+
+  private static func disclosure(from rawLines: [String], startIndex: Int) -> (value: TaskMarkdownDisclosure, nextIndex: Int)? {
+    let firstLine = rawLines[startIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+    guard firstLine.lowercased().hasPrefix("<details") else { return nil }
+
+    var lines: [String] = []
+    var index = startIndex
+    var foundClosingTag = false
+    while index < rawLines.count {
+      lines.append(rawLines[index])
+      if rawLines[index].range(of: "</details>", options: [.caseInsensitive]) != nil {
+        foundClosingTag = true
+        index += 1
+        break
+      }
+      index += 1
+    }
+
+    let rawDisclosure = lines.joined(separator: "\n")
+    let initiallyExpanded = firstLine.range(of: "open", options: [.caseInsensitive]) != nil
+    let contentAfterOpeningTag = removingOpeningDetailsTag(from: rawDisclosure)
+    let contentWithoutClosingTag = removingClosingDetailsTag(from: contentAfterOpeningTag, foundClosingTag: foundClosingTag)
+    let extracted = extractingSummary(from: contentWithoutClosingTag)
+    let summary = extracted.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+    let body = extracted.body.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    return (
+      TaskMarkdownDisclosure(
+        summary: summary.isEmpty ? "Details" : summary,
+        body: body,
+        initiallyExpanded: initiallyExpanded
+      ),
+      index
+    )
+  }
+
+  private static func removingOpeningDetailsTag(from text: String) -> String {
+    guard
+      let start = text.range(of: "<details", options: [.caseInsensitive]),
+      let close = text[start.lowerBound...].firstIndex(of: ">")
+    else {
+      return text
+    }
+
+    var result = text
+    result.removeSubrange(start.lowerBound...close)
+    return result
+  }
+
+  private static func removingClosingDetailsTag(from text: String, foundClosingTag: Bool) -> String {
+    guard
+      foundClosingTag,
+      let range = text.range(of: "</details>", options: [.caseInsensitive])
+    else {
+      return text
+    }
+
+    var result = text
+    result.removeSubrange(range)
+    return result
+  }
+
+  private static func extractingSummary(from text: String) -> (summary: String, body: String) {
+    guard
+      let openingRange = text.range(of: "<summary>", options: [.caseInsensitive]),
+      let closingRange = text.range(of: "</summary>", options: [.caseInsensitive])
+    else {
+      return ("Details", text)
+    }
+
+    let summary = String(text[openingRange.upperBound..<closingRange.lowerBound])
+    let body = String(text[..<openingRange.lowerBound]) + String(text[closingRange.upperBound...])
+    return (summary, body)
+  }
+
+  private static func table(from rawLines: [String], startIndex: Int) -> (value: TaskMarkdownTable, nextIndex: Int)? {
+    guard startIndex + 1 < rawLines.count else { return nil }
+
+    let headerLine = rawLines[startIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+    let separatorLine = rawLines[startIndex + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+    guard headerLine.contains("|"), isTableSeparatorRow(separatorLine) else { return nil }
+
+    let headers = tableCells(from: headerLine)
+    let alignments = tableAlignments(from: separatorLine)
+    guard !headers.isEmpty, !headers.allSatisfy(\.isEmpty), alignments.count == headers.count else { return nil }
+
+    var rows: [[String]] = []
+    var index = startIndex + 2
+    while index < rawLines.count {
+      let line = rawLines[index].trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !line.isEmpty, line.contains("|"), !isTableSeparatorRow(line) else { break }
+      rows.append(normalizedTableRow(tableCells(from: line), columnCount: headers.count))
+      index += 1
+    }
+
+    return (
+      TaskMarkdownTable(headers: headers, alignments: alignments, rows: rows),
+      index
+    )
+  }
+
+  private static func tableCells(from line: String) -> [String] {
+    var content = line.trimmingCharacters(in: .whitespacesAndNewlines)
+    if content.first == "|" {
+      content.removeFirst()
+    }
+    if content.last == "|" {
+      content.removeLast()
+    }
+    return content
+      .split(separator: "|", omittingEmptySubsequences: false)
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+  }
+
+  private static func tableAlignments(from line: String) -> [TaskMarkdownTableAlignment] {
+    tableCells(from: line).map { cell in
+      let trimmed = cell.trimmingCharacters(in: .whitespacesAndNewlines)
+      if trimmed.hasPrefix(":"), trimmed.hasSuffix(":") {
+        return .center
+      }
+      if trimmed.hasSuffix(":") {
+        return .trailing
+      }
+      return .leading
+    }
+  }
+
+  private static func isTableSeparatorRow(_ line: String) -> Bool {
+    let cells = tableCells(from: line)
+    guard !cells.isEmpty else { return false }
+    return cells.allSatisfy { cell in
+      let trimmed = cell.trimmingCharacters(in: .whitespacesAndNewlines)
+      let dashCount = trimmed.filter { $0 == "-" }.count
+      let allowed = trimmed.allSatisfy { $0 == "-" || $0 == ":" }
+      return allowed && dashCount >= 3
+    }
+  }
+
+  private static func normalizedTableRow(_ cells: [String], columnCount: Int) -> [String] {
+    if cells.count == columnCount {
+      return cells
+    }
+    if cells.count > columnCount {
+      return Array(cells.prefix(columnCount))
+    }
+    return cells + Array(repeating: "", count: columnCount - cells.count)
+  }
+}
+
+private extension Collection {
+  subscript(safe index: Index) -> Element? {
+    indices.contains(index) ? self[index] : nil
+  }
+}
+
 private struct TaskEditorView: View {
   let task: TaskEntity
   let availableProjects: [ProjectEntity]
@@ -6496,16 +7289,13 @@ private struct TaskEditorView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("Edit Task")
-        .font(.headline)
+        .font(SerenityType.bodyLarge.weight(.semibold))
 
       TextField("Title", text: $title)
         .textFieldStyle(.plain)
         .serenityInputField()
 
-      TextField("Description (optional)", text: $description, axis: .vertical)
-        .lineLimit(2...6)
-        .textFieldStyle(.plain)
-        .serenityInputField()
+      TaskMarkdownDescriptionField(text: $description, minHeight: 150)
 
       HStack(spacing: 12) {
         SerenityDropdownField(
@@ -6628,7 +7418,7 @@ private struct JournalEntryEditorView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("Edit Journal Entry")
-        .font(.headline)
+        .font(SerenityType.bodyLarge.weight(.semibold))
 
       TextField("Title", text: $title)
         .textFieldStyle(.plain)
@@ -6686,7 +7476,7 @@ private struct ProjectEditorView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("Edit Project")
-        .font(.headline)
+        .font(SerenityType.bodyLarge.weight(.semibold))
 
       TextField("Name", text: $name)
         .textFieldStyle(.plain)
@@ -6697,7 +7487,7 @@ private struct ProjectEditorView: View {
       HStack(spacing: 10) {
         ColorPicker("Project color", selection: $color, supportsOpacity: false)
         Text(ProjectColorCodec.hex(from: color))
-          .font(.caption.monospaced())
+          .font(SerenityType.scaledSystem(size: 11, weight: .regular, design: .monospaced))
           .foregroundStyle(.secondary)
       }
 
@@ -6817,7 +7607,7 @@ private struct ToastBanner: View {
       Image(systemName: "checkmark.circle.fill")
         .foregroundStyle(SerenityPalette.accent)
       Text(message)
-        .font(.callout.weight(.medium))
+        .font(SerenityType.bodyMedium.weight(.medium))
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 10)

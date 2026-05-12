@@ -129,14 +129,51 @@ enum SerenityUI {
   }
 
   enum Typography {
-    static let pageTitle = Font.system(size: 28, weight: .semibold)
-    static let pageSubtitle = Font.system(size: 17, weight: .regular)
-    static let sectionTitle = Font.system(size: 19, weight: .semibold)
-    static let cardTitle = Font.system(size: 22, weight: .semibold)
-    static let bodyLarge = Font.system(size: 16, weight: .regular)
-    static let body = Font.system(size: 15, weight: .regular)
-    static let bodyMedium = Font.system(size: 14, weight: .medium)
-    static let caption = Font.system(size: 11, weight: .medium)
+    static var fontScale: CGFloat { SerenityScreenMetrics.fontScale }
+
+    static let pageTitle = scaledSystem(size: 28, weight: .semibold)
+    static let pageSubtitle = scaledSystem(size: 17, weight: .regular)
+    static let sectionTitle = scaledSystem(size: 19, weight: .semibold)
+    static let cardTitle = scaledSystem(size: 22, weight: .semibold)
+    static let bodyLarge = scaledSystem(size: 16, weight: .regular)
+    static let body = scaledSystem(size: 15, weight: .regular)
+    static let bodyMedium = scaledSystem(size: 14, weight: .medium)
+    static let caption = scaledSystem(size: 11, weight: .medium)
+
+    static func scaledSystem(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+      .system(size: scaledSize(size), weight: weight, design: design)
+    }
+
+    static func scaledSize(_ size: CGFloat) -> CGFloat {
+      size * fontScale
+    }
+  }
+}
+
+enum SerenityScreenMetrics {
+  static let smallScreenFontScale: CGFloat = 0.85
+
+  static var fontScale: CGFloat {
+    screenDiagonalInches.map { $0 < 15 ? smallScreenFontScale : 1.0 } ?? 1.0
+  }
+
+  private static var screenDiagonalInches: CGFloat? {
+#if os(macOS)
+    guard
+      let screen = NSScreen.main,
+      let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+    else {
+      return nil
+    }
+
+    let size = CGDisplayScreenSize(displayID)
+    guard size.width > 0, size.height > 0 else { return nil }
+    return hypot(size.width, size.height) / 25.4
+#elseif os(iOS)
+    return 14.9
+#else
+    return nil
+#endif
   }
 }
 
@@ -328,7 +365,7 @@ struct SerenityTagInputField: View {
         removeTag(tag)
       } label: {
         Image(systemName: "xmark")
-          .font(.system(size: 9, weight: .semibold))
+          .font(SerenityType.scaledSystem(size: 9, weight: .semibold))
           .foregroundStyle(SerenityPalette.textSecondary)
       }
       .buttonStyle(.plain)
@@ -388,7 +425,7 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
       HStack(spacing: 9) {
         if let selectedOption, let systemImage = selectedOption.systemImage {
           Image(systemName: systemImage)
-            .font(.system(size: 12, weight: .semibold))
+            .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
             .foregroundStyle(selectedOption.tint ?? SerenityPalette.accent)
         } else if let selectedOption, let tint = selectedOption.tint {
           Circle()
@@ -404,7 +441,7 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
         Spacer(minLength: 0)
 
         Image(systemName: "chevron.down")
-          .font(.system(size: 10, weight: .semibold))
+          .font(SerenityType.scaledSystem(size: 10, weight: .semibold))
           .foregroundStyle(SerenityPalette.textSecondary)
           .rotationEffect(.degrees(showingPopover ? 180 : 0))
       }
@@ -469,7 +506,7 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
       HStack(spacing: 9) {
         if let systemImage = option.systemImage {
           Image(systemName: systemImage)
-            .font(.system(size: 12, weight: .semibold))
+            .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
             .foregroundStyle(option.tint ?? SerenityPalette.accent)
         } else if let tint = option.tint {
           Circle()
@@ -495,7 +532,7 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
 
         if option.value == selection {
           Image(systemName: "checkmark")
-            .font(.system(size: 11, weight: .bold))
+            .font(SerenityType.scaledSystem(size: 11, weight: .bold))
             .foregroundStyle(SerenityPalette.accent)
         }
       }
