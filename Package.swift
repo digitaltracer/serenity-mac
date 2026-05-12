@@ -30,6 +30,9 @@ let package = Package(
       sources: [
         "Shared",
         "macOS",
+      ],
+      resources: [
+        .process("Assets.xcassets"),
       ]
     ),
     .testTarget(
