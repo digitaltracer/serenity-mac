@@ -351,13 +351,16 @@ actor AIWorkflowService {
   func generateSummary(
     type: SummaryType,
     tasks: [TaskEntity],
-    journalEntries: [JournalEntryEntity]
+    journalEntries: [JournalEntryEntity],
+    startDate: Date? = nil,
+    endDate: Date? = nil
   ) async throws -> SummaryEntity {
     let repositories = try await requireRepositories()
     let settings = try repositories.settings.fetch() ?? .defaultValue
     let selection = try chooseCredential(settings: settings)
     let now = Date()
-    let periodStart = Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
+    let periodStart = startDate ?? Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
+    let periodEnd = endDate ?? now
 
     let taskLines = tasks.prefix(8).map { task in
       "- [\((task.completed ? "x" : " "))] \(task.title)"
@@ -383,7 +386,7 @@ actor AIWorkflowService {
       content: content,
       summaryType: type,
       startDate: periodStart,
-      endDate: now,
+      endDate: periodEnd,
       generatedAt: now,
       wordCount: content.split(separator: " ").count,
       metadataJSON: #"{"generated":"deterministic"}"#,

@@ -24,4 +24,3 @@ final class SectionViewSmokeTests: XCTestCase {
     XCTAssertNotNil(view)
   }
 }
-

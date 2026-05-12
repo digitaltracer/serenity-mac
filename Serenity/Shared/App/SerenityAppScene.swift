@@ -2880,10 +2880,12 @@ private struct TodaySectionView: View {
   }
 }
 
-private struct JournalDateRangePicker: View {
+private struct SerenityDateRangePicker: View {
   @Binding var isEnabled: Bool
   @Binding var startDate: Date
   @Binding var endDate: Date
+  let title: String
+  let showsEnableToggle: Bool
   let onApply: () -> Void
   let onClose: () -> Void
 
@@ -2896,12 +2898,16 @@ private struct JournalDateRangePicker: View {
     isEnabled: Binding<Bool>,
     startDate: Binding<Date>,
     endDate: Binding<Date>,
+    title: String = "Filter by date range",
+    showsEnableToggle: Bool = true,
     onApply: @escaping () -> Void,
     onClose: @escaping () -> Void
   ) {
     _isEnabled = isEnabled
     _startDate = startDate
     _endDate = endDate
+    self.title = title
+    self.showsEnableToggle = showsEnableToggle
     self.onApply = onApply
     self.onClose = onClose
     let anchor = isEnabled.wrappedValue ? startDate.wrappedValue : Date()
@@ -2920,15 +2926,20 @@ private struct JournalDateRangePicker: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      Toggle(isOn: $isEnabled) {
-        Text("Filter by date range")
-          .font(SerenityType.bodyMedium)
+      if showsEnableToggle {
+        Toggle(isOn: $isEnabled) {
+          Text(title)
+            .font(SerenityType.bodyMedium)
+        }
+        .toggleStyle(.switch)
+        .tint(SerenityPalette.accent)
+        .onChange(of: isEnabled) { _, _ in onApply() }
+      } else {
+        Text(title)
+          .font(SerenityType.bodyMedium.weight(.semibold))
       }
-      .toggleStyle(.switch)
-      .tint(SerenityPalette.accent)
-      .onChange(of: isEnabled) { _, _ in onApply() }
 
-      if isEnabled {
+      if isEnabled || !showsEnableToggle {
         calendarBody
       }
     }
@@ -3281,7 +3292,7 @@ private struct JournalSectionView: View {
     .buttonStyle(SerenityPillButtonStyle(selected: appState.journalDateRangeEnabled))
     .hoverCursor(.pointingHand)
     .popover(isPresented: $datePopoverOpen, arrowEdge: .top) {
-      JournalDateRangePicker(
+      SerenityDateRangePicker(
         isEnabled: $appState.journalDateRangeEnabled,
         startDate: $appState.journalRangeStartDate,
         endDate: $appState.journalRangeEndDate,
@@ -3700,455 +3711,751 @@ struct InsightsSectionView: View {
   @State private var newCredentialAPIKey = ""
   @State private var newCredentialModel = ""
   @State private var insightNoteDrafts: [String: String] = [:]
+  @State private var showCredentialForm = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      GroupBox("AI Status and Settings") {
-        VStack(alignment: .leading, spacing: 10) {
-          Text(appState.aiStatusMessage)
-            .font(SerenityType.caption)
-            .foregroundStyle(.secondary)
+    VStack(alignment: .leading, spacing: 18) {
+      commandCenter
 
-          HStack {
-            Picker("Active Provider", selection: Binding(
-              get: { appState.aiSettings.activeProvider?.rawValue ?? "none" },
-              set: { value in
-                Task {
-                  await appState.setAIActiveProvider(AICredentialProvider(rawValue: value))
-                }
-              }
-            )) {
-              Text("Auto").tag("none")
-              ForEach([AICredentialProvider.openai, .gemini, .anthropic], id: \.rawValue) { provider in
-                Text(provider.rawValue.capitalized).tag(provider.rawValue)
-              }
-            }
-            .frame(maxWidth: 230)
+      ViewThatFits(in: .horizontal) {
+        HStack(alignment: .top, spacing: 18) {
+          contentColumn
+            .frame(maxWidth: .infinity, alignment: .topLeading)
 
-            Toggle("Auto analyze", isOn: Binding(
-              get: { appState.aiSettings.autoAnalyze },
-              set: { enabled in
-                Task {
-                  await appState.setAIAutoAnalyze(enabled)
-                }
-              }
-            ))
-            .toggleStyle(.switch)
-            .frame(maxWidth: 180)
-
-            Picker("Frequency", selection: Binding(
-              get: { appState.aiSettings.analysisFrequency },
-              set: { frequency in
-                Task {
-                  await appState.setAIAnalysisFrequency(frequency)
-                }
-              }
-            )) {
-              ForEach([AIAnalysisFrequency.daily, .weekly, .manual], id: \.rawValue) { frequency in
-                Text(frequency.rawValue.capitalized).tag(frequency)
-              }
-            }
-            .frame(maxWidth: 180)
-          }
-
-          HStack {
-            Toggle("Use tasks", isOn: Binding(
-              get: { appState.aiSettings.dataTypes.includeTasks },
-              set: { enabled in
-                Task {
-                  await appState.setAIDataTypes(
-                    includeTasks: enabled,
-                    includeJournal: appState.aiSettings.dataTypes.includeJournal,
-                    includeProjects: appState.aiSettings.dataTypes.includeProjects
-                  )
-                }
-              }
-            ))
-            .toggleStyle(.switch)
-
-            Toggle("Use journal", isOn: Binding(
-              get: { appState.aiSettings.dataTypes.includeJournal },
-              set: { enabled in
-                Task {
-                  await appState.setAIDataTypes(
-                    includeTasks: appState.aiSettings.dataTypes.includeTasks,
-                    includeJournal: enabled,
-                    includeProjects: appState.aiSettings.dataTypes.includeProjects
-                  )
-                }
-              }
-            ))
-            .toggleStyle(.switch)
-
-            Toggle("Use projects", isOn: Binding(
-              get: { appState.aiSettings.dataTypes.includeProjects },
-              set: { enabled in
-                Task {
-                  await appState.setAIDataTypes(
-                    includeTasks: appState.aiSettings.dataTypes.includeTasks,
-                    includeJournal: appState.aiSettings.dataTypes.includeJournal,
-                    includeProjects: enabled
-                  )
-                }
-              }
-            ))
-            .toggleStyle(.switch)
-          }
+          sideColumn
+            .frame(width: 340, alignment: .topLeading)
         }
-        .padding(.top, 8)
-      }
 
-      GroupBox("Credentials and Models") {
-        VStack(alignment: .leading, spacing: 10) {
-          HStack {
-            Picker("Provider", selection: $newCredentialProvider) {
-              ForEach([AICredentialProvider.openai, .gemini, .anthropic], id: \.rawValue) { provider in
-                Text(provider.rawValue.capitalized).tag(provider)
-              }
-            }
-            .frame(maxWidth: 200)
-
-            TextField("Credential name", text: $newCredentialName)
-              .textFieldStyle(.plain)
-              .serenityInputField()
-              .frame(maxWidth: 220)
-          }
-
-          SecureField("API key", text: $newCredentialAPIKey)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-
-          Picker("Model preference", selection: $newCredentialModel) {
-            Text("Default").tag("")
-            ForEach(appState.aiModelCatalog[newCredentialProvider] ?? [], id: \.self) { model in
-              Text(model).tag(model)
-            }
-          }
-          .frame(maxWidth: 280)
-
-          Button("Add Credential") {
-            Task {
-              await appState.addAICredential(
-                provider: newCredentialProvider,
-                name: newCredentialName,
-                apiKey: newCredentialAPIKey,
-                modelPreference: newCredentialModel.isEmpty ? nil : newCredentialModel
-              )
-              newCredentialName = ""
-              newCredentialAPIKey = ""
-              newCredentialModel = ""
-            }
-          }
-          .buttonStyle(.borderedProminent)
-          .hoverCursor(.pointingHand)
-
-          if appState.aiCredentials.isEmpty {
-            Text("No credentials configured.")
-              .foregroundStyle(.secondary)
-          } else {
-            ForEach(appState.aiCredentials) { credential in
-              VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                  VStack(alignment: .leading, spacing: 2) {
-                    Text(credential.name)
-                    Text("\(credential.provider.rawValue.capitalized) • priority \(credential.priority)")
-                      .font(SerenityType.caption)
-                      .foregroundStyle(.secondary)
-                  }
-                  Spacer()
-                  Toggle("Enabled", isOn: Binding(
-                    get: { credential.enabled },
-                    set: { enabled in
-                      Task {
-                        await appState.updateAICredentialEnabled(id: credential.id, enabled: enabled)
-                      }
-                    }
-                  ))
-                  .toggleStyle(.switch)
-                  .labelsHidden()
-
-                  Button("Delete", role: .destructive) {
-                    Task {
-                      await appState.deleteAICredential(id: credential.id)
-                    }
-                  }
-                  .buttonStyle(.borderless)
-          .hoverCursor(.pointingHand)
-                }
-
-                Picker("Model", selection: Binding(
-                  get: { credential.modelPreference ?? "" },
-                  set: { model in
-                    Task {
-                      await appState.updateAICredentialModel(id: credential.id, modelPreference: model.isEmpty ? nil : model)
-                    }
-                  }
-                )) {
-                  Text("Default").tag("")
-                  ForEach(appState.aiModelCatalog[credential.provider] ?? [], id: \.self) { model in
-                    Text(model).tag(model)
-                  }
-                }
-                .frame(maxWidth: 260)
-              }
-              .padding(8)
-              .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8))
-            }
-          }
+        VStack(alignment: .leading, spacing: 18) {
+          contentColumn
+          sideColumn
         }
-        .padding(.top, 8)
-      }
-
-      GroupBox("AI Actions") {
-        VStack(alignment: .leading, spacing: 10) {
-          if !appState.aiCredentials.contains(where: { $0.enabled }) {
-            Text("No-key mode: add and enable at least one provider credential to run AI actions.")
-              .font(SerenityType.caption)
-              .foregroundStyle(.orange)
-          }
-
-          HStack {
-            Button("Generate Insights") {
-              Task {
-                await appState.runAIAnalysis()
-              }
-            }
-            .buttonStyle(.borderedProminent)
-          .hoverCursor(.pointingHand)
-
-            Button("Weekly Recap") {
-              Task {
-                await appState.generateAIRecap(type: .weekly)
-              }
-            }
-            .hoverCursor(.pointingHand)
-
-            Button("Monthly Recap") {
-              Task {
-                await appState.generateAIRecap(type: .monthly)
-              }
-            }
-            .hoverCursor(.pointingHand)
-          }
-
-          HStack {
-            Button("Task Summary") {
-              Task {
-                await appState.generateAISummary(type: .tasks)
-              }
-            }
-            .hoverCursor(.pointingHand)
-
-            Button("Journal Summary") {
-              Task {
-                await appState.generateAISummary(type: .journal)
-              }
-            }
-            .hoverCursor(.pointingHand)
-
-            Button("Combined Summary") {
-              Task {
-                await appState.generateAISummary(type: .combined)
-              }
-            }
-            .hoverCursor(.pointingHand)
-
-            Button("Refresh") {
-              Task {
-                await appState.refreshAIWorkflows()
-              }
-            }
-            .hoverCursor(.pointingHand)
-          }
-        }
-        .padding(.top, 8)
-      }
-
-      GroupBox("Insights") {
-        VStack(alignment: .leading, spacing: 10) {
-          if appState.aiInsights.isEmpty {
-            Text("No insights generated yet.")
-              .foregroundStyle(.secondary)
-          } else {
-            ForEach(appState.aiInsights.prefix(12)) { insight in
-              VStack(alignment: .leading, spacing: 8) {
-                Text(insight.title)
-                  .font(SerenityType.bodyLarge.weight(.semibold))
-                Text(insight.description)
-                  .font(SerenityType.bodyMedium)
-                Text("Confidence: \(Int(insight.confidence * 100))%")
-                  .font(SerenityType.caption)
-                  .foregroundStyle(.secondary)
-
-                TextField("Notes", text: Binding(
-                  get: { insightNoteDrafts[insight.id] ?? insight.userNotes ?? "" },
-                  set: { insightNoteDrafts[insight.id] = $0 }
-                ))
-                .textFieldStyle(.plain)
-                .serenityInputField()
-
-                HStack {
-                  Button("Helpful") {
-                    Task {
-                      await appState.updateAIInsightFeedback(
-                        id: insight.id,
-                        userRating: insight.userRating,
-                        dismissed: nil,
-                        markedHelpful: true,
-                        userNotes: insightNoteDrafts[insight.id]
-                      )
-                    }
-                  }
-                  .hoverCursor(.pointingHand)
-
-                  Button("Dismiss") {
-                    Task {
-                      await appState.updateAIInsightFeedback(
-                        id: insight.id,
-                        userRating: insight.userRating,
-                        dismissed: true,
-                        markedHelpful: nil,
-                        userNotes: insightNoteDrafts[insight.id]
-                      )
-                    }
-                  }
-                  .hoverCursor(.pointingHand)
-
-                  Spacer()
-
-                  ForEach(1...5, id: \.self) { rating in
-                    Button("\(rating)") {
-                      Task {
-                        await appState.updateAIInsightFeedback(
-                          id: insight.id,
-                          userRating: rating,
-                          dismissed: nil,
-                          markedHelpful: nil,
-                          userNotes: insightNoteDrafts[insight.id]
-                        )
-                      }
-                    }
-                    .buttonStyle(.bordered)
-          .hoverCursor(.pointingHand)
-                  }
-                }
-              }
-              .padding(8)
-              .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8))
-            }
-          }
-        }
-        .padding(.top, 8)
-      }
-
-      GroupBox("Recaps") {
-        VStack(alignment: .leading, spacing: 10) {
-          if appState.aiRecaps.isEmpty {
-            Text("No recaps generated yet.")
-              .foregroundStyle(.secondary)
-          } else {
-            ForEach(appState.aiRecaps.prefix(8)) { recap in
-              VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                  Text(recap.title)
-                    .font(SerenityType.bodyLarge.weight(.semibold))
-                  Spacer()
-                  Text(recap.type.rawValue.capitalized)
-                    .font(SerenityType.caption)
-                    .foregroundStyle(.secondary)
-                }
-                Text(recap.summary)
-                  .font(SerenityType.bodyMedium)
-                HStack {
-                  Button("Mark viewed") {
-                    Task {
-                      await appState.markRecapViewed(id: recap.id)
-                    }
-                  }
-                  .hoverCursor(.pointingHand)
-                  Button(recap.favorited ? "Unfavorite" : "Favorite") {
-                    Task {
-                      await appState.toggleRecapFavorite(id: recap.id)
-                    }
-                  }
-                  .hoverCursor(.pointingHand)
-                }
-              }
-              .padding(8)
-              .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8))
-            }
-          }
-        }
-        .padding(.top, 8)
-      }
-
-      GroupBox("Summaries and Usage") {
-        VStack(alignment: .leading, spacing: 10) {
-          if appState.aiSummaries.isEmpty {
-            Text("No summaries generated yet.")
-              .foregroundStyle(.secondary)
-          } else {
-            ForEach(appState.aiSummaries.prefix(10)) { summary in
-              VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                  Text(summary.title)
-                  Spacer()
-                  Text("\(summary.wordCount) words")
-                    .font(SerenityType.caption)
-                    .foregroundStyle(.secondary)
-                }
-                Text(summary.content)
-                  .lineLimit(3)
-                  .font(SerenityType.caption)
-                HStack {
-                  Button("Export") {
-                    Task {
-                      await appState.exportAISummary(id: summary.id)
-                    }
-                  }
-                  .hoverCursor(.pointingHand)
-                  Button("Delete", role: .destructive) {
-                    Task {
-                      await appState.deleteAISummary(id: summary.id)
-                    }
-                  }
-                  .hoverCursor(.pointingHand)
-                }
-              }
-              .padding(8)
-              .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8))
-            }
-          }
-
-          if let path = appState.lastSummaryExportPath {
-            Text("Last exported summary: \(path)")
-              .font(SerenityType.caption)
-              .foregroundStyle(.secondary)
-              .textSelection(.enabled)
-          }
-
-          Divider()
-          Text("Recent Usage")
-            .font(SerenityType.bodyMedium)
-          if appState.aiUsageEntries.isEmpty {
-            Text("No usage records yet.")
-              .foregroundStyle(.secondary)
-          } else {
-            ForEach(appState.aiUsageEntries.prefix(8)) { usage in
-              HStack {
-                Text("\(usage.provider.rawValue.capitalized) • \(usage.operation.rawValue)")
-                Spacer()
-                Text("\(usage.totalTokens) tokens")
-                  .font(SerenityType.caption)
-                  .foregroundStyle(.secondary)
-              }
-              .font(SerenityType.caption)
-            }
-          }
-        }
-        .padding(.top, 8)
       }
     }
+  }
+
+  private var commandCenter: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      HStack(alignment: .top, spacing: 16) {
+        VStack(alignment: .leading, spacing: 8) {
+          HStack(spacing: 8) {
+            Image(systemName: hasEnabledCredential ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+              .foregroundStyle(hasEnabledCredential ? .green : .orange)
+            Text(hasEnabledCredential ? "Ready to analyze" : "Provider setup required")
+              .font(SerenityType.bodyLarge.weight(.semibold))
+          }
+
+          Text(appState.aiStatusMessage)
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+
+        Spacer()
+
+        Button {
+          Task { await appState.refreshAIWorkflows() }
+        } label: {
+          Label("Refresh", systemImage: "arrow.clockwise")
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+
+      if !hasEnabledCredential {
+        setupBanner
+      }
+
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 10) {
+          generateInsightButton
+          recapButton(title: "Weekly Recap", type: .weekly)
+          recapButton(title: "Monthly Recap", type: .monthly)
+          Divider().frame(height: 28)
+          summaryButton(title: "Task Summary", type: .tasks)
+          summaryButton(title: "Journal Summary", type: .journal)
+          summaryButton(title: "Combined Summary", type: .combined)
+        }
+
+        VStack(alignment: .leading, spacing: 10) {
+          HStack(spacing: 10) {
+            generateInsightButton
+            recapButton(title: "Weekly Recap", type: .weekly)
+            recapButton(title: "Monthly Recap", type: .monthly)
+          }
+          HStack(spacing: 10) {
+            summaryButton(title: "Task Summary", type: .tasks)
+            summaryButton(title: "Journal Summary", type: .journal)
+            summaryButton(title: "Combined Summary", type: .combined)
+          }
+        }
+      }
+    }
+    .padding(18)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private var setupBanner: some View {
+    HStack(alignment: .top, spacing: 10) {
+      Image(systemName: "key.fill")
+        .foregroundStyle(.orange)
+        .frame(width: 18)
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text("Add an enabled provider key before running AI analysis.")
+          .font(SerenityType.bodyMedium)
+        Text("Credentials are managed in the setup panel, away from the insight feed.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      Spacer()
+
+      Button("Open setup") {
+        showCredentialForm = true
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+    }
+    .padding(12)
+    .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+    )
+  }
+
+  private var contentColumn: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      insightsPanel
+      recapsPanel
+      summariesPanel
+    }
+  }
+
+  private var sideColumn: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      analysisSettingsPanel
+      providerSetupPanel
+      usagePanel
+    }
+  }
+
+  private var insightsPanel: some View {
+    sectionPanel(title: "Latest Insights", subtitle: "\(appState.aiInsights.count) generated") {
+      if appState.aiInsights.isEmpty {
+        emptyState(
+          icon: "chart.bar.xaxis",
+          title: "No insights yet",
+          message: "Generate insights to surface recommendations from your tasks, journal, goals, and projects."
+        )
+      } else {
+        VStack(alignment: .leading, spacing: 10) {
+          ForEach(appState.aiInsights.prefix(12)) { insight in
+            insightCard(insight)
+          }
+        }
+      }
+    }
+  }
+
+  private var recapsPanel: some View {
+    sectionPanel(title: "Recaps", subtitle: "\(appState.aiRecaps.count) saved") {
+      if appState.aiRecaps.isEmpty {
+        emptyState(
+          icon: "calendar.badge.clock",
+          title: "No recaps yet",
+          message: "Weekly and monthly recaps will appear here after generation."
+        )
+      } else {
+        VStack(alignment: .leading, spacing: 10) {
+          ForEach(appState.aiRecaps.prefix(8)) { recap in
+            recapCard(recap)
+          }
+        }
+      }
+    }
+  }
+
+  private var summariesPanel: some View {
+    sectionPanel(title: "Summaries", subtitle: "\(appState.aiSummaries.count) generated") {
+      if appState.aiSummaries.isEmpty {
+        emptyState(
+          icon: "sparkles",
+          title: "No summaries yet",
+          message: "Task, journal, and combined summaries will be listed here."
+        )
+      } else {
+        VStack(alignment: .leading, spacing: 10) {
+          ForEach(appState.aiSummaries.prefix(10)) { summary in
+            summaryCard(summary)
+          }
+        }
+      }
+
+      if let path = appState.lastSummaryExportPath {
+        Text("Last export: \(path)")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(1)
+          .truncationMode(.middle)
+          .textSelection(.enabled)
+      }
+    }
+  }
+
+  private var analysisSettingsPanel: some View {
+    sectionPanel(title: "Analysis Settings", subtitle: "Scope and cadence") {
+      VStack(alignment: .leading, spacing: 14) {
+        labeledPicker("Active Provider") {
+          Picker("Active Provider", selection: Binding(
+            get: { appState.aiSettings.activeProvider?.rawValue ?? "none" },
+            set: { value in
+              Task {
+                await appState.setAIActiveProvider(AICredentialProvider(rawValue: value))
+              }
+            }
+          )) {
+            Text("Auto").tag("none")
+            ForEach(providerOptions, id: \.rawValue) { provider in
+              Text(provider.rawValue.capitalized).tag(provider.rawValue)
+            }
+          }
+          .labelsHidden()
+        }
+
+        labeledPicker("Frequency") {
+          Picker("Frequency", selection: Binding(
+            get: { appState.aiSettings.analysisFrequency },
+            set: { frequency in
+              Task { await appState.setAIAnalysisFrequency(frequency) }
+            }
+          )) {
+            ForEach([AIAnalysisFrequency.daily, .weekly, .manual], id: \.rawValue) { frequency in
+              Text(frequency.rawValue.capitalized).tag(frequency)
+            }
+          }
+          .labelsHidden()
+        }
+
+        Toggle("Auto analyze", isOn: Binding(
+          get: { appState.aiSettings.autoAnalyze },
+          set: { enabled in
+            Task { await appState.setAIAutoAnalyze(enabled) }
+          }
+        ))
+        .toggleStyle(.switch)
+
+        Divider()
+
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Included Data")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+          dataScopeToggle(title: "Tasks", isOn: appState.aiSettings.dataTypes.includeTasks) { enabled in
+            await appState.setAIDataTypes(
+              includeTasks: enabled,
+              includeJournal: appState.aiSettings.dataTypes.includeJournal,
+              includeProjects: appState.aiSettings.dataTypes.includeProjects
+            )
+          }
+          dataScopeToggle(title: "Journal", isOn: appState.aiSettings.dataTypes.includeJournal) { enabled in
+            await appState.setAIDataTypes(
+              includeTasks: appState.aiSettings.dataTypes.includeTasks,
+              includeJournal: enabled,
+              includeProjects: appState.aiSettings.dataTypes.includeProjects
+            )
+          }
+          dataScopeToggle(title: "Projects", isOn: appState.aiSettings.dataTypes.includeProjects) { enabled in
+            await appState.setAIDataTypes(
+              includeTasks: appState.aiSettings.dataTypes.includeTasks,
+              includeJournal: appState.aiSettings.dataTypes.includeJournal,
+              includeProjects: enabled
+            )
+          }
+        }
+      }
+    }
+  }
+
+  private var providerSetupPanel: some View {
+    sectionPanel(title: "Provider Setup", subtitle: credentialStatusText) {
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(spacing: 8) {
+          statusDot(isActive: hasEnabledCredential)
+          Text(hasEnabledCredential ? "Enabled provider available" : "No enabled provider")
+            .font(SerenityType.bodyMedium)
+          Spacer()
+        }
+
+        if appState.aiCredentials.isEmpty {
+          Text("No provider keys have been added.")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        } else {
+          VStack(alignment: .leading, spacing: 8) {
+            ForEach(appState.aiCredentials) { credential in
+              credentialRow(credential)
+            }
+          }
+        }
+
+        DisclosureGroup(isExpanded: $showCredentialForm) {
+          addCredentialForm
+            .padding(.top, 10)
+        } label: {
+          Label("Add provider key", systemImage: "key")
+            .font(SerenityType.bodyMedium)
+        }
+      }
+    }
+  }
+
+  private var addCredentialForm: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Picker("Provider", selection: $newCredentialProvider) {
+        ForEach(providerOptions, id: \.rawValue) { provider in
+          Text(provider.rawValue.capitalized).tag(provider)
+        }
+      }
+
+      TextField("Credential name", text: $newCredentialName)
+        .textFieldStyle(.plain)
+        .serenityInputField()
+
+      SecureField("API key", text: $newCredentialAPIKey)
+        .textFieldStyle(.plain)
+        .serenityInputField()
+
+      Picker("Model preference", selection: $newCredentialModel) {
+        Text("Default").tag("")
+        ForEach(appState.aiModelCatalog[newCredentialProvider] ?? [], id: \.self) { model in
+          Text(model).tag(model)
+        }
+      }
+
+      Button {
+        Task {
+          await appState.addAICredential(
+            provider: newCredentialProvider,
+            name: newCredentialName,
+            apiKey: newCredentialAPIKey,
+            modelPreference: newCredentialModel.isEmpty ? nil : newCredentialModel
+          )
+          newCredentialName = ""
+          newCredentialAPIKey = ""
+          newCredentialModel = ""
+          showCredentialForm = false
+        }
+      } label: {
+        Label("Add Provider Key", systemImage: "plus")
+      }
+      .buttonStyle(SerenityPrimaryButtonStyle())
+      .hoverCursor(.pointingHand)
+      .disabled(newCredentialAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+  }
+
+  private var usagePanel: some View {
+    sectionPanel(title: "Recent Usage", subtitle: "\(appState.aiUsageEntries.count) records") {
+      if appState.aiUsageEntries.isEmpty {
+        emptyState(icon: "bolt.horizontal", title: "No usage records", message: "Token usage will appear after AI actions run.")
+          .padding(.vertical, 2)
+      } else {
+        VStack(alignment: .leading, spacing: 8) {
+          ForEach(appState.aiUsageEntries.prefix(8)) { usage in
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(usage.operation.rawValue.capitalized)
+                  .font(SerenityType.bodyMedium)
+                Text(usage.provider.rawValue.capitalized)
+                  .font(SerenityType.caption)
+                  .foregroundStyle(SerenityPalette.textSecondary)
+              }
+              Spacer()
+              Text("\(usage.totalTokens) tokens")
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private var generateInsightButton: some View {
+    Button {
+      Task { await appState.runAIAnalysis() }
+    } label: {
+      Label("Generate Insights", systemImage: "chart.bar.xaxis")
+    }
+    .buttonStyle(SerenityPrimaryButtonStyle())
+    .hoverCursor(.pointingHand)
+    .disabled(!hasEnabledCredential)
+  }
+
+  private func recapButton(title: String, type: AIRecapType) -> some View {
+    Button {
+      Task { await appState.generateAIRecap(type: type) }
+    } label: {
+      Label(title, systemImage: "calendar")
+    }
+    .buttonStyle(SerenitySecondaryButtonStyle())
+    .hoverCursor(.pointingHand)
+    .disabled(!hasEnabledCredential)
+  }
+
+  private func summaryButton(title: String, type: SummaryType) -> some View {
+    Button {
+      Task { await appState.generateAISummary(type: type) }
+    } label: {
+      Label(title, systemImage: "doc.text")
+    }
+    .buttonStyle(SerenitySecondaryButtonStyle())
+    .hoverCursor(.pointingHand)
+    .disabled(!hasEnabledCredential)
+  }
+
+  private func sectionPanel<Content: View>(title: String, subtitle: String? = nil, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 14) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(title)
+          .font(SerenityType.sectionTitle)
+        Spacer()
+        if let subtitle {
+          Text(subtitle)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+      }
+
+      content()
+    }
+    .padding(16)
+    .frame(maxWidth: .infinity, alignment: .topLeading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private func insightCard(_ insight: AIInsightEntity) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .top, spacing: 10) {
+        Image(systemName: insightIcon(for: insight.type))
+          .foregroundStyle(SerenityPalette.accent)
+          .frame(width: 20)
+
+        VStack(alignment: .leading, spacing: 5) {
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(insight.title)
+              .font(SerenityType.bodyLarge.weight(.semibold))
+            Spacer()
+            Text("\(Int(insight.confidence * 100))%")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+          }
+
+          Text(insight.description)
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+          HStack(spacing: 6) {
+            pill(insight.category.rawValue.capitalized)
+            pill(insight.type.rawValue.capitalized)
+            if insight.actionable {
+              pill("Actionable")
+            }
+          }
+        }
+      }
+
+      TextField("Notes", text: Binding(
+        get: { insightNoteDrafts[insight.id] ?? insight.userNotes ?? "" },
+        set: { insightNoteDrafts[insight.id] = $0 }
+      ))
+      .textFieldStyle(.plain)
+      .serenityInputField()
+
+      HStack(spacing: 8) {
+        Button("Helpful") {
+          Task {
+            await appState.updateAIInsightFeedback(
+              id: insight.id,
+              userRating: insight.userRating,
+              dismissed: nil,
+              markedHelpful: true,
+              userNotes: insightNoteDrafts[insight.id]
+            )
+          }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button("Dismiss") {
+          Task {
+            await appState.updateAIInsightFeedback(
+              id: insight.id,
+              userRating: insight.userRating,
+              dismissed: true,
+              markedHelpful: nil,
+              userNotes: insightNoteDrafts[insight.id]
+            )
+          }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Spacer()
+
+        ratingButtons(for: insight)
+      }
+    }
+    .padding(14)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private func ratingButtons(for insight: AIInsightEntity) -> some View {
+    HStack(spacing: 4) {
+      ForEach(1...5, id: \.self) { rating in
+        Button {
+          Task {
+            await appState.updateAIInsightFeedback(
+              id: insight.id,
+              userRating: rating,
+              dismissed: nil,
+              markedHelpful: nil,
+              userNotes: insightNoteDrafts[insight.id]
+            )
+          }
+        } label: {
+          Text("\(rating)")
+            .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.plain)
+        .background(
+          RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(insight.userRating == rating ? SerenityPalette.accent.opacity(0.22) : SerenityPalette.panelBackgroundRaised)
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .stroke(insight.userRating == rating ? SerenityPalette.accent.opacity(0.6) : SerenityPalette.thinBorder, lineWidth: 1)
+        )
+        .hoverCursor(.pointingHand)
+      }
+    }
+  }
+
+  private func recapCard(_ recap: AIRecapEntity) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text(recap.title)
+          .font(SerenityType.bodyLarge.weight(.semibold))
+        Spacer()
+        pill(recap.type.rawValue.capitalized)
+      }
+
+      Text(recap.summary)
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      HStack(spacing: 8) {
+        Button(recap.viewed ? "Viewed" : "Mark viewed") {
+          Task { await appState.markRecapViewed(id: recap.id) }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button(recap.favorited ? "Unfavorite" : "Favorite") {
+          Task { await appState.toggleRecapFavorite(id: recap.id) }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(14)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private func summaryCard(_ summary: SummaryEntity) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text(summary.title)
+          .font(SerenityType.bodyLarge.weight(.semibold))
+        Spacer()
+        Text("\(summary.wordCount) words")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      Text(summary.content)
+        .lineLimit(3)
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+
+      HStack(spacing: 8) {
+        pill(summary.summaryType.rawValue.capitalized)
+        Spacer()
+        Button("Export") {
+          Task { await appState.exportAISummary(id: summary.id) }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button("Delete", role: .destructive) {
+          Task { await appState.deleteAISummary(id: summary.id) }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(14)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private func credentialRow(_ credential: AICredentialEntity) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 8) {
+        statusDot(isActive: credential.enabled)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(credential.name)
+            .font(SerenityType.bodyMedium)
+          Text("\(credential.provider.rawValue.capitalized) - \(credential.modelPreference ?? "Default model")")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+        Spacer()
+
+        Toggle("Enabled", isOn: Binding(
+          get: { credential.enabled },
+          set: { enabled in
+            Task { await appState.updateAICredentialEnabled(id: credential.id, enabled: enabled) }
+          }
+        ))
+        .toggleStyle(.switch)
+        .labelsHidden()
+      }
+
+      Picker("Model", selection: Binding(
+        get: { credential.modelPreference ?? "" },
+        set: { model in
+          Task {
+            await appState.updateAICredentialModel(id: credential.id, modelPreference: model.isEmpty ? nil : model)
+          }
+        }
+      )) {
+        Text("Default").tag("")
+        ForEach(appState.aiModelCatalog[credential.provider] ?? [], id: \.self) { model in
+          Text(model).tag(model)
+        }
+      }
+
+      HStack {
+        Text("Requests \(credential.totalRequests) - Tokens \(credential.totalTokens)")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Spacer()
+        Button("Delete", role: .destructive) {
+          Task { await appState.deleteAICredential(id: credential.id) }
+        }
+        .buttonStyle(.borderless)
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(12)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private func dataScopeToggle(title: String, isOn: Bool, action: @escaping (Bool) async -> Void) -> some View {
+    HStack {
+      Text(title)
+        .font(SerenityType.bodyMedium)
+      Spacer()
+      Toggle(title, isOn: Binding(
+        get: { isOn },
+        set: { enabled in
+          Task { await action(enabled) }
+        }
+      ))
+      .toggleStyle(.switch)
+      .labelsHidden()
+    }
+  }
+
+  private func labeledPicker<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(title)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+      content()
+    }
+  }
+
+  private func emptyState(icon: String, title: String, message: String) -> some View {
+    VStack(spacing: 8) {
+      Image(systemName: icon)
+        .font(SerenityType.scaledSystem(size: 26, weight: .regular))
+        .foregroundStyle(SerenityPalette.textSecondary.opacity(0.7))
+      Text(title)
+        .font(SerenityType.bodyLarge.weight(.medium))
+      Text(message)
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 28)
+    .padding(.horizontal, 18)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private func pill(_ text: String) -> some View {
+    Text(text)
+      .font(SerenityType.caption)
+      .foregroundStyle(SerenityPalette.textSecondary)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .background(SerenityPalette.panelBackgroundRaised, in: Capsule())
+      .overlay(Capsule().stroke(SerenityPalette.thinBorder, lineWidth: 1))
+  }
+
+  private func statusDot(isActive: Bool) -> some View {
+    Circle()
+      .fill(isActive ? Color.green : Color.orange)
+      .frame(width: 8, height: 8)
+  }
+
+  private func insightIcon(for type: AIInsightType) -> String {
+    switch type {
+    case .productivity: return "chart.line.uptrend.xyaxis"
+    case .behavior: return "waveform.path.ecg"
+    case .recommendation: return "lightbulb"
+    case .warning: return "exclamationmark.triangle"
+    }
+  }
+
+  private var credentialStatusText: String {
+    if appState.aiCredentials.isEmpty {
+      return "No keys"
+    }
+    let enabledCount = appState.aiCredentials.filter(\.enabled).count
+    return "\(enabledCount) enabled of \(appState.aiCredentials.count)"
+  }
+
+  private var hasEnabledCredential: Bool {
+    appState.aiCredentials.contains { $0.enabled }
+  }
+
+  private var providerOptions: [AICredentialProvider] {
+    [.openai, .gemini, .anthropic]
   }
 }
 
@@ -4175,6 +4482,8 @@ private struct AISummariesSectionView: View {
 
   @State private var startDate: Date = Calendar.current.date(byAdding: .day, value: -7, to: Calendar.current.startOfDay(for: Date())) ?? Date()
   @State private var endDate: Date = Calendar.current.startOfDay(for: Date())
+  @State private var dateRangeEnabled = true
+  @State private var datePopoverOpen = false
   @State private var includeTasks = true
   @State private var includeJournal = true
   @State private var filter: SummaryFilter = .all
@@ -4183,62 +4492,66 @@ private struct AISummariesSectionView: View {
     VStack(alignment: .leading, spacing: 18) {
       generateCard
 
-      VStack(alignment: .leading, spacing: 12) {
-        HStack {
-          Text("Your Summaries")
-            .font(SerenityType.sectionTitle)
-          Spacer()
-          filterPills
+      ViewThatFits(in: .horizontal) {
+        HStack(alignment: .top, spacing: 18) {
+          summariesPanel
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+          sidePanel
+            .frame(width: 320, alignment: .topLeading)
         }
 
-        summariesList
+        VStack(alignment: .leading, spacing: 18) {
+          summariesPanel
+          sidePanel
+        }
       }
     }
   }
 
   private var generateCard: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      Text("Generate New Summary")
-        .font(SerenityType.sectionTitle)
-
-      HStack(spacing: 10) {
-        presetButton(title: "Last 7 Days", days: 7)
-        presetButton(title: "Last 30 Days", days: 30)
-        presetButton(title: "Last 3 Months", days: 90)
-      }
-
-      HStack(alignment: .top, spacing: 16) {
-        VStack(alignment: .leading, spacing: 6) {
-          Text("Start Date")
-            .font(SerenityType.caption)
+    VStack(alignment: .leading, spacing: 16) {
+      HStack(alignment: .top, spacing: 14) {
+        VStack(alignment: .leading, spacing: 5) {
+          Text("Generate Summary")
+            .font(SerenityType.sectionTitle)
+          Text("Create a focused recap for the selected period and sources.")
+            .font(SerenityType.body)
             .foregroundStyle(SerenityPalette.textSecondary)
-          #if os(macOS)
-          DatePicker("", selection: $startDate, displayedComponents: .date)
-            .labelsHidden()
-            .datePickerStyle(.field)
-          #else
-          DatePicker("", selection: $startDate, displayedComponents: .date)
-            .labelsHidden()
-            .datePickerStyle(.compact)
-          #endif
-        }
-
-        VStack(alignment: .leading, spacing: 6) {
-          Text("End Date")
-            .font(SerenityType.caption)
-            .foregroundStyle(SerenityPalette.textSecondary)
-          #if os(macOS)
-          DatePicker("", selection: $endDate, displayedComponents: .date)
-            .labelsHidden()
-            .datePickerStyle(.field)
-          #else
-          DatePicker("", selection: $endDate, displayedComponents: .date)
-            .labelsHidden()
-            .datePickerStyle(.compact)
-          #endif
         }
 
         Spacer()
+
+        dateRangeButton
+      }
+
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 10) {
+          presetButton(title: "Last 7 Days", days: 7)
+          presetButton(title: "Last 30 Days", days: 30)
+          presetButton(title: "Last 3 Months", days: 90)
+        }
+
+        VStack(alignment: .leading, spacing: 10) {
+          presetButton(title: "Last 7 Days", days: 7)
+          presetButton(title: "Last 30 Days", days: 30)
+          presetButton(title: "Last 3 Months", days: 90)
+        }
+      }
+
+      HStack(alignment: .top, spacing: 16) {
+        summaryScopeCard(
+          title: "Period",
+          value: dateRangeLabel,
+          icon: "calendar",
+          detail: "\(dayCount) day\(dayCount == 1 ? "" : "s") selected"
+        )
+
+        summaryScopeCard(
+          title: "Sources",
+          value: selectedSourceTitle,
+          icon: "tray.full",
+          detail: "\(selectedTaskCount) task\(selectedTaskCount == 1 ? "" : "s") and \(selectedJournalCount) journal entr\(selectedJournalCount == 1 ? "y" : "ies")"
+        )
       }
 
       VStack(alignment: .leading, spacing: 8) {
@@ -4246,8 +4559,8 @@ private struct AISummariesSectionView: View {
           .font(SerenityType.caption)
           .foregroundStyle(SerenityPalette.textSecondary)
         HStack(spacing: 8) {
-          includeToggle(title: "Tasks", isOn: $includeTasks)
-          includeToggle(title: "Journal", isOn: $includeJournal)
+          includeToggle(title: "Tasks", systemImage: "checklist", isOn: $includeTasks)
+          includeToggle(title: "Journal", systemImage: "book", isOn: $includeJournal)
         }
       }
 
@@ -4274,7 +4587,43 @@ private struct AISummariesSectionView: View {
     .overlay(
       RoundedRectangle(cornerRadius: 14, style: .continuous)
         .stroke(SerenityPalette.border, lineWidth: 1)
-    )
+      )
+  }
+
+  private var dateRangeButton: some View {
+    Button {
+      datePopoverOpen.toggle()
+    } label: {
+      HStack(spacing: 8) {
+        Image(systemName: "calendar")
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Summary Period")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+          Text(dateRangeLabel)
+            .font(SerenityType.bodyMedium)
+        }
+        Image(systemName: "chevron.down")
+          .font(SerenityType.scaledSystem(size: 9, weight: .semibold))
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+    }
+    .buttonStyle(SerenitySecondaryButtonStyle())
+    .hoverCursor(.pointingHand)
+    .popover(isPresented: $datePopoverOpen, arrowEdge: .top) {
+      SerenityDateRangePicker(
+        isEnabled: $dateRangeEnabled,
+        startDate: $startDate,
+        endDate: $endDate,
+        title: "Summary period",
+        showsEnableToggle: false,
+        onApply: normalizeDateRange,
+        onClose: {
+          normalizeDateRange()
+          datePopoverOpen = false
+        }
+      )
+    }
   }
 
   private var aiProviderBanner: some View {
@@ -4306,87 +4655,167 @@ private struct AISummariesSectionView: View {
     )
   }
 
-  private var filterPills: some View {
-    HStack(spacing: 6) {
-      ForEach(SummaryFilter.allCases) { option in
-        Button(option.title) {
-          filter = option
+  private var summariesPanel: some View {
+    sectionPanel(title: "Your Summaries", subtitle: "\(filteredSummaries.count) shown") {
+      ViewThatFits(in: .horizontal) {
+        HStack {
+          summaryLibraryContext
+          Spacer()
+          filterPills
         }
-        .buttonStyle(SerenityPillButtonStyle(selected: filter == option))
-        .hoverCursor(.pointingHand)
+
+        VStack(alignment: .leading, spacing: 12) {
+          summaryLibraryContext
+          filterPills
+        }
+      }
+
+      summariesList
+    }
+  }
+
+  private var summaryLibraryContext: some View {
+    Text("Browse generated summaries by type and export the ones you want to keep.")
+      .font(SerenityType.body)
+      .foregroundStyle(SerenityPalette.textSecondary)
+      .fixedSize(horizontal: false, vertical: true)
+  }
+
+  private var sidePanel: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      sectionPanel(title: "Current Scope", subtitle: resolvedSummaryType?.rawValue.capitalized ?? "Incomplete") {
+        VStack(alignment: .leading, spacing: 12) {
+          summaryMetricRow(title: "Period", value: dateRangeLabel)
+          summaryMetricRow(title: "Tasks", value: "\(selectedTaskCount)")
+          summaryMetricRow(title: "Journal entries", value: "\(selectedJournalCount)")
+          summaryMetricRow(title: "Saved summaries", value: "\(appState.aiSummaries.count)")
+        }
+      }
+
+      sectionPanel(title: "Provider", subtitle: isAIConfigured ? "Ready" : "Required") {
+        HStack(alignment: .top, spacing: 10) {
+          Circle()
+            .fill(isAIConfigured ? Color.green : Color.orange)
+            .frame(width: 8, height: 8)
+            .padding(.top, 5)
+
+          VStack(alignment: .leading, spacing: 4) {
+            Text(isAIConfigured ? "AI provider configured" : "AI provider not configured")
+              .font(SerenityType.bodyMedium)
+            Text(isAIConfigured ? "Summaries can be generated for the selected scope." : "Configure a provider key before generating summaries.")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+      }
+
+      if let path = appState.lastSummaryExportPath {
+        sectionPanel(title: "Last Export") {
+          Text(path)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .lineLimit(2)
+            .truncationMode(.middle)
+            .textSelection(.enabled)
+        }
+      }
+    }
+  }
+
+  private var filterPills: some View {
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: 6) {
+        ForEach(SummaryFilter.allCases) { option in
+          Button(option.title) {
+            filter = option
+          }
+          .buttonStyle(SerenityPillButtonStyle(selected: filter == option))
+          .hoverCursor(.pointingHand)
+        }
+      }
+
+      HStack(spacing: 6) {
+        ForEach(SummaryFilter.allCases.prefix(2)) { option in
+          Button(option.title) {
+            filter = option
+          }
+          .buttonStyle(SerenityPillButtonStyle(selected: filter == option))
+          .hoverCursor(.pointingHand)
+        }
       }
     }
   }
 
   @ViewBuilder
   private var summariesList: some View {
-    let filtered = filteredSummaries
-
-    if filtered.isEmpty {
-      VStack(spacing: 10) {
-        Image(systemName: "sparkles")
-          .font(SerenityType.scaledSystem(size: 30, weight: .regular))
-          .foregroundStyle(SerenityPalette.textSecondary.opacity(0.7))
-        Text("No summaries yet")
-          .font(SerenityType.bodyLarge.weight(.medium))
-        Text("Generate your first summary using the form above")
-          .font(SerenityType.body)
-          .foregroundStyle(SerenityPalette.textSecondary)
-      }
-      .frame(maxWidth: .infinity)
-      .padding(.vertical, 36)
-      .padding(.horizontal, 20)
-      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(SerenityPalette.border, lineWidth: 1)
-      )
+    if filteredSummaries.isEmpty {
+      emptyState
     } else {
       VStack(alignment: .leading, spacing: 8) {
-        ForEach(filtered) { summary in
-          VStack(alignment: .leading, spacing: 6) {
-            HStack {
-              Text(summary.title)
-                .font(SerenityType.bodyLarge.weight(.medium))
-              Spacer()
-              Text(summary.summaryType.rawValue.capitalized)
-                .font(SerenityType.caption)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(SerenityPalette.innerCardBackground, in: Capsule())
-              Text("\(summary.wordCount) words")
-                .font(SerenityType.caption)
-                .foregroundStyle(SerenityPalette.textSecondary)
-            }
-            Text(summary.content)
-              .lineLimit(3)
-              .font(SerenityType.body)
-              .foregroundStyle(SerenityPalette.textSecondary)
-            HStack {
-              Button("Export") {
-                Task { await appState.exportAISummary(id: summary.id) }
-              }
-              .buttonStyle(SerenitySecondaryButtonStyle())
-              .hoverCursor(.pointingHand)
-
-              Button("Delete", role: .destructive) {
-                Task { await appState.deleteAISummary(id: summary.id) }
-              }
-              .buttonStyle(SerenitySecondaryButtonStyle())
-              .hoverCursor(.pointingHand)
-            }
-          }
-          .padding(14)
-          .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        ForEach(filteredSummaries) { summary in
+          summaryRow(summary)
         }
       }
-      .padding(16)
-      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(SerenityPalette.border, lineWidth: 1)
-      )
     }
+  }
+
+  private var emptyState: some View {
+    VStack(spacing: 10) {
+      Image(systemName: "sparkles")
+        .font(SerenityType.scaledSystem(size: 30, weight: .regular))
+        .foregroundStyle(SerenityPalette.textSecondary.opacity(0.7))
+      Text("No summaries yet")
+        .font(SerenityType.bodyLarge.weight(.medium))
+      Text("Generate your first summary using the controls above.")
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 42)
+    .padding(.horizontal, 20)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private func summaryRow(_ summary: SummaryEntity) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text(summary.title)
+          .font(SerenityType.bodyLarge.weight(.semibold))
+        Spacer()
+        pill(summary.summaryType.rawValue.capitalized)
+        Text("\(summary.wordCount) words")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      Text(summary.content)
+        .lineLimit(3)
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+
+      HStack(spacing: 8) {
+        Label(summaryDateLabel(summary), systemImage: "calendar")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+
+        Spacer()
+
+        Button("Export") {
+          Task { await appState.exportAISummary(id: summary.id) }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button("Delete", role: .destructive) {
+          Task { await appState.deleteAISummary(id: summary.id) }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(14)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
   }
 
   private func presetButton(title: String, days: Int) -> some View {
@@ -4405,12 +4834,83 @@ private struct AISummariesSectionView: View {
     .hoverCursor(.pointingHand)
   }
 
-  private func includeToggle(title: String, isOn: Binding<Bool>) -> some View {
-    Button(title) {
+  private func includeToggle(title: String, systemImage: String, isOn: Binding<Bool>) -> some View {
+    Button {
       isOn.wrappedValue.toggle()
+    } label: {
+      Label(title, systemImage: systemImage)
     }
     .buttonStyle(SerenityPillButtonStyle(selected: isOn.wrappedValue))
     .hoverCursor(.pointingHand)
+  }
+
+  private func summaryScopeCard(title: String, value: String, icon: String, detail: String) -> some View {
+    HStack(alignment: .top, spacing: 10) {
+      Image(systemName: icon)
+        .foregroundStyle(SerenityPalette.accent)
+        .frame(width: 18)
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Text(value)
+          .font(SerenityType.bodyMedium)
+        Text(detail)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(2)
+      }
+      Spacer()
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .topLeading)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private func sectionPanel<Content: View>(title: String, subtitle: String? = nil, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 14) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(title)
+          .font(SerenityType.sectionTitle)
+        Spacer()
+        if let subtitle {
+          Text(subtitle)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+      }
+
+      content()
+    }
+    .padding(16)
+    .frame(maxWidth: .infinity, alignment: .topLeading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private func summaryMetricRow(title: String, value: String) -> some View {
+    HStack(alignment: .firstTextBaseline) {
+      Text(title)
+        .font(SerenityType.bodyMedium)
+      Spacer()
+      Text(value)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .multilineTextAlignment(.trailing)
+    }
+  }
+
+  private func pill(_ text: String) -> some View {
+    Text(text)
+      .font(SerenityType.caption)
+      .foregroundStyle(SerenityPalette.textSecondary)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .background(SerenityPalette.panelBackgroundRaised, in: Capsule())
+      .overlay(Capsule().stroke(SerenityPalette.thinBorder, lineWidth: 1))
   }
 
   private var filteredSummaries: [SummaryEntity] {
@@ -4419,6 +4919,34 @@ private struct AISummariesSectionView: View {
     case .tasks: return appState.aiSummaries.filter { $0.summaryType == .tasks }
     case .journal: return appState.aiSummaries.filter { $0.summaryType == .journal }
     case .combined: return appState.aiSummaries.filter { $0.summaryType == .combined }
+    }
+  }
+
+  private var selectedTaskCount: Int {
+    tasksInRange.count
+  }
+
+  private var selectedJournalCount: Int {
+    journalEntriesInRange.count
+  }
+
+  private var tasksInRange: [TaskEntity] {
+    let calendar = Calendar.current
+    let rangeStart = calendar.startOfDay(for: startDate)
+    let rangeEnd = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: endDate)) ?? endDate
+    return appState.tasks.filter { task in
+      let taskDate = task.completedAt ?? task.dueDate ?? task.updatedAt
+      return taskDate >= rangeStart && taskDate < rangeEnd
+    }
+  }
+
+  private var journalEntriesInRange: [JournalEntryEntity] {
+    let calendar = Calendar.current
+    let rangeStart = calendar.startOfDay(for: startDate)
+    let rangeEnd = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: endDate)) ?? endDate
+    return appState.journalEntries.filter { entry in
+      let entryDate = calendar.startOfDay(for: entry.date)
+      return entryDate >= rangeStart && entryDate < rangeEnd
     }
   }
 
@@ -4435,9 +4963,47 @@ private struct AISummariesSectionView: View {
     }
   }
 
+  private var selectedSourceTitle: String {
+    switch resolvedSummaryType {
+    case .tasks: return "Tasks"
+    case .journal: return "Journal"
+    case .combined: return "Tasks and journal"
+    case nil: return "Choose a source"
+    }
+  }
+
+  private var dateRangeLabel: String {
+    "\(startDate.formatted(.dateTime.month(.abbreviated).day())) - \(endDate.formatted(.dateTime.month(.abbreviated).day().year()))"
+  }
+
+  private var dayCount: Int {
+    let calendar = Calendar.current
+    let start = calendar.startOfDay(for: startDate)
+    let end = calendar.startOfDay(for: endDate)
+    return max(1, (calendar.dateComponents([.day], from: start, to: end).day ?? 0) + 1)
+  }
+
+  private func summaryDateLabel(_ summary: SummaryEntity) -> String {
+    "\(summary.startDate.formatted(.dateTime.month(.abbreviated).day())) - \(summary.endDate.formatted(.dateTime.month(.abbreviated).day().year()))"
+  }
+
+  private func normalizeDateRange() {
+    let calendar = Calendar.current
+    let normalizedStart = calendar.startOfDay(for: startDate)
+    let normalizedEnd = calendar.startOfDay(for: endDate)
+    if normalizedEnd < normalizedStart {
+      startDate = normalizedEnd
+      endDate = normalizedStart
+    } else {
+      startDate = normalizedStart
+      endDate = normalizedEnd
+    }
+  }
+
   private func generate() async {
     guard let type = resolvedSummaryType else { return }
-    await appState.generateAISummary(type: type)
+    normalizeDateRange()
+    await appState.generateAISummary(type: type, startDate: startDate, endDate: endDate)
   }
 }
 
@@ -4645,319 +5211,9 @@ private struct SettingsSectionView: View {
   private let postgresSSLModes = ["disable", "prefer", "require", "verify-ca", "verify-full"]
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      GroupBox("Appearance") {
-        VStack(alignment: .leading, spacing: 12) {
-          Picker(
-            "Theme",
-            selection: Binding(
-              get: { appState.themePreference },
-              set: { appState.setThemePreference($0) }
-            )
-          ) {
-            ForEach(AppThemePreference.allCases) { preference in
-              Text(preference.title).tag(preference)
-            }
-          }
-          .pickerStyle(.segmented)
-          .frame(maxWidth: 340)
-
-          Text("Choose whether Serenity follows the system appearance or forces light/dark mode.")
-            .font(SerenityType.caption)
-            .foregroundStyle(SerenityPalette.textSecondary)
-        }
-        .padding(.top, 8)
-      }
-
-      GroupBox("Backend Configuration") {
-        VStack(alignment: .leading, spacing: 12) {
-          Picker("Primary backend", selection: $appState.settings.backendProfile) {
-            ForEach(BackendProfile.allCases) { profile in
-              Text(profile.title).tag(profile)
-            }
-          }
-          .pickerStyle(.menu)
-          .frame(maxWidth: 280)
-
-          let validation = appState.validationState(for: appState.settings.backendProfile)
-          Text(validation.message)
-            .font(SerenityType.caption)
-            .foregroundStyle(validation.isAvailable ? SerenityPalette.textSecondary : Color.orange)
-
-          Picker("Edit configuration", selection: $backendConfigProfile) {
-            ForEach(BackendProfile.allCases) { profile in
-              Text(profile.title).tag(profile)
-            }
-          }
-          .pickerStyle(.menu)
-          .frame(maxWidth: 280)
-
-          backendConfigurationEditor
-
-          Button("Validate active backend") {
-            Task {
-              await appState.refreshActiveBackendValidation()
-            }
-          }
-          .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-
-          backendSwitchStatus
-        }
-        .padding(.top, 8)
-      }
-
-      GroupBox("Backend Diagnostics") {
-        VStack(alignment: .leading, spacing: 8) {
-          if appState.backendDiagnosticsLines.isEmpty {
-            Text("No diagnostics available yet.")
-              .foregroundStyle(SerenityPalette.textSecondary)
-          } else {
-            ForEach(appState.backendDiagnosticsLines, id: \.self) { line in
-              Text(line)
-                .font(SerenityType.caption)
-                .textSelection(.enabled)
-            }
-          }
-
-          Button("Refresh diagnostics") {
-            Task {
-              await appState.refreshActiveBackendValidation()
-              await appState.refreshBackendDiagnostics()
-            }
-          }
-          .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-        }
-        .padding(.top, 8)
-      }
-
-      GroupBox("Auth Session") {
-        VStack(alignment: .leading, spacing: 10) {
-          authSessionStatus
-
-          VStack(alignment: .leading, spacing: 8) {
-            Text("OAuth configuration")
-              .font(SerenityType.caption)
-              .foregroundStyle(SerenityPalette.textSecondary)
-
-            TextField("Base URL (https://...)", text: $oauthBaseURL)
-              .textFieldStyle(.plain)
-              .serenityInputField()
-
-            TextField("Client ID", text: $oauthClientID)
-              .textFieldStyle(.plain)
-              .serenityInputField()
-
-            TextField("Redirect URI", text: $oauthRedirectURI)
-              .textFieldStyle(.plain)
-              .serenityInputField()
-
-            if let oauthConfigurationError {
-              Text(oauthConfigurationError)
-                .font(SerenityType.caption)
-                .foregroundStyle(.red)
-            }
-
-            if !isOAuthConfigured {
-              Text("Save OAuth configuration to enable sign in on this Mac.")
-                .font(SerenityType.caption)
-                .foregroundStyle(Color.orange)
-            }
-
-            HStack {
-              Button("Save OAuth config") {
-                let submittedBaseURL = oauthBaseURL
-                let submittedClientID = oauthClientID
-                let submittedRedirectURI = oauthRedirectURI
-                Task {
-                  do {
-                    try await appState.saveOAuthConfiguration(
-                      baseURL: submittedBaseURL,
-                      clientID: submittedClientID,
-                      redirectURI: submittedRedirectURI
-                    )
-                    oauthConfigurationError = nil
-                    syncOAuthConfigurationFields()
-                  } catch {
-                    oauthConfigurationError = error.localizedDescription
-                  }
-                }
-              }
-              .buttonStyle(SerenityPrimaryButtonStyle())
-              .hoverCursor(.pointingHand)
-
-              Button("Clear") {
-                Task {
-                  await appState.clearOAuthConfiguration()
-                  oauthConfigurationError = nil
-                  syncOAuthConfigurationFields()
-                }
-              }
-              .buttonStyle(SerenitySecondaryButtonStyle())
-              .hoverCursor(.pointingHand)
-            }
-          }
-
-          VStack(alignment: .leading, spacing: 6) {
-            Text("Authorization code")
-              .font(SerenityType.caption)
-              .foregroundStyle(SerenityPalette.textSecondary)
-            TextField("Paste OAuth authorization code", text: $authorizationCode)
-              .textFieldStyle(.plain)
-              .serenityInputField()
-          }
-
-          HStack {
-            Button("Sign in") {
-              let submittedCode = authorizationCode
-              Task {
-                await appState.loginWithAuthorizationCode(submittedCode)
-                if case .authenticated = appState.authSessionState {
-                  authorizationCode = ""
-                }
-              }
-            }
-            .buttonStyle(SerenityPrimaryButtonStyle())
-            .disabled(authorizationCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !isOAuthConfigured)
-            .hoverCursor(.pointingHand)
-
-            Button("Sign out") {
-              Task {
-                await appState.logout()
-              }
-            }
-            .buttonStyle(SerenitySecondaryButtonStyle())
-            .hoverCursor(.pointingHand)
-          }
-        }
-        .padding(.top, 8)
-      }
-
-      GroupBox("App Lock") {
-        VStack(alignment: .leading, spacing: 12) {
-          Toggle(
-            "Enable local app lock",
-            isOn: Binding(
-              get: { appState.settings.localLockEnabled },
-              set: { newValue in
-                if newValue {
-                  appState.settings.localLockEnabled = true
-                } else {
-                  Task {
-                    await appState.handleLocalLockToggle(false)
-                    localLockPassword = ""
-                    localLockConfirmPassword = ""
-                    unlockPassword = ""
-                    localLockFormError = nil
-                  }
-                }
-              }
-            )
-          )
-
-          Text(appState.statusMessage(for: appState.localLockStatus))
-            .font(SerenityType.caption)
-            .foregroundStyle(SerenityPalette.textSecondary)
-
-          if appState.settings.localLockEnabled, case .disabled = appState.localLockStatus {
-            VStack(alignment: .leading, spacing: 8) {
-              Text("Set local lock password")
-                .font(SerenityType.caption)
-                .foregroundStyle(SerenityPalette.textSecondary)
-
-              SecureField("New password", text: $localLockPassword)
-                .textFieldStyle(.plain)
-                .serenityInputField()
-
-              SecureField("Confirm password", text: $localLockConfirmPassword)
-                .textFieldStyle(.plain)
-                .serenityInputField()
-
-              if let localLockFormError {
-                Text(localLockFormError)
-                  .font(SerenityType.caption)
-                  .foregroundStyle(.red)
-              }
-
-              Button("Set password and enable lock") {
-                let password = localLockPassword.trimmingCharacters(in: .whitespacesAndNewlines)
-                let confirmation = localLockConfirmPassword.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !password.isEmpty else {
-                  localLockFormError = "Password cannot be empty."
-                  return
-                }
-                guard password == confirmation else {
-                  localLockFormError = "Passwords do not match."
-                  return
-                }
-
-                localLockFormError = nil
-                Task {
-                  await appState.handleLocalLockToggle(true, password: password)
-                  if case .unlocked = appState.localLockStatus {
-                    localLockPassword = ""
-                    localLockConfirmPassword = ""
-                  }
-                }
-              }
-              .buttonStyle(SerenityPrimaryButtonStyle())
-              .hoverCursor(.pointingHand)
-            }
-          }
-
-          if appState.settings.localLockEnabled {
-            VStack(alignment: .leading, spacing: 8) {
-              Text("Unlock with password")
-                .font(SerenityType.caption)
-                .foregroundStyle(SerenityPalette.textSecondary)
-              SecureField("Enter local lock password", text: $unlockPassword)
-                .textFieldStyle(.plain)
-                .serenityInputField()
-            }
-
-            HStack {
-              Button("Unlock with password") {
-                let submittedPassword = unlockPassword
-                Task {
-                  await appState.unlockAppWithPassword(submittedPassword)
-                  if case .unlocked = appState.localLockStatus {
-                    unlockPassword = ""
-                  }
-                }
-              }
-              .buttonStyle(SerenitySecondaryButtonStyle())
-              .hoverCursor(.pointingHand)
-
-              Button("Lock now") {
-                Task {
-                  await appState.lockAppNow()
-                }
-              }
-              .buttonStyle(SerenitySecondaryButtonStyle())
-              .hoverCursor(.pointingHand)
-            }
-          }
-
-          biometricStatus
-        }
-        .padding(.top, 8)
-      }
-
-      GroupBox("Local Database") {
-        VStack(alignment: .leading, spacing: 8) {
-          databaseStatusContent
-
-          Button("Run bootstrap") {
-            Task {
-              await appState.bootstrapLocalDatabase()
-            }
-          }
-          .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-        }
-        .padding(.top, 8)
-      }
+    VStack(alignment: .leading, spacing: 18) {
+      settingsOverview
+      settingsGrid
     }
     .onAppear {
       loadStoredSettingsValuesIfNeeded()
@@ -4969,106 +5225,810 @@ private struct SettingsSectionView: View {
     }
   }
 
+  private var settingsOverview: some View {
+    LazyVGrid(columns: overviewColumns, alignment: .leading, spacing: 12) {
+      settingsStatusCard(
+        title: "Backend",
+        value: appState.settings.backendProfile.title,
+        detail: backendValidation.message,
+        systemImage: "server.rack",
+        tint: backendValidation.isAvailable ? .green : .orange
+      )
+
+      settingsStatusCard(
+        title: "Auth",
+        value: authOverviewTitle,
+        detail: authOverviewDetail,
+        systemImage: "person.crop.circle.badge.checkmark",
+        tint: authOverviewTint
+      )
+
+      settingsStatusCard(
+        title: "App Lock",
+        value: appState.settings.localLockEnabled ? "Enabled" : "Off",
+        detail: appState.statusMessage(for: appState.localLockStatus),
+        systemImage: "lock.shield",
+        tint: appState.settings.localLockEnabled ? .green : SerenityPalette.textSecondary
+      )
+
+      settingsStatusCard(
+        title: "Database",
+        value: databaseOverviewTitle,
+        detail: databaseOverviewDetail,
+        systemImage: "cylinder.split.1x2",
+        tint: databaseOverviewTint
+      )
+    }
+  }
+
+  private var overviewColumns: [GridItem] {
+    [
+      GridItem(.adaptive(minimum: 180), spacing: 12),
+    ]
+  }
+
+  private var settingsGrid: some View {
+    ViewThatFits(in: .horizontal) {
+      HStack(alignment: .top, spacing: 16) {
+        VStack(alignment: .leading, spacing: 16) {
+          appearancePanel
+          backendPanel
+          authPanel
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+
+        VStack(alignment: .leading, spacing: 16) {
+          appLockPanel
+          localDatabasePanel
+          diagnosticsPanel
+        }
+        .frame(width: 360, alignment: .topLeading)
+      }
+
+      VStack(alignment: .leading, spacing: 16) {
+        appearancePanel
+        backendPanel
+        authPanel
+        appLockPanel
+        localDatabasePanel
+        diagnosticsPanel
+      }
+    }
+  }
+
+  private var appearancePanel: some View {
+    settingsPanel(
+      title: "Appearance",
+      subtitle: "Workspace presentation",
+      systemImage: "paintpalette",
+      tint: SerenityPalette.accent
+    ) {
+      settingsField("Theme", help: "Choose whether Serenity follows the system appearance or forces light/dark mode.") {
+        Picker(
+          "Theme",
+          selection: Binding(
+            get: { appState.themePreference },
+            set: { appState.setThemePreference($0) }
+          )
+        ) {
+          ForEach(AppThemePreference.allCases) { preference in
+            Text(preference.title).tag(preference)
+          }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 360)
+      }
+    }
+  }
+
+  private var backendPanel: some View {
+    settingsPanel(
+      title: "Backend Configuration",
+      subtitle: "Data residency and connectivity",
+      systemImage: "server.rack",
+      tint: backendValidation.isAvailable ? .green : .orange
+    ) {
+      VStack(alignment: .leading, spacing: 14) {
+        settingsField("Primary backend", help: "Controls the active storage adapter used by the app.") {
+          Picker("Primary backend", selection: $appState.settings.backendProfile) {
+            ForEach(BackendProfile.allCases) { profile in
+              Text(profile.title).tag(profile)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .frame(maxWidth: 300, alignment: .leading)
+        }
+
+        statusBanner(
+          backendValidation.message,
+          systemImage: backendValidation.isAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+          tint: backendValidation.isAvailable ? .green : .orange
+        )
+
+        Divider()
+          .overlay(SerenityPalette.thinBorder)
+
+        settingsField("Edit configuration", help: "Select a backend profile, then update its connection details.") {
+          Picker("Edit configuration", selection: $backendConfigProfile) {
+            ForEach(BackendProfile.allCases) { profile in
+              Text(profile.title).tag(profile)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .frame(maxWidth: 300, alignment: .leading)
+        }
+
+        backendConfigurationEditor
+
+        HStack(spacing: 10) {
+          Button {
+            Task {
+              await appState.refreshActiveBackendValidation()
+            }
+          } label: {
+            Label("Validate active backend", systemImage: "checkmark.seal")
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+
+          backendSwitchStatus
+        }
+      }
+    }
+  }
+
+  private var authPanel: some View {
+    settingsPanel(
+      title: "Auth Session",
+      subtitle: "Sign-in and OAuth setup",
+      systemImage: "person.badge.key",
+      tint: authOverviewTint
+    ) {
+      VStack(alignment: .leading, spacing: 14) {
+        authSessionStatus
+
+        Divider()
+          .overlay(SerenityPalette.thinBorder)
+
+        VStack(alignment: .leading, spacing: 10) {
+          Text("OAuth Configuration")
+            .font(SerenityType.bodyMedium)
+            .foregroundStyle(SerenityPalette.textPrimary)
+
+          settingsField("Base URL") {
+            TextField("https://...", text: $oauthBaseURL)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+          }
+
+          settingsField("Client ID") {
+            TextField("Client ID", text: $oauthClientID)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+          }
+
+          settingsField("Redirect URI") {
+            TextField("Redirect URI", text: $oauthRedirectURI)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+          }
+
+          if let oauthConfigurationError {
+            statusBanner(oauthConfigurationError, systemImage: "xmark.octagon.fill", tint: .red)
+          }
+
+          if !isOAuthConfigured {
+            statusBanner(
+              "Save OAuth configuration to enable sign in on this Mac.",
+              systemImage: "exclamationmark.triangle.fill",
+              tint: .orange
+            )
+          }
+
+          HStack(spacing: 10) {
+            Button {
+              let submittedBaseURL = oauthBaseURL
+              let submittedClientID = oauthClientID
+              let submittedRedirectURI = oauthRedirectURI
+              Task {
+                do {
+                  try await appState.saveOAuthConfiguration(
+                    baseURL: submittedBaseURL,
+                    clientID: submittedClientID,
+                    redirectURI: submittedRedirectURI
+                  )
+                  oauthConfigurationError = nil
+                  syncOAuthConfigurationFields()
+                } catch {
+                  oauthConfigurationError = error.localizedDescription
+                }
+              }
+            } label: {
+              Label("Save OAuth config", systemImage: "square.and.arrow.down")
+            }
+            .buttonStyle(SerenityPrimaryButtonStyle())
+            .hoverCursor(.pointingHand)
+
+            Button {
+              Task {
+                await appState.clearOAuthConfiguration()
+                oauthConfigurationError = nil
+                syncOAuthConfigurationFields()
+              }
+            } label: {
+              Label("Clear", systemImage: "xmark")
+            }
+            .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
+          }
+        }
+
+        Divider()
+          .overlay(SerenityPalette.thinBorder)
+
+        VStack(alignment: .leading, spacing: 10) {
+          Text("Authorization")
+            .font(SerenityType.bodyMedium)
+            .foregroundStyle(SerenityPalette.textPrimary)
+
+          settingsField("Authorization code") {
+            TextField("Paste OAuth authorization code", text: $authorizationCode)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+          }
+
+          HStack(spacing: 10) {
+            Button {
+              let submittedCode = authorizationCode
+              Task {
+                await appState.loginWithAuthorizationCode(submittedCode)
+                if case .authenticated = appState.authSessionState {
+                  authorizationCode = ""
+                }
+              }
+            } label: {
+              Label("Sign in", systemImage: "arrow.right.circle")
+            }
+            .buttonStyle(SerenityPrimaryButtonStyle())
+            .disabled(authorizationCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !isOAuthConfigured)
+            .hoverCursor(.pointingHand)
+
+            Button {
+              Task {
+                await appState.logout()
+              }
+            } label: {
+              Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+            .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
+          }
+        }
+      }
+    }
+  }
+
+  private var appLockPanel: some View {
+    settingsPanel(
+      title: "App Lock",
+      subtitle: "Local device protection",
+      systemImage: "lock.shield",
+      tint: appState.settings.localLockEnabled ? .green : SerenityPalette.textSecondary
+    ) {
+      VStack(alignment: .leading, spacing: 14) {
+        Toggle(
+          "Enable local app lock",
+          isOn: Binding(
+            get: { appState.settings.localLockEnabled },
+            set: { newValue in
+              if newValue {
+                appState.settings.localLockEnabled = true
+              } else {
+                Task {
+                  await appState.handleLocalLockToggle(false)
+                  localLockPassword = ""
+                  localLockConfirmPassword = ""
+                  unlockPassword = ""
+                  localLockFormError = nil
+                }
+              }
+            }
+          )
+        )
+        .toggleStyle(.switch)
+
+        statusBanner(
+          appState.statusMessage(for: appState.localLockStatus),
+          systemImage: appState.settings.localLockEnabled ? "checkmark.shield.fill" : "shield",
+          tint: appState.settings.localLockEnabled ? .green : SerenityPalette.textSecondary
+        )
+
+        if appState.settings.localLockEnabled, case .disabled = appState.localLockStatus {
+          Divider()
+            .overlay(SerenityPalette.thinBorder)
+
+          VStack(alignment: .leading, spacing: 10) {
+            Text("Set Local Lock Password")
+              .font(SerenityType.bodyMedium)
+              .foregroundStyle(SerenityPalette.textPrimary)
+
+            SecureField("New password", text: $localLockPassword)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+
+            SecureField("Confirm password", text: $localLockConfirmPassword)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+
+            if let localLockFormError {
+              statusBanner(localLockFormError, systemImage: "xmark.octagon.fill", tint: .red)
+            }
+
+            Button {
+              let password = localLockPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+              let confirmation = localLockConfirmPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+              guard !password.isEmpty else {
+                localLockFormError = "Password cannot be empty."
+                return
+              }
+              guard password == confirmation else {
+                localLockFormError = "Passwords do not match."
+                return
+              }
+
+              localLockFormError = nil
+              Task {
+                await appState.handleLocalLockToggle(true, password: password)
+                if case .unlocked = appState.localLockStatus {
+                  localLockPassword = ""
+                  localLockConfirmPassword = ""
+                }
+              }
+            } label: {
+              Label("Set password and enable lock", systemImage: "key.fill")
+            }
+            .buttonStyle(SerenityPrimaryButtonStyle())
+            .hoverCursor(.pointingHand)
+          }
+        }
+
+        if appState.settings.localLockEnabled {
+          Divider()
+            .overlay(SerenityPalette.thinBorder)
+
+          VStack(alignment: .leading, spacing: 10) {
+            Text("Unlock Controls")
+              .font(SerenityType.bodyMedium)
+              .foregroundStyle(SerenityPalette.textPrimary)
+
+            SecureField("Enter local lock password", text: $unlockPassword)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+
+            HStack(spacing: 10) {
+              Button {
+                let submittedPassword = unlockPassword
+                Task {
+                  await appState.unlockAppWithPassword(submittedPassword)
+                  if case .unlocked = appState.localLockStatus {
+                    unlockPassword = ""
+                  }
+                }
+              } label: {
+                Label("Unlock", systemImage: "lock.open")
+              }
+              .buttonStyle(SerenitySecondaryButtonStyle())
+              .hoverCursor(.pointingHand)
+
+              Button {
+                Task {
+                  await appState.lockAppNow()
+                }
+              } label: {
+                Label("Lock now", systemImage: "lock")
+              }
+              .buttonStyle(SerenitySecondaryButtonStyle())
+              .hoverCursor(.pointingHand)
+            }
+          }
+        }
+
+        biometricStatus
+      }
+    }
+  }
+
+  private var localDatabasePanel: some View {
+    settingsPanel(
+      title: "Local Database",
+      subtitle: "Bootstrap and migrations",
+      systemImage: "externaldrive.connected.to.line.below",
+      tint: databaseOverviewTint
+    ) {
+      VStack(alignment: .leading, spacing: 12) {
+        databaseStatusContent
+
+        Button {
+          Task {
+            await appState.bootstrapLocalDatabase()
+          }
+        } label: {
+          Label("Run bootstrap", systemImage: "arrow.clockwise")
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    }
+  }
+
+  private var diagnosticsPanel: some View {
+    settingsPanel(
+      title: "Backend Diagnostics",
+      subtitle: "\(appState.backendDiagnosticsLines.count) lines",
+      systemImage: "waveform.path.ecg.rectangle",
+      tint: SerenityPalette.accent
+    ) {
+      VStack(alignment: .leading, spacing: 12) {
+        if appState.backendDiagnosticsLines.isEmpty {
+          statusBanner(
+            "No diagnostics available yet.",
+            systemImage: "info.circle",
+            tint: SerenityPalette.textSecondary
+          )
+        } else {
+          VStack(alignment: .leading, spacing: 6) {
+            ForEach(appState.backendDiagnosticsLines, id: \.self) { line in
+              Text(line)
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+          }
+        }
+
+        Button {
+          Task {
+            await appState.refreshActiveBackendValidation()
+            await appState.refreshBackendDiagnostics()
+          }
+        } label: {
+          Label("Refresh diagnostics", systemImage: "arrow.clockwise")
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    }
+  }
+
+  private func settingsStatusCard(
+    title: String,
+    value: String,
+    detail: String,
+    systemImage: String,
+    tint: Color
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .center, spacing: 9) {
+        Image(systemName: systemImage)
+          .font(SerenityType.scaledSystem(size: 13, weight: .semibold))
+          .foregroundStyle(tint)
+          .frame(width: 28, height: 28)
+          .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+        Text(title.uppercased())
+          .font(SerenityType.scaledSystem(size: 10, weight: .semibold))
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(1)
+
+        Spacer(minLength: 0)
+      }
+
+      Text(value)
+        .font(SerenityType.bodyLarge.weight(.semibold))
+        .foregroundStyle(SerenityPalette.textPrimary)
+        .lineLimit(1)
+
+      Text(detail)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .lineLimit(2)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .padding(14)
+    .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+  }
+
+  private func settingsPanel<Content: View>(
+    title: String,
+    subtitle: String,
+    systemImage: String,
+    tint: Color,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 16) {
+      HStack(alignment: .center, spacing: 12) {
+        Image(systemName: systemImage)
+          .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
+          .foregroundStyle(tint)
+          .frame(width: 34, height: 34)
+          .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+              .stroke(tint.opacity(0.16), lineWidth: 1)
+          )
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title)
+            .font(SerenityType.sectionTitle)
+            .foregroundStyle(SerenityPalette.textPrimary)
+          Text(subtitle)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+
+        Spacer(minLength: 0)
+      }
+
+      content()
+    }
+    .padding(16)
+    .frame(maxWidth: .infinity, alignment: .topLeading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private func settingsField<Content: View>(
+    _ label: String,
+    help: String? = nil,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text(label)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+
+      content()
+
+      if let help {
+        Text(help)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+  }
+
+  private func statusBanner(_ message: String, systemImage: String, tint: Color) -> some View {
+    HStack(alignment: .top, spacing: 9) {
+      Image(systemName: systemImage)
+        .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+        .foregroundStyle(tint)
+        .frame(width: 16)
+
+      Text(message)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 10)
+    .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(tint.opacity(0.24), lineWidth: 1)
+    )
+  }
+
+  private var backendValidation: BackendProfileValidationState {
+    appState.validationState(for: appState.settings.backendProfile)
+  }
+
+  private var authOverviewTitle: String {
+    switch appState.authSessionState {
+    case .authenticated:
+      return "Signed in"
+    case .authenticating:
+      return "Signing in"
+    case .refreshing:
+      return "Refreshing"
+    case .failed:
+      return "Needs attention"
+    case .unauthenticated:
+      return "Signed out"
+    }
+  }
+
+  private var authOverviewDetail: String {
+    switch appState.authSessionState {
+    case .authenticated(let session):
+      return session.userEmail
+    case .authenticating:
+      return "Authentication is in progress."
+    case .refreshing:
+      return "Refreshing the active session."
+    case .failed(let message):
+      return message
+    case .unauthenticated:
+      return isOAuthConfigured ? "OAuth is configured." : "OAuth configuration is required."
+    }
+  }
+
+  private var authOverviewTint: Color {
+    switch appState.authSessionState {
+    case .authenticated:
+      return .green
+    case .failed:
+      return .red
+    case .authenticating, .refreshing:
+      return SerenityPalette.accent
+    case .unauthenticated:
+      return isOAuthConfigured ? SerenityPalette.textSecondary : .orange
+    }
+  }
+
+  private var databaseOverviewTitle: String {
+    switch appState.databaseBootstrapState {
+    case .idle:
+      return "Not started"
+    case .bootstrapping:
+      return "Bootstrapping"
+    case .ready:
+      return "Ready"
+    case .failed:
+      return "Failed"
+    }
+  }
+
+  private var databaseOverviewDetail: String {
+    switch appState.databaseBootstrapState {
+    case .idle:
+      return "Bootstrap has not started."
+    case .bootstrapping:
+      return "Applying migrations."
+    case .ready(_, let appliedCount):
+      return "\(appliedCount) migrations applied this run."
+    case .failed(let message):
+      return message
+    }
+  }
+
+  private var databaseOverviewTint: Color {
+    switch appState.databaseBootstrapState {
+    case .ready:
+      return .green
+    case .bootstrapping:
+      return SerenityPalette.accent
+    case .failed:
+      return .red
+    case .idle:
+      return SerenityPalette.textSecondary
+    }
+  }
+
   @ViewBuilder
   private var backendConfigurationEditor: some View {
     switch backendConfigProfile {
     case .sqliteLocal:
-      Text("SQLite local backend is ready with no additional setup.")
-        .font(SerenityType.caption)
-        .foregroundStyle(SerenityPalette.textSecondary)
+      statusBanner(
+        "SQLite local backend is ready with no additional setup.",
+        systemImage: "checkmark.circle.fill",
+        tint: .green
+      )
 
     case .serenityCloud:
-      VStack(alignment: .leading, spacing: 8) {
+      VStack(alignment: .leading, spacing: 12) {
         Text("Serenity Cloud")
           .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.textPrimary)
 
         Text("Sign in under Auth Session, then use your signed-in session to configure cloud access automatically.")
           .font(SerenityType.caption)
           .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
 
-        TextField("Base URL (https://...)", text: $cloudBaseURL)
-          .textFieldStyle(.plain)
-          .serenityInputField()
-
-        if hasAuthenticatedSession {
-          Text("Signed-in session available for one-click cloud setup.")
-            .font(SerenityType.caption)
-            .foregroundStyle(.green)
-        } else {
-          Text("Not signed in yet. Use Auth Session below, or provide an access token manually.")
-            .font(SerenityType.caption)
-            .foregroundStyle(Color.orange)
+        settingsField("Base URL") {
+          TextField("https://...", text: $cloudBaseURL)
+            .textFieldStyle(.plain)
+            .serenityInputField()
         }
 
-        SecureField("Access token", text: $cloudAccessToken)
-          .textFieldStyle(.plain)
-          .serenityInputField()
+        if hasAuthenticatedSession {
+          statusBanner(
+            "Signed-in session available for one-click cloud setup.",
+            systemImage: "checkmark.circle.fill",
+            tint: .green
+          )
+        } else {
+          statusBanner(
+            "Not signed in yet. Use Auth Session below, or provide an access token manually.",
+            systemImage: "exclamationmark.triangle.fill",
+            tint: .orange
+          )
+        }
 
-        HStack {
-          Button("Use signed-in session") {
-            Task {
-              await appState.configureSerenityCloudFromSignedInSession(baseURLOverride: cloudBaseURL)
-              cloudAccessToken = ""
-            }
-          }
-          .buttonStyle(SerenityPrimaryButtonStyle())
-          .disabled(!hasAuthenticatedSession)
-          .hoverCursor(.pointingHand)
+        settingsField("Access token") {
+          SecureField("Access token", text: $cloudAccessToken)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
 
-          Button("Save cloud config") {
-            Task {
-              await appState.configureSerenityCloud(baseURL: cloudBaseURL, accessToken: cloudAccessToken)
-            }
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: 10) {
+            serenityCloudActions
           }
-          .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
 
-          Button("Clear") {
-            Task {
-              await appState.clearSerenityCloudConfiguration()
-              cloudAccessToken = ""
-            }
+          VStack(alignment: .leading, spacing: 10) {
+            serenityCloudActions
           }
-          .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
         }
       }
 
     case .externalPostgres:
-      VStack(alignment: .leading, spacing: 8) {
+      VStack(alignment: .leading, spacing: 12) {
         Text("External PostgreSQL")
           .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.textPrimary)
 
-        TextField("Host", text: $postgresHost)
-          .textFieldStyle(.plain)
-          .serenityInputField()
+        settingsField("Host") {
+          TextField("Host", text: $postgresHost)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
 
-        TextField("Port", text: $postgresPort)
-          .textFieldStyle(.plain)
-          .serenityInputField()
+        HStack(alignment: .top, spacing: 10) {
+          settingsField("Port") {
+            TextField("Port", text: $postgresPort)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+          }
+          .frame(maxWidth: 140)
 
-        TextField("Database", text: $postgresDatabase)
-          .textFieldStyle(.plain)
-          .serenityInputField()
-
-        TextField("Username", text: $postgresUsername)
-          .textFieldStyle(.plain)
-          .serenityInputField()
-
-        SecureField("Password", text: $postgresPassword)
-          .textFieldStyle(.plain)
-          .serenityInputField()
-
-        Picker("SSL mode", selection: $postgresSSLMode) {
-          ForEach(postgresSSLModes, id: \.self) { mode in
-            Text(mode).tag(mode)
+          settingsField("SSL mode") {
+            Picker("SSL mode", selection: $postgresSSLMode) {
+              ForEach(postgresSSLModes, id: \.self) { mode in
+                Text(mode).tag(mode)
+              }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
           }
         }
-        .pickerStyle(.menu)
-        .frame(maxWidth: 280)
 
-        HStack {
-          Button("Save PostgreSQL config") {
+        settingsField("Database") {
+          TextField("Database", text: $postgresDatabase)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+
+        settingsField("Username") {
+          TextField("Username", text: $postgresUsername)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+
+        settingsField("Password") {
+          SecureField("Password", text: $postgresPassword)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+
+        HStack(spacing: 10) {
+          Button {
             Task {
               await appState.configureExternalPostgres(
                 host: postgresHost,
@@ -5079,21 +6039,61 @@ private struct SettingsSectionView: View {
                 sslMode: postgresSSLMode
               )
             }
+          } label: {
+            Label("Save PostgreSQL config", systemImage: "square.and.arrow.down")
           }
           .buttonStyle(SerenityPrimaryButtonStyle())
           .hoverCursor(.pointingHand)
 
-          Button("Clear") {
+          Button {
             Task {
               await appState.clearExternalPostgresConfiguration()
               postgresPassword = ""
             }
+          } label: {
+            Label("Clear", systemImage: "xmark")
           }
           .buttonStyle(SerenitySecondaryButtonStyle())
           .hoverCursor(.pointingHand)
         }
       }
     }
+  }
+
+  @ViewBuilder
+  private var serenityCloudActions: some View {
+    Button {
+      Task {
+        await appState.configureSerenityCloudFromSignedInSession(baseURLOverride: cloudBaseURL)
+        cloudAccessToken = ""
+      }
+    } label: {
+      Label("Use signed-in session", systemImage: "person.crop.circle.badge.checkmark")
+    }
+    .buttonStyle(SerenityPrimaryButtonStyle())
+    .disabled(!hasAuthenticatedSession)
+    .hoverCursor(.pointingHand)
+
+    Button {
+      Task {
+        await appState.configureSerenityCloud(baseURL: cloudBaseURL, accessToken: cloudAccessToken)
+      }
+    } label: {
+      Label("Save cloud config", systemImage: "square.and.arrow.down")
+    }
+    .buttonStyle(SerenitySecondaryButtonStyle())
+    .hoverCursor(.pointingHand)
+
+    Button {
+      Task {
+        await appState.clearSerenityCloudConfiguration()
+        cloudAccessToken = ""
+      }
+    } label: {
+      Label("Clear", systemImage: "xmark")
+    }
+    .buttonStyle(SerenitySecondaryButtonStyle())
+    .hoverCursor(.pointingHand)
   }
 
   @ViewBuilder

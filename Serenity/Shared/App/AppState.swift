@@ -1378,12 +1378,33 @@ final class AppState: ObservableObject {
     }
   }
 
-  func generateAISummary(type: SummaryType) async {
+  func generateAISummary(type: SummaryType, startDate: Date? = nil, endDate: Date? = nil) async {
+    let selectedTasks: [TaskEntity]
+    let selectedJournalEntries: [JournalEntryEntity]
+    if let startDate, let endDate {
+      let calendar = Calendar.current
+      let rangeStart = calendar.startOfDay(for: startDate)
+      let rangeEnd = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: endDate)) ?? endDate
+      selectedTasks = tasks.filter { task in
+        let taskDate = task.completedAt ?? task.dueDate ?? task.updatedAt
+        return taskDate >= rangeStart && taskDate < rangeEnd
+      }
+      selectedJournalEntries = journalEntries.filter { entry in
+        let entryDate = calendar.startOfDay(for: entry.date)
+        return entryDate >= rangeStart && entryDate < rangeEnd
+      }
+    } else {
+      selectedTasks = tasks
+      selectedJournalEntries = journalEntries
+    }
+
     do {
       _ = try await aiWorkflowService.generateSummary(
         type: type,
-        tasks: tasks,
-        journalEntries: journalEntries
+        tasks: selectedTasks,
+        journalEntries: selectedJournalEntries,
+        startDate: startDate,
+        endDate: endDate
       )
       showToast("\(type.rawValue.capitalized) summary generated")
       await refreshAIWorkflows()
