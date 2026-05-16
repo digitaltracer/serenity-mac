@@ -114,6 +114,7 @@ final class AppState: ObservableObject {
   private var settingsSyncObserver: NSObjectProtocol?
 
   @Published var selectedSection: AppSection? = .home
+  @Published var pendingSettingsTab: SettingsTab?
   @Published var settings = AppSettings()
   @Published var themePreference: AppThemePreference = .system
   @Published var backendSelectionState = BackendProfileSelectionState(
@@ -329,6 +330,11 @@ final class AppState: ObservableObject {
     if let section {
       AppLogger.info("Section selected: \(section.rawValue)")
     }
+  }
+
+  func setSection(_ section: AppSection?, settingsTab tab: SettingsTab) {
+    pendingSettingsTab = tab
+    setSection(section)
   }
 
   func openGlobalSearch(prefill query: String? = nil) {

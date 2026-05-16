@@ -69,3 +69,57 @@ public enum AppSection: String, CaseIterable, Identifiable {
     }
   }
 }
+
+public enum SettingsTab: String, CaseIterable, Identifiable, Equatable {
+  case appearance
+  case aiProvider
+  case backend
+  case auth
+  case appLock
+  case localDatabase
+  case diagnostics
+
+  public static var allCases: [SettingsTab] {
+    [.appearance, .aiProvider, .appLock]
+  }
+
+  public var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .appearance:
+      return "Appearance"
+    case .aiProvider:
+      return "AI Provider"
+    case .backend:
+      return "Backend"
+    case .auth:
+      return "Auth"
+    case .appLock:
+      return "App Lock"
+    case .localDatabase:
+      return "Local Database"
+    case .diagnostics:
+      return "Diagnostics"
+    }
+  }
+
+  var systemImage: String {
+    switch self {
+    case .appearance:
+      return "paintpalette"
+    case .aiProvider:
+      return "key.horizontal.fill"
+    case .backend:
+      return "server.rack"
+    case .auth:
+      return "person.crop.circle.badge.checkmark"
+    case .appLock:
+      return "lock.shield"
+    case .localDatabase:
+      return "cylinder.split.1x2"
+    case .diagnostics:
+      return "stethoscope"
+    }
+  }
+}

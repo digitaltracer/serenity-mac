@@ -506,7 +506,7 @@ private extension AppSection {
     case .database:
       return "Bootstrap, integrity checks, and export tooling"
     case .settings:
-      return "Security, auth, backend, and environment controls"
+      return "Appearance, AI provider, auth, and app lock controls"
     }
   }
 }
@@ -732,7 +732,7 @@ private struct SectionView: View {
     GeometryReader { proxy in
       let density = SerenityContentDensity.from(width: proxy.size.width)
 
-      ScrollView {
+      SerenityThemedScrollView {
         VStack(alignment: .leading, spacing: density.sectionSpacing) {
           if section != .home && section != .today {
             sectionHeader(density: density)
@@ -994,6 +994,9 @@ private struct HomeSectionView: View {
   @State private var quickCapture = ""
   @State private var submitting = false
   @State private var quickCaptureFocused = false
+  @State private var selectedQuickCaptureCredentialID = ""
+
+  private let nativeQuickCaptureProviderID = "native"
 
   var body: some View {
     VStack(alignment: .leading, spacing: density.sectionSpacing) {
@@ -1069,7 +1072,7 @@ private struct HomeSectionView: View {
 
           Spacer()
 
-          providerBadge
+          quickCaptureProviderDropdown
           submitButton
         }
 
@@ -1080,7 +1083,7 @@ private struct HomeSectionView: View {
 
           HStack {
             Spacer()
-            providerBadge
+            quickCaptureProviderDropdown
             submitButton
           }
         }
@@ -1124,13 +1127,41 @@ private struct HomeSectionView: View {
     }
   }
 
-  private var providerBadge: some View {
-    Text("Provider: native")
-      .font(SerenityType.bodyMedium)
-      .padding(.horizontal, 14)
-      .padding(.vertical, 8)
-      .background(SerenityPalette.innerCardBackground, in: Capsule())
-      .overlay(Capsule().stroke(SerenityPalette.thinBorder, lineWidth: 1))
+  private var quickCaptureProviderDropdown: some View {
+    SerenityDropdownField(
+      placeholder: "Provider",
+      selection: Binding(
+        get: { quickCaptureSelectedCredentialID },
+        set: { credentialID in
+          selectedQuickCaptureCredentialID = credentialID
+          guard credentialID != nativeQuickCaptureProviderID else {
+            Task {
+              await appState.setAIActiveProvider(nil)
+            }
+            return
+          }
+          guard let credential = enabledQuickCaptureCredentials.first(where: { $0.id == credentialID }) else { return }
+          Task {
+            await appState.setAIActiveProvider(credential.provider)
+          }
+        }
+      ),
+      options: quickCaptureCredentialOptions
+    ) {
+      Button {
+        appState.setSection(.settings, settingsTab: .aiProvider)
+      } label: {
+        Label("Manage providers", systemImage: "key")
+          .font(SerenityType.caption)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 8)
+      }
+      .buttonStyle(.plain)
+      .foregroundStyle(SerenityPalette.accent)
+      .hoverCursor(.pointingHand)
+    }
+    .frame(width: 250, alignment: .leading)
   }
 
   private var submitButton: some View {
@@ -1216,6 +1247,110 @@ private struct HomeSectionView: View {
     quickCapture = ""
     await appState.refreshCoreWorkflowData()
   }
+
+  private var enabledQuickCaptureCredentials: [AICredentialEntity] {
+    appState.aiCredentials
+      .filter(\.enabled)
+      .sorted { lhs, rhs in
+        if lhs.priority == rhs.priority {
+          return lhs.createdAt < rhs.createdAt
+        }
+        return lhs.priority < rhs.priority
+      }
+  }
+
+  private var quickCaptureSelectedCredentialID: String {
+    if selectedQuickCaptureCredentialID == nativeQuickCaptureProviderID {
+      return nativeQuickCaptureProviderID
+    }
+
+    if enabledQuickCaptureCredentials.contains(where: { $0.id == selectedQuickCaptureCredentialID }) {
+      return selectedQuickCaptureCredentialID
+    }
+
+    if let activeProvider = appState.aiSettings.activeProvider,
+       let activeCredential = enabledQuickCaptureCredentials.first(where: { $0.provider == activeProvider }) {
+      return activeCredential.id
+    }
+
+    return enabledQuickCaptureCredentials.first?.id ?? nativeQuickCaptureProviderID
+  }
+
+  private var quickCaptureCredentialOptions: [SerenityDropdownOption<String>] {
+    [
+      SerenityDropdownOption(
+        value: nativeQuickCaptureProviderID,
+        title: "Provider: native",
+        subtitle: "Create tasks and journal entries locally",
+        systemImage: "macwindow",
+        tint: SerenityPalette.accent
+      )
+    ] + enabledQuickCaptureCredentials.map { credential in
+      SerenityDropdownOption(
+        value: credential.id,
+        title: "\(credential.name) · \(effectiveModel(for: credential))",
+        subtitle: providerTitle(credential.provider),
+        systemImage: providerIcon(credential.provider),
+        tint: providerTint(credential.provider)
+      )
+    }
+  }
+
+  private func effectiveModel(for credential: AICredentialEntity) -> String {
+    if let modelPreference = credential.modelPreference?.trimmingCharacters(in: .whitespacesAndNewlines), !modelPreference.isEmpty {
+      return modelPreference
+    }
+
+    switch credential.provider {
+    case .openai:
+      if let preferred = appState.aiSettings.preferredModels?.openai, !preferred.isEmpty {
+        return preferred
+      }
+    case .gemini:
+      if let preferred = appState.aiSettings.preferredModels?.gemini, !preferred.isEmpty {
+        return preferred
+      }
+    case .anthropic:
+      if let preferred = appState.aiSettings.preferredModels?.anthropic, !preferred.isEmpty {
+        return preferred
+      }
+    }
+
+    return appState.aiModelCatalog[credential.provider]?.first ?? "Default model"
+  }
+
+  private func providerTitle(_ provider: AICredentialProvider) -> String {
+    switch provider {
+    case .openai:
+      return "OpenAI"
+    case .gemini:
+      return "Gemini"
+    case .anthropic:
+      return "Anthropic"
+    }
+  }
+
+  private func providerIcon(_ provider: AICredentialProvider) -> String {
+    switch provider {
+    case .openai:
+      return "sparkles"
+    case .gemini:
+      return "diamond.fill"
+    case .anthropic:
+      return "brain.head.profile"
+    }
+  }
+
+  private func providerTint(_ provider: AICredentialProvider) -> Color {
+    switch provider {
+    case .openai:
+      return SerenityPalette.accent
+    case .gemini:
+      return .purple
+    case .anthropic:
+      return .orange
+    }
+  }
 }
 
 struct IntegrationsSectionView: View {
@@ -1234,7 +1369,7 @@ struct IntegrationsSectionView: View {
       syncStatusCard
       connectedServicesCard
       githubTokensCard
-      cloudSyncHardeningCard
+      iCloudSyncStatusCard
     }
   }
 
@@ -1538,93 +1673,140 @@ struct IntegrationsSectionView: View {
     AppLogger.info("connectGoogle: connectGoogleIntegration returned")
   }
 
-  private var cloudSyncHardeningCard: some View {
-    GroupBox("Cloud Sync Hardening") {
-      VStack(alignment: .leading, spacing: 10) {
-        Picker("Conflict policy", selection: Binding(
-          get: { appState.cloudSyncPolicy },
-          set: { policy in
-            appState.cloudSyncPolicy = policy
-            Task {
-              await appState.refreshCloudSyncDiagnostics()
-            }
-          }
-        )) {
-          ForEach([CloudSyncResolutionPolicy.deferConflicts, .preferNewest, .preferLocal, .preferRemote], id: \.rawValue) { policy in
-            Text(policy.rawValue).tag(policy)
-          }
-        }
-        .frame(maxWidth: 240)
+  private var iCloudSyncStatusCard: some View {
+    HStack(alignment: .center, spacing: 14) {
+      serviceIcon(systemName: iCloudSyncIcon, accent: iCloudSyncTint)
 
-        HStack {
-          Button("Run Full Entity Sync") {
-            Task {
-              await appState.runCloudSync()
-            }
-          }
-          .buttonStyle(SerenityPrimaryButtonStyle())
-          .hoverCursor(.pointingHand)
-
-          switch appState.cloudSyncState {
-          case .idle:
-            EmptyView()
-          case .syncing:
-            Label("Syncing...", systemImage: "arrow.triangle.2.circlepath")
-              .font(SerenityType.caption)
-          case .succeeded(let message):
-            Text(message)
-              .font(SerenityType.caption)
-              .foregroundStyle(.green)
-          case .failed(let message):
-            Text(message)
-              .font(SerenityType.caption)
-              .foregroundStyle(.red)
-          }
-        }
-
-        if appState.cloudSyncConflicts.isEmpty {
-          Text("No unresolved conflicts.")
-            .foregroundStyle(.secondary)
-        } else {
-          ForEach(appState.cloudSyncConflicts) { conflict in
-            VStack(alignment: .leading, spacing: 6) {
-              Text("\(conflict.entityType.rawValue.capitalized): \(conflict.summary)")
-                .font(SerenityType.bodyMedium)
-              Text("Local: \(conflict.localUpdatedAt.formatted()) | Remote: \(conflict.remoteUpdatedAt.formatted())")
-                .font(SerenityType.caption)
-                .foregroundStyle(.secondary)
-
-              HStack {
-                Button("Use Local") {
-                  Task {
-                    await appState.resolveCloudSyncConflict(conflict, policy: .preferLocal)
-                  }
-                }
-                .buttonStyle(.bordered)
-                .hoverCursor(.pointingHand)
-
-                Button("Use Remote") {
-                  Task {
-                    await appState.resolveCloudSyncConflict(conflict, policy: .preferRemote)
-                  }
-                }
-                .buttonStyle(.bordered)
-                .hoverCursor(.pointingHand)
-              }
-            }
-            .padding(8)
-            .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8))
-          }
-        }
-
-        ForEach(appState.cloudSyncDiagnostics, id: \.self) { line in
-          Text(line)
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 8) {
+          Text("iCloud Sync")
+            .font(SerenityType.bodyLarge.weight(.semibold))
+          Text(iCloudSyncBadge)
             .font(SerenityType.caption)
-            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .foregroundStyle(iCloudSyncTint)
+            .background(iCloudSyncTint.opacity(0.15), in: Capsule())
+        }
+
+        Text(iCloudSyncDetail)
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      Spacer(minLength: 12)
+
+      Button {
+        appState.triggerICloudSync()
+      } label: {
+        if case .syncing = appState.iCloudSyncState {
+          HStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            Text("Syncing")
+          }
+        } else {
+          Label(iCloudSyncButtonTitle, systemImage: iCloudSyncButtonIcon)
         }
       }
-      .padding(.top, 8)
+      .buttonStyle(SerenityPrimaryButtonStyle())
+      .hoverCursor(.pointingHand)
+      .disabled(isICloudSyncing)
     }
+    .padding(16)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private var iCloudSyncBadge: String {
+    switch appState.iCloudSyncState {
+    case .idle:
+      return "Idle"
+    case .syncing:
+      return "Syncing"
+    case .succeeded:
+      return "Synced"
+    case .unavailable:
+      return "Unavailable"
+    case .failed:
+      return "Needs attention"
+    }
+  }
+
+  private var iCloudSyncDetail: String {
+    switch appState.iCloudSyncState {
+    case .idle:
+      return "Ready to sync tasks, projects, journal entries, goals, insights, recaps, and summaries."
+    case .syncing:
+      return "Uploading local changes and checking for updates from iCloud."
+    case .succeeded(let syncedAt, let pending):
+      let formatter = RelativeDateTimeFormatter()
+      formatter.unitsStyle = .abbreviated
+      let syncedText = formatter.localizedString(for: syncedAt, relativeTo: Date())
+      return "Last synced \(syncedText). Pending changes: \(pending)."
+    case .unavailable(let reason):
+      return reason
+    case .failed(let message):
+      return message
+    }
+  }
+
+  private var iCloudSyncTint: Color {
+    switch appState.iCloudSyncState {
+    case .succeeded:
+      return .green
+    case .failed:
+      return .red
+    case .unavailable:
+      return .orange
+    case .syncing:
+      return SerenityPalette.accent
+    case .idle:
+      return SerenityPalette.textSecondary
+    }
+  }
+
+  private var iCloudSyncIcon: String {
+    switch appState.iCloudSyncState {
+    case .succeeded:
+      return "checkmark.icloud.fill"
+    case .failed:
+      return "exclamationmark.icloud.fill"
+    case .unavailable:
+      return "icloud.slash"
+    case .syncing:
+      return "icloud.and.arrow.up"
+    case .idle:
+      return "icloud"
+    }
+  }
+
+  private var iCloudSyncButtonTitle: String {
+    switch appState.iCloudSyncState {
+    case .failed, .unavailable:
+      return "Retry Sync"
+    default:
+      return "Sync Now"
+    }
+  }
+
+  private var iCloudSyncButtonIcon: String {
+    switch appState.iCloudSyncState {
+    case .failed, .unavailable:
+      return "arrow.clockwise"
+    default:
+      return "arrow.triangle.2.circlepath"
+    }
+  }
+
+  private var isICloudSyncing: Bool {
+    if case .syncing = appState.iCloudSyncState {
+      return true
+    }
+    return false
   }
 }
 
@@ -3438,121 +3620,402 @@ private struct GoalsSectionView: View {
   @State private var newGoalPriority: GoalPriority = .medium
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      GroupBox("New Goal") {
-        VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 18) {
+      goalsOverview
+      newGoalPanel
+      goalsPanel
+    }
+  }
+
+  private var goalsOverview: some View {
+    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], alignment: .leading, spacing: 12) {
+      goalMetricCard(
+        title: "Active",
+        value: "\(appState.goals.filter { $0.status == .active }.count)",
+        systemImage: "target",
+        tint: SerenityPalette.accent
+      )
+      goalMetricCard(
+        title: "Completed",
+        value: "\(appState.goals.filter { $0.status == .completed }.count)",
+        systemImage: "checkmark.seal.fill",
+        tint: .green
+      )
+      goalMetricCard(
+        title: "Average Progress",
+        value: averageGoalProgress,
+        systemImage: "chart.line.uptrend.xyaxis",
+        tint: .orange
+      )
+    }
+  }
+
+  private var newGoalPanel: some View {
+    goalPanel(title: "New Goal", subtitle: "Define a target and track it over time", systemImage: "plus.circle.fill", tint: SerenityPalette.accent) {
+      VStack(alignment: .leading, spacing: 14) {
+        labeledControl("Goal title") {
           TextField("Goal title", text: $newGoalTitle)
             .textFieldStyle(.plain)
             .serenityInputField()
+        }
 
-          HStack {
-            TextField("Target", text: $newGoalTarget)
-              .textFieldStyle(.plain)
-              .serenityInputField()
-              .frame(maxWidth: 140)
-
-            Picker("Type", selection: $newGoalType) {
-              ForEach(goalTypes, id: \.rawValue) { type in
-                Text(type.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
-                  .tag(type)
-              }
-            }
-            .frame(maxWidth: 220)
-
-            Picker("Priority", selection: $newGoalPriority) {
-              ForEach(goalPriorities, id: \.rawValue) { priority in
-                Text(priority.rawValue.capitalized)
-                  .tag(priority)
-              }
-            }
-            .frame(maxWidth: 180)
+        ViewThatFits(in: .horizontal) {
+          HStack(alignment: .top, spacing: 12) {
+            targetField
+            goalTypeField
+            priorityField
           }
 
-          HStack {
-            Button("Create Goal") {
-              let target = Double(newGoalTarget) ?? 1
-              Task {
-                await appState.createGoal(
-                  title: newGoalTitle,
-                  target: target,
-                  type: newGoalType,
-                  priority: newGoalPriority
-                )
-              }
-
-              newGoalTitle = ""
-              newGoalTarget = "5"
-            }
-            .buttonStyle(.borderedProminent)
-          .hoverCursor(.pointingHand)
-
-            Button("Refresh") {
-              Task {
-                await appState.refreshCoreWorkflowData()
-              }
-            }
-            .hoverCursor(.pointingHand)
+          VStack(alignment: .leading, spacing: 12) {
+            targetField
+            goalTypeField
+            priorityField
           }
         }
-        .padding(.top, 8)
-      }
 
-      GroupBox("Goals") {
-        VStack(alignment: .leading, spacing: 10) {
-          if appState.goals.isEmpty {
-            Text("No goals found")
-              .foregroundStyle(.secondary)
-          } else {
-            ForEach(appState.goals) { goal in
-              VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                  VStack(alignment: .leading, spacing: 3) {
-                    Text(goal.title)
-                      .font(SerenityType.bodyLarge.weight(.semibold))
-
-                    Text("\(goal.progress.current, specifier: "%.0f") / \(goal.progress.target, specifier: "%.0f") (\(goal.progress.percentage, specifier: "%.0f")%)")
-                      .font(SerenityType.caption)
-                      .foregroundStyle(.secondary)
-                  }
-
-                  Spacer()
-
-                  Text(goal.status.rawValue.capitalized)
-                    .font(SerenityType.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(goal.status == .completed ? Color.green.opacity(0.2) : Color.blue.opacity(0.2), in: Capsule())
-                }
-
-                ProgressView(value: goal.progress.percentage, total: 100)
-
-                HStack {
-                  Button("Increment") {
-                    Task {
-                      await appState.incrementGoalProgress(id: goal.id)
-                    }
-                  }
-                  .buttonStyle(.bordered)
+        HStack(spacing: 10) {
+          Button {
+            createGoal()
+          } label: {
+            Label("Create Goal", systemImage: "plus")
+          }
+          .buttonStyle(SerenityPrimaryButtonStyle())
           .hoverCursor(.pointingHand)
 
-                  Spacer()
-
-                  Button("Delete", role: .destructive) {
-                    Task {
-                      await appState.deleteGoal(id: goal.id)
-                    }
-                  }
-                  .buttonStyle(.borderless)
-          .hoverCursor(.pointingHand)
-                }
-              }
-              .padding(10)
-              .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10))
+          Button {
+            Task {
+              await appState.refreshCoreWorkflowData()
             }
+          } label: {
+            Label("Refresh", systemImage: "arrow.clockwise")
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        }
+      }
+    }
+  }
+
+  private var targetField: some View {
+    labeledControl("Target") {
+      TextField("5", text: $newGoalTarget)
+        .textFieldStyle(.plain)
+        .serenityInputField()
+    }
+    .frame(maxWidth: 140, alignment: .leading)
+  }
+
+  private var goalTypeField: some View {
+    labeledControl("Type") {
+      SerenityDropdownField(
+        placeholder: "Type",
+        selection: $newGoalType,
+        options: goalTypeOptions
+      )
+    }
+    .frame(maxWidth: 260, alignment: .leading)
+  }
+
+  private var priorityField: some View {
+    labeledControl("Priority") {
+      SerenityDropdownField(
+        placeholder: "Priority",
+        selection: $newGoalPriority,
+        options: goalPriorityOptions
+      )
+    }
+    .frame(maxWidth: 200, alignment: .leading)
+  }
+
+  private var goalsPanel: some View {
+    goalPanel(title: "Goals", subtitle: "\(appState.goals.count) total", systemImage: "flag.checkered", tint: .green) {
+      VStack(alignment: .leading, spacing: 10) {
+        if appState.goals.isEmpty {
+          VStack(alignment: .center, spacing: 8) {
+            Image(systemName: "target")
+              .font(SerenityType.scaledSystem(size: 28, weight: .regular))
+              .foregroundStyle(SerenityPalette.textSecondary.opacity(0.65))
+            Text("No goals yet")
+              .font(SerenityType.bodyLarge.weight(.medium))
+            Text("Create a goal above to start tracking progress.")
+              .font(SerenityType.body)
+              .foregroundStyle(SerenityPalette.textSecondary)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 26)
+        } else {
+          ForEach(appState.goals) { goal in
+            goalRow(goal)
           }
         }
-        .padding(.top, 8)
       }
+    }
+  }
+
+  private func goalRow(_ goal: GoalEntity) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .top, spacing: 12) {
+        Image(systemName: icon(for: goal.type))
+          .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
+          .foregroundStyle(tint(for: goal.priority))
+          .frame(width: 32, height: 32)
+          .background(tint(for: goal.priority).opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+        VStack(alignment: .leading, spacing: 4) {
+          Text(goal.title)
+            .font(SerenityType.bodyLarge.weight(.semibold))
+            .foregroundStyle(SerenityPalette.textPrimary)
+            .lineLimit(2)
+
+          Text("\(goal.progress.current, specifier: "%.0f") / \(goal.progress.target, specifier: "%.0f") - \(goal.progress.percentage, specifier: "%.0f")%")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+
+        Spacer(minLength: 8)
+
+        Text(goal.status.rawValue.capitalized)
+          .font(SerenityType.caption)
+          .foregroundStyle(statusTint(for: goal.status))
+          .padding(.horizontal, 8)
+          .padding(.vertical, 4)
+          .background(statusTint(for: goal.status).opacity(0.14), in: Capsule())
+      }
+
+      ProgressView(value: min(goal.progress.percentage, 100), total: 100)
+        .tint(statusTint(for: goal.status))
+
+      HStack(spacing: 10) {
+        Text(goalTypeTitle(goal.type))
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+
+        Text(goal.priority.rawValue.capitalized)
+          .font(SerenityType.caption)
+          .foregroundStyle(tint(for: goal.priority))
+
+        Spacer(minLength: 8)
+
+        Button {
+          Task {
+            await appState.incrementGoalProgress(id: goal.id)
+          }
+        } label: {
+          Label("Increment", systemImage: "plus")
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button(role: .destructive) {
+          Task {
+            await appState.deleteGoal(id: goal.id)
+          }
+        } label: {
+          Label("Delete", systemImage: "trash")
+        }
+        .buttonStyle(.borderless)
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(12)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+  }
+
+  private func goalPanel<Content: View>(
+    title: String,
+    subtitle: String,
+    systemImage: String,
+    tint: Color,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 14) {
+      HStack(alignment: .center, spacing: 10) {
+        Image(systemName: systemImage)
+          .font(SerenityType.scaledSystem(size: 14, weight: .semibold))
+          .foregroundStyle(tint)
+          .frame(width: 32, height: 32)
+          .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title)
+            .font(SerenityType.sectionTitle)
+            .foregroundStyle(SerenityPalette.textPrimary)
+          Text(subtitle)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+
+        Spacer(minLength: 0)
+      }
+
+      content()
+    }
+    .padding(16)
+    .frame(maxWidth: .infinity, alignment: .topLeading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private func labeledControl<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text(title)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+      content()
+    }
+  }
+
+  private func goalMetricCard(title: String, value: String, systemImage: String, tint: Color) -> some View {
+    HStack(spacing: 10) {
+      Image(systemName: systemImage)
+        .font(SerenityType.scaledSystem(size: 13, weight: .semibold))
+        .foregroundStyle(tint)
+        .frame(width: 30, height: 30)
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Text(value)
+          .font(SerenityType.bodyLarge.weight(.semibold))
+          .foregroundStyle(SerenityPalette.textPrimary)
+      }
+
+      Spacer(minLength: 0)
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+  }
+
+  private func createGoal() {
+    let target = Double(newGoalTarget) ?? 1
+    Task {
+      await appState.createGoal(
+        title: newGoalTitle,
+        target: target,
+        type: newGoalType,
+        priority: newGoalPriority
+      )
+    }
+
+    newGoalTitle = ""
+    newGoalTarget = "5"
+  }
+
+  private var averageGoalProgress: String {
+    guard !appState.goals.isEmpty else { return "0%" }
+    let average = appState.goals.map(\.progress.percentage).reduce(0, +) / Double(appState.goals.count)
+    return String(format: "%.0f%%", average)
+  }
+
+  private var goalTypeOptions: [SerenityDropdownOption<GoalType>] {
+    goalTypes.map { type in
+      SerenityDropdownOption(
+        value: type,
+        title: goalTypeTitle(type),
+        subtitle: goalTypeSubtitle(type),
+        systemImage: icon(for: type),
+        tint: SerenityPalette.accent
+      )
+    }
+  }
+
+  private var goalPriorityOptions: [SerenityDropdownOption<GoalPriority>] {
+    goalPriorities.map { priority in
+      SerenityDropdownOption(
+        value: priority,
+        title: priority.rawValue.capitalized,
+        systemImage: priority == .high ? "exclamationmark.triangle.fill" : "circle.fill",
+        tint: tint(for: priority)
+      )
+    }
+  }
+
+  private func goalTypeTitle(_ type: GoalType) -> String {
+    switch type {
+    case .weeklyTasks:
+      return "Weekly Tasks"
+    case .projectTasks:
+      return "Project Tasks"
+    case .priorityTasks:
+      return "Priority Tasks"
+    case .dailyStreak:
+      return "Daily Streak"
+    case .journalWeekly:
+      return "Weekly Journal"
+    case .completionRate:
+      return "Completion Rate"
+    }
+  }
+
+  private func goalTypeSubtitle(_ type: GoalType) -> String {
+    switch type {
+    case .weeklyTasks:
+      return "Finish a set number of tasks"
+    case .projectTasks:
+      return "Move project work forward"
+    case .priorityTasks:
+      return "Stay focused on high-value tasks"
+    case .dailyStreak:
+      return "Build a daily habit"
+    case .journalWeekly:
+      return "Keep reflection consistent"
+    case .completionRate:
+      return "Improve overall follow-through"
+    }
+  }
+
+  private func icon(for type: GoalType) -> String {
+    switch type {
+    case .weeklyTasks:
+      return "checklist"
+    case .projectTasks:
+      return "folder"
+    case .priorityTasks:
+      return "flag.fill"
+    case .dailyStreak:
+      return "flame.fill"
+    case .journalWeekly:
+      return "book.closed.fill"
+    case .completionRate:
+      return "chart.pie.fill"
+    }
+  }
+
+  private func tint(for priority: GoalPriority) -> Color {
+    switch priority {
+    case .low:
+      return .green
+    case .medium:
+      return SerenityPalette.accent
+    case .high:
+      return .orange
+    }
+  }
+
+  private func statusTint(for status: GoalStatus) -> Color {
+    switch status {
+    case .active:
+      return SerenityPalette.accent
+    case .completed:
+      return .green
+    case .paused:
+      return .orange
+    case .failed:
+      return .red
     }
   }
 
@@ -3706,12 +4169,7 @@ private struct ProjectsSectionView: View {
 struct InsightsSectionView: View {
   @EnvironmentObject private var appState: AppState
 
-  @State private var newCredentialProvider: AICredentialProvider = .openai
-  @State private var newCredentialName = ""
-  @State private var newCredentialAPIKey = ""
-  @State private var newCredentialModel = ""
   @State private var insightNoteDrafts: [String: String] = [:]
-  @State private var showCredentialForm = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
@@ -3801,25 +4259,24 @@ struct InsightsSectionView: View {
 
   private var setupBanner: some View {
     HStack(alignment: .top, spacing: 10) {
-      Image(systemName: "key.fill")
+      Image(systemName: "exclamationmark.triangle.fill")
         .foregroundStyle(.orange)
-        .frame(width: 18)
-
-      VStack(alignment: .leading, spacing: 3) {
-        Text("Add an enabled provider key before running AI analysis.")
+      VStack(alignment: .leading, spacing: 2) {
+        Text("AI Provider not configured")
           .font(SerenityType.bodyMedium)
-        Text("Credentials are managed in the setup panel, away from the insight feed.")
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
+        HStack(spacing: 4) {
+          Text("You need to configure an AI provider to use this feature.")
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+          Button("Go to Settings") {
+            appState.setSection(.settings, settingsTab: .aiProvider)
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(SerenityPalette.accent)
+          .hoverCursor(.pointingHand)
+        }
       }
-
       Spacer()
-
-      Button("Open setup") {
-        showCredentialForm = true
-      }
-      .buttonStyle(SerenitySecondaryButtonStyle())
-      .hoverCursor(.pointingHand)
     }
     .padding(12)
     .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -3840,7 +4297,6 @@ struct InsightsSectionView: View {
   private var sideColumn: some View {
     VStack(alignment: .leading, spacing: 18) {
       analysisSettingsPanel
-      providerSetupPanel
       usagePanel
     }
   }
@@ -3912,34 +4368,33 @@ struct InsightsSectionView: View {
     sectionPanel(title: "Analysis Settings", subtitle: "Scope and cadence") {
       VStack(alignment: .leading, spacing: 14) {
         labeledPicker("Active Provider") {
-          Picker("Active Provider", selection: Binding(
-            get: { appState.aiSettings.activeProvider?.rawValue ?? "none" },
-            set: { value in
-              Task {
-                await appState.setAIActiveProvider(AICredentialProvider(rawValue: value))
+          SerenityDropdownField(
+            placeholder: "Active Provider",
+            selection: Binding(
+              get: { appState.aiSettings.activeProvider?.rawValue ?? "none" },
+              set: { value in
+                Task {
+                  await appState.setAIActiveProvider(AICredentialProvider(rawValue: value))
+                }
               }
-            }
-          )) {
-            Text("Auto").tag("none")
-            ForEach(providerOptions, id: \.rawValue) { provider in
-              Text(provider.rawValue.capitalized).tag(provider.rawValue)
-            }
-          }
-          .labelsHidden()
+            ),
+            options: activeProviderDropdownOptions
+          )
+          .frame(maxWidth: 260, alignment: .leading)
         }
 
         labeledPicker("Frequency") {
-          Picker("Frequency", selection: Binding(
-            get: { appState.aiSettings.analysisFrequency },
-            set: { frequency in
-              Task { await appState.setAIAnalysisFrequency(frequency) }
-            }
-          )) {
-            ForEach([AIAnalysisFrequency.daily, .weekly, .manual], id: \.rawValue) { frequency in
-              Text(frequency.rawValue.capitalized).tag(frequency)
-            }
-          }
-          .labelsHidden()
+          SerenityDropdownField(
+            placeholder: "Frequency",
+            selection: Binding(
+              get: { appState.aiSettings.analysisFrequency },
+              set: { frequency in
+                Task { await appState.setAIAnalysisFrequency(frequency) }
+              }
+            ),
+            options: frequencyDropdownOptions
+          )
+          .frame(maxWidth: 220, alignment: .leading)
         }
 
         Toggle("Auto analyze", isOn: Binding(
@@ -3979,84 +4434,6 @@ struct InsightsSectionView: View {
           }
         }
       }
-    }
-  }
-
-  private var providerSetupPanel: some View {
-    sectionPanel(title: "Provider Setup", subtitle: credentialStatusText) {
-      VStack(alignment: .leading, spacing: 12) {
-        HStack(spacing: 8) {
-          statusDot(isActive: hasEnabledCredential)
-          Text(hasEnabledCredential ? "Enabled provider available" : "No enabled provider")
-            .font(SerenityType.bodyMedium)
-          Spacer()
-        }
-
-        if appState.aiCredentials.isEmpty {
-          Text("No provider keys have been added.")
-            .font(SerenityType.caption)
-            .foregroundStyle(SerenityPalette.textSecondary)
-        } else {
-          VStack(alignment: .leading, spacing: 8) {
-            ForEach(appState.aiCredentials) { credential in
-              credentialRow(credential)
-            }
-          }
-        }
-
-        DisclosureGroup(isExpanded: $showCredentialForm) {
-          addCredentialForm
-            .padding(.top, 10)
-        } label: {
-          Label("Add provider key", systemImage: "key")
-            .font(SerenityType.bodyMedium)
-        }
-      }
-    }
-  }
-
-  private var addCredentialForm: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Picker("Provider", selection: $newCredentialProvider) {
-        ForEach(providerOptions, id: \.rawValue) { provider in
-          Text(provider.rawValue.capitalized).tag(provider)
-        }
-      }
-
-      TextField("Credential name", text: $newCredentialName)
-        .textFieldStyle(.plain)
-        .serenityInputField()
-
-      SecureField("API key", text: $newCredentialAPIKey)
-        .textFieldStyle(.plain)
-        .serenityInputField()
-
-      Picker("Model preference", selection: $newCredentialModel) {
-        Text("Default").tag("")
-        ForEach(appState.aiModelCatalog[newCredentialProvider] ?? [], id: \.self) { model in
-          Text(model).tag(model)
-        }
-      }
-
-      Button {
-        Task {
-          await appState.addAICredential(
-            provider: newCredentialProvider,
-            name: newCredentialName,
-            apiKey: newCredentialAPIKey,
-            modelPreference: newCredentialModel.isEmpty ? nil : newCredentialModel
-          )
-          newCredentialName = ""
-          newCredentialAPIKey = ""
-          newCredentialModel = ""
-          showCredentialForm = false
-        }
-      } label: {
-        Label("Add Provider Key", systemImage: "plus")
-      }
-      .buttonStyle(SerenityPrimaryButtonStyle())
-      .hoverCursor(.pointingHand)
-      .disabled(newCredentialAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
   }
 
@@ -4320,59 +4697,6 @@ struct InsightsSectionView: View {
     .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
   }
 
-  private func credentialRow(_ credential: AICredentialEntity) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(spacing: 8) {
-        statusDot(isActive: credential.enabled)
-        VStack(alignment: .leading, spacing: 2) {
-          Text(credential.name)
-            .font(SerenityType.bodyMedium)
-          Text("\(credential.provider.rawValue.capitalized) - \(credential.modelPreference ?? "Default model")")
-            .font(SerenityType.caption)
-            .foregroundStyle(SerenityPalette.textSecondary)
-        }
-        Spacer()
-
-        Toggle("Enabled", isOn: Binding(
-          get: { credential.enabled },
-          set: { enabled in
-            Task { await appState.updateAICredentialEnabled(id: credential.id, enabled: enabled) }
-          }
-        ))
-        .toggleStyle(.switch)
-        .labelsHidden()
-      }
-
-      Picker("Model", selection: Binding(
-        get: { credential.modelPreference ?? "" },
-        set: { model in
-          Task {
-            await appState.updateAICredentialModel(id: credential.id, modelPreference: model.isEmpty ? nil : model)
-          }
-        }
-      )) {
-        Text("Default").tag("")
-        ForEach(appState.aiModelCatalog[credential.provider] ?? [], id: \.self) { model in
-          Text(model).tag(model)
-        }
-      }
-
-      HStack {
-        Text("Requests \(credential.totalRequests) - Tokens \(credential.totalTokens)")
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
-        Spacer()
-        Button("Delete", role: .destructive) {
-          Task { await appState.deleteAICredential(id: credential.id) }
-        }
-        .buttonStyle(.borderless)
-        .hoverCursor(.pointingHand)
-      }
-    }
-    .padding(12)
-    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-  }
-
   private func dataScopeToggle(title: String, isOn: Bool, action: @escaping (Bool) async -> Void) -> some View {
     HStack {
       Text(title)
@@ -4454,8 +4778,64 @@ struct InsightsSectionView: View {
     appState.aiCredentials.contains { $0.enabled }
   }
 
+  private var activeProviderDropdownOptions: [SerenityDropdownOption<String>] {
+    [SerenityDropdownOption(value: "none", title: "Auto", subtitle: "Use the best enabled provider", systemImage: "wand.and.stars", tint: SerenityPalette.accent)]
+      + providerOptions.map { provider in
+        SerenityDropdownOption(
+          value: provider.rawValue,
+          title: providerTitle(provider),
+          systemImage: providerIcon(provider),
+          tint: providerTint(provider)
+        )
+      }
+  }
+
+  private var frequencyDropdownOptions: [SerenityDropdownOption<AIAnalysisFrequency>] {
+    AIAnalysisFrequency.allCases.map { frequency in
+      SerenityDropdownOption(
+        value: frequency,
+        title: frequency.rawValue.capitalized,
+        systemImage: frequency == .manual ? "hand.raised.fill" : "clock.arrow.circlepath",
+        tint: frequency == .manual ? .orange : SerenityPalette.accent
+      )
+    }
+  }
+
   private var providerOptions: [AICredentialProvider] {
     [.openai, .gemini, .anthropic]
+  }
+
+  private func providerTitle(_ provider: AICredentialProvider) -> String {
+    switch provider {
+    case .openai:
+      return "OpenAI"
+    case .gemini:
+      return "Gemini"
+    case .anthropic:
+      return "Anthropic"
+    }
+  }
+
+  private func providerIcon(_ provider: AICredentialProvider) -> String {
+    switch provider {
+    case .openai:
+      return "sparkles"
+    case .gemini:
+      return "diamond.fill"
+    case .anthropic:
+      return "brain.head.profile"
+    }
+  }
+
+  private func providerTint(_ provider: AICredentialProvider) -> Color {
+    switch provider {
+    case .openai:
+      return SerenityPalette.accent
+    case .gemini:
+      return .purple
+    case .anthropic:
+      return .orange
+    }
   }
 }
 
@@ -4638,7 +5018,7 @@ private struct AISummariesSectionView: View {
             .font(SerenityType.body)
             .foregroundStyle(SerenityPalette.textSecondary)
           Button("Go to Settings") {
-            appState.setSection(.settings)
+            appState.setSection(.settings, settingsTab: .aiProvider)
           }
           .buttonStyle(.plain)
           .foregroundStyle(SerenityPalette.accent)
@@ -5018,17 +5398,12 @@ private struct DatabaseSectionView: View {
           Task {
             await appState.refreshCoreWorkflowData()
             await appState.refreshDatabaseManagement()
+            await appState.refreshActiveBackendValidation()
+            await appState.refreshBackendDiagnostics()
           }
         }
         .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-        .controlSize(.large)
-
-        Button("Configure Database") {
-          appState.setSection(.settings)
-        }
-        .buttonStyle(SerenityPrimaryButtonStyle())
-          .hoverCursor(.pointingHand)
+        .hoverCursor(.pointingHand)
         .controlSize(.large)
       }
 
@@ -5046,6 +5421,8 @@ private struct DatabaseSectionView: View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
           .stroke(Color.green.opacity(0.45), lineWidth: 1)
       )
+
+      DatabaseBackendConfigurationPanel()
 
       HStack(alignment: .top, spacing: 16) {
         GroupBox("Database Statistics") {
@@ -5139,6 +5516,38 @@ private struct DatabaseSectionView: View {
         }
         .padding(.top, 8)
       }
+
+      GroupBox("Backend Diagnostics") {
+        VStack(alignment: .leading, spacing: 8) {
+          if appState.backendDiagnosticsLines.isEmpty {
+            Text("No backend diagnostics available yet.")
+              .foregroundStyle(SerenityPalette.textSecondary)
+          } else {
+            ForEach(appState.backendDiagnosticsLines, id: \.self) { line in
+              Text(line)
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
+                .textSelection(.enabled)
+            }
+          }
+
+          Button {
+            Task {
+              await appState.refreshActiveBackendValidation()
+              await appState.refreshBackendDiagnostics()
+            }
+          } label: {
+            Label("Refresh backend diagnostics", systemImage: "arrow.clockwise")
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        }
+        .padding(.top, 8)
+      }
+    }
+    .task {
+      await appState.refreshActiveBackendValidation()
+      await appState.refreshBackendDiagnostics()
     }
   }
 
@@ -5186,6 +5595,479 @@ private struct DatabaseSectionView: View {
   }
 }
 
+private struct DatabaseBackendConfigurationPanel: View {
+  @EnvironmentObject private var appState: AppState
+  @State private var cloudBaseURL = ""
+  @State private var cloudAccessToken = ""
+  @State private var postgresHost = ""
+  @State private var postgresPort = "5432"
+  @State private var postgresDatabase = ""
+  @State private var postgresUsername = ""
+  @State private var postgresPassword = ""
+  @State private var postgresSSLMode = "require"
+  @State private var backendConfigProfile: BackendProfile = .serenityCloud
+  @State private var loadedStoredValues = false
+
+  private let postgresSSLModes = ["disable", "prefer", "require", "verify-ca", "verify-full"]
+
+  var body: some View {
+    settingsPanel(
+      title: "Backend Configuration",
+      subtitle: "Data residency and connectivity",
+      systemImage: "server.rack",
+      tint: backendValidation.isAvailable ? .green : .orange
+    ) {
+      VStack(alignment: .leading, spacing: 14) {
+        settingsField("Primary backend", help: "Controls the active storage adapter used by the app.") {
+          SerenityDropdownField(
+            placeholder: "Primary backend",
+            selection: $appState.settings.backendProfile,
+            options: backendProfileDropdownOptions
+          )
+          .frame(maxWidth: 300, alignment: .leading)
+        }
+
+        statusBanner(
+          backendValidation.message,
+          systemImage: backendValidation.isAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+          tint: backendValidation.isAvailable ? .green : .orange
+        )
+
+        Divider()
+          .overlay(SerenityPalette.thinBorder)
+
+        settingsField("Edit configuration", help: "Select a backend profile, then update its connection details.") {
+          SerenityDropdownField(
+            placeholder: "Edit configuration",
+            selection: $backendConfigProfile,
+            options: backendProfileDropdownOptions
+          )
+          .frame(maxWidth: 300, alignment: .leading)
+        }
+
+        backendConfigurationEditor
+
+        HStack(spacing: 10) {
+          Button {
+            Task {
+              await appState.refreshActiveBackendValidation()
+              await appState.refreshBackendDiagnostics()
+            }
+          } label: {
+            Label("Validate active backend", systemImage: "checkmark.seal")
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+
+          backendSwitchStatus
+        }
+      }
+    }
+    .onAppear {
+      loadStoredValuesIfNeeded()
+    }
+    .onChange(of: appState.settings.backendProfile) { _, newValue in
+      Task {
+        await appState.handleBackendProfileSelection(newValue)
+        await appState.refreshBackendDiagnostics()
+      }
+    }
+  }
+
+  private var backendProfileDropdownOptions: [SerenityDropdownOption<BackendProfile>] {
+    BackendProfile.allCases.map { profile in
+      SerenityDropdownOption(
+        value: profile,
+        title: profile.title,
+        subtitle: backendProfileSubtitle(profile),
+        systemImage: backendProfileIcon(profile),
+        tint: backendProfileTint(profile)
+      )
+    }
+  }
+
+  private var postgresSSLModeDropdownOptions: [SerenityDropdownOption<String>] {
+    postgresSSLModes.map { mode in
+      SerenityDropdownOption(
+        value: mode,
+        title: mode,
+        subtitle: sslModeSubtitle(mode),
+        systemImage: mode == "disable" ? "lock.open" : "lock.fill",
+        tint: mode == "disable" ? .orange : .green
+      )
+    }
+  }
+
+  private var backendValidation: BackendProfileValidationState {
+    appState.validationState(for: appState.settings.backendProfile)
+  }
+
+  private func backendProfileSubtitle(_ profile: BackendProfile) -> String {
+    switch profile {
+    case .sqliteLocal:
+      return "Private storage on this device"
+    case .serenityCloud:
+      return "Sync through Serenity Cloud"
+    case .externalPostgres:
+      return "Use a custom PostgreSQL database"
+    }
+  }
+
+  private func backendProfileIcon(_ profile: BackendProfile) -> String {
+    switch profile {
+    case .sqliteLocal:
+      return "internaldrive"
+    case .serenityCloud:
+      return "cloud.fill"
+    case .externalPostgres:
+      return "server.rack"
+    }
+  }
+
+  private func backendProfileTint(_ profile: BackendProfile) -> Color {
+    switch profile {
+    case .sqliteLocal:
+      return SerenityPalette.accent
+    case .serenityCloud:
+      return .purple
+    case .externalPostgres:
+      return .orange
+    }
+  }
+
+  private func sslModeSubtitle(_ mode: String) -> String {
+    switch mode {
+    case "disable":
+      return "No encrypted transport"
+    case "prefer":
+      return "Use TLS when available"
+    case "require":
+      return "Require encrypted transport"
+    case "verify-ca":
+      return "Validate the certificate authority"
+    case "verify-full":
+      return "Validate CA and hostname"
+    default:
+      return "PostgreSQL SSL setting"
+    }
+  }
+
+  @ViewBuilder
+  private var backendConfigurationEditor: some View {
+    switch backendConfigProfile {
+    case .sqliteLocal:
+      statusBanner(
+        "SQLite local backend is ready with no additional setup.",
+        systemImage: "checkmark.circle.fill",
+        tint: .green
+      )
+
+    case .serenityCloud:
+      VStack(alignment: .leading, spacing: 12) {
+        Text("Serenity Cloud")
+          .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.textPrimary)
+
+        Text("Sign in under Settings > Auth, then use your signed-in session to configure cloud access automatically.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+
+        settingsField("Base URL") {
+          TextField("https://...", text: $cloudBaseURL)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+
+        if hasAuthenticatedSession {
+          statusBanner(
+            "Signed-in session available for one-click cloud setup.",
+            systemImage: "checkmark.circle.fill",
+            tint: .green
+          )
+        } else {
+          statusBanner(
+            "Not signed in yet. Use Settings > Auth, or provide an access token manually.",
+            systemImage: "exclamationmark.triangle.fill",
+            tint: .orange
+          )
+        }
+
+        settingsField("Access token") {
+          SecureField("Access token", text: $cloudAccessToken)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: 10) {
+            serenityCloudActions
+          }
+
+          VStack(alignment: .leading, spacing: 10) {
+            serenityCloudActions
+          }
+        }
+      }
+
+    case .externalPostgres:
+      VStack(alignment: .leading, spacing: 12) {
+        Text("External PostgreSQL")
+          .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.textPrimary)
+
+        settingsField("Host") {
+          TextField("Host", text: $postgresHost)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+
+        HStack(alignment: .top, spacing: 10) {
+          settingsField("Port") {
+            TextField("Port", text: $postgresPort)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+          }
+          .frame(maxWidth: 140)
+
+          settingsField("SSL mode") {
+            SerenityDropdownField(
+              placeholder: "SSL mode",
+              selection: $postgresSSLMode,
+              options: postgresSSLModeDropdownOptions
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+        }
+
+        settingsField("Database") {
+          TextField("Database", text: $postgresDatabase)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+
+        settingsField("Username") {
+          TextField("Username", text: $postgresUsername)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+
+        settingsField("Password") {
+          SecureField("Password", text: $postgresPassword)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+
+        HStack(spacing: 10) {
+          Button {
+            Task {
+              await appState.configureExternalPostgres(
+                host: postgresHost,
+                port: postgresPort,
+                database: postgresDatabase,
+                username: postgresUsername,
+                password: postgresPassword,
+                sslMode: postgresSSLMode
+              )
+              await appState.refreshBackendDiagnostics()
+            }
+          } label: {
+            Label("Save PostgreSQL config", systemImage: "square.and.arrow.down")
+          }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .hoverCursor(.pointingHand)
+
+          Button {
+            Task {
+              await appState.clearExternalPostgresConfiguration()
+              postgresPassword = ""
+              await appState.refreshBackendDiagnostics()
+            }
+          } label: {
+            Label("Clear", systemImage: "xmark")
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var serenityCloudActions: some View {
+    Button {
+      Task {
+        await appState.configureSerenityCloudFromSignedInSession(baseURLOverride: cloudBaseURL)
+        cloudAccessToken = ""
+        await appState.refreshBackendDiagnostics()
+      }
+    } label: {
+      Label("Use signed-in session", systemImage: "person.crop.circle.badge.checkmark")
+    }
+    .buttonStyle(SerenityPrimaryButtonStyle())
+    .disabled(!hasAuthenticatedSession)
+    .hoverCursor(.pointingHand)
+
+    Button {
+      Task {
+        await appState.configureSerenityCloud(baseURL: cloudBaseURL, accessToken: cloudAccessToken)
+        await appState.refreshBackendDiagnostics()
+      }
+    } label: {
+      Label("Save cloud config", systemImage: "square.and.arrow.down")
+    }
+    .buttonStyle(SerenitySecondaryButtonStyle())
+    .hoverCursor(.pointingHand)
+
+    Button {
+      Task {
+        await appState.clearSerenityCloudConfiguration()
+        cloudAccessToken = ""
+        await appState.refreshBackendDiagnostics()
+      }
+    } label: {
+      Label("Clear", systemImage: "xmark")
+    }
+    .buttonStyle(SerenitySecondaryButtonStyle())
+    .hoverCursor(.pointingHand)
+  }
+
+  @ViewBuilder
+  private var backendSwitchStatus: some View {
+    switch appState.backendSwitchState {
+    case .idle:
+      EmptyView()
+    case .switching(let target):
+      Label("Switching to \(target.title)...", systemImage: "arrow.triangle.2.circlepath")
+        .font(SerenityType.caption)
+    case .succeeded(let message):
+      Text(message)
+        .font(SerenityType.caption)
+        .foregroundStyle(.green)
+    case .failed(let message):
+      Text(message)
+        .font(SerenityType.caption)
+        .foregroundStyle(.red)
+    }
+  }
+
+  private var hasAuthenticatedSession: Bool {
+    if case .authenticated = appState.authSessionState {
+      return true
+    }
+
+    return false
+  }
+
+  private func loadStoredValuesIfNeeded() {
+    guard !loadedStoredValues else { return }
+    loadedStoredValues = true
+
+    let existingCloudBaseURL = appState.cloudBaseURLForSettings()
+    if !existingCloudBaseURL.isEmpty {
+      cloudBaseURL = existingCloudBaseURL
+    } else if let oauthConfiguration = appState.oauthConfigurationForSettings() {
+      cloudBaseURL = oauthConfiguration.baseURL.absoluteString
+    }
+
+    backendConfigProfile = appState.settings.backendProfile
+
+    if let diagnostics = appState.externalPostgresDiagnosticsForSettings() {
+      postgresHost = diagnostics.host
+      postgresPort = String(diagnostics.port)
+      postgresDatabase = diagnostics.database
+      postgresUsername = diagnostics.username
+      postgresSSLMode = diagnostics.sslMode
+    }
+  }
+
+  private func settingsPanel<Content: View>(
+    title: String,
+    subtitle: String,
+    systemImage: String,
+    tint: Color,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 16) {
+      HStack(alignment: .center, spacing: 12) {
+        Image(systemName: systemImage)
+          .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
+          .foregroundStyle(tint)
+          .frame(width: 34, height: 34)
+          .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+              .stroke(tint.opacity(0.16), lineWidth: 1)
+          )
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title)
+            .font(SerenityType.sectionTitle)
+            .foregroundStyle(SerenityPalette.textPrimary)
+          Text(subtitle)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+
+        Spacer(minLength: 0)
+      }
+
+      content()
+    }
+    .padding(16)
+    .frame(maxWidth: .infinity, alignment: .topLeading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private func settingsField<Content: View>(
+    _ label: String,
+    help: String? = nil,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text(label)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+
+      content()
+
+      if let help {
+        Text(help)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+  }
+
+  private func statusBanner(_ message: String, systemImage: String, tint: Color) -> some View {
+    HStack(alignment: .top, spacing: 9) {
+      Image(systemName: systemImage)
+        .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+        .foregroundStyle(tint)
+        .frame(width: 16)
+
+      Text(message)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 10)
+    .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(tint.opacity(0.24), lineWidth: 1)
+    )
+  }
+}
+
 private struct SettingsSectionView: View {
   @EnvironmentObject private var appState: AppState
   @State private var authorizationCode = ""
@@ -5207,92 +6089,153 @@ private struct SettingsSectionView: View {
   @State private var localLockFormError: String?
   @State private var oauthConfigurationError: String?
   @State private var loadedStoredSettingsValues = false
+  @State private var newCredentialProvider: AICredentialProvider = .openai
+  @State private var newCredentialName = ""
+  @State private var newCredentialAPIKey = ""
+  @State private var newCredentialModel = ""
+  @State private var keyVerification: KeyVerificationState = .idle
+  @State private var selectedTab: SettingsTab = .appearance
+
+  private enum KeyVerificationState: Equatable {
+    case idle
+    case validating
+    case valid(models: [String])
+    case invalid(message: String)
+  }
 
   private let postgresSSLModes = ["disable", "prefer", "require", "verify-ca", "verify-full"]
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
-      settingsOverview
-      settingsGrid
+      settingsTabBar
+      Divider().overlay(SerenityPalette.thinBorder)
+      selectedPanel
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
     .onAppear {
       loadStoredSettingsValuesIfNeeded()
+      consumePendingSettingsTab()
     }
-    .onChange(of: appState.settings.backendProfile) { _, newValue in
-      Task {
-        await appState.handleBackendProfileSelection(newValue)
+    .onChange(of: appState.pendingSettingsTab) { _, _ in
+      consumePendingSettingsTab()
+    }
+  }
+
+  private func consumePendingSettingsTab() {
+    if let tab = appState.pendingSettingsTab {
+      if SettingsTab.allCases.contains(tab) {
+        selectedTab = tab
+      } else {
+        appState.setSection(.database)
       }
+      appState.pendingSettingsTab = nil
     }
   }
 
-  private var settingsOverview: some View {
-    LazyVGrid(columns: overviewColumns, alignment: .leading, spacing: 12) {
-      settingsStatusCard(
-        title: "Backend",
-        value: appState.settings.backendProfile.title,
-        detail: backendValidation.message,
-        systemImage: "server.rack",
-        tint: backendValidation.isAvailable ? .green : .orange
-      )
-
-      settingsStatusCard(
-        title: "Auth",
-        value: authOverviewTitle,
-        detail: authOverviewDetail,
-        systemImage: "person.crop.circle.badge.checkmark",
-        tint: authOverviewTint
-      )
-
-      settingsStatusCard(
-        title: "App Lock",
-        value: appState.settings.localLockEnabled ? "Enabled" : "Off",
-        detail: appState.statusMessage(for: appState.localLockStatus),
-        systemImage: "lock.shield",
-        tint: appState.settings.localLockEnabled ? .green : SerenityPalette.textSecondary
-      )
-
-      settingsStatusCard(
-        title: "Database",
-        value: databaseOverviewTitle,
-        detail: databaseOverviewDetail,
-        systemImage: "cylinder.split.1x2",
-        tint: databaseOverviewTint
-      )
-    }
-  }
-
-  private var overviewColumns: [GridItem] {
-    [
-      GridItem(.adaptive(minimum: 180), spacing: 12),
-    ]
-  }
-
-  private var settingsGrid: some View {
-    ViewThatFits(in: .horizontal) {
-      HStack(alignment: .top, spacing: 16) {
-        VStack(alignment: .leading, spacing: 16) {
-          appearancePanel
-          backendPanel
-          authPanel
+  private var settingsTabBar: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 6) {
+        ForEach(SettingsTab.allCases) { tab in
+          Button {
+            selectedTab = tab
+          } label: {
+            VStack(spacing: 4) {
+              ZStack(alignment: .topTrailing) {
+                Image(systemName: tab.systemImage)
+                  .font(SerenityType.scaledSystem(size: 16, weight: .semibold))
+                  .frame(width: 28, height: 28)
+                if let dotColor = warningDot(for: tab) {
+                  Circle()
+                    .fill(dotColor)
+                    .frame(width: 7, height: 7)
+                    .overlay(Circle().stroke(SerenityPalette.panelBackground, lineWidth: 1))
+                    .offset(x: 3, y: -2)
+                }
+              }
+              Text(tab.title)
+                .font(SerenityType.caption)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(minWidth: 78)
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(
+              selectedTab == tab
+                ? SerenityPalette.accent.opacity(0.18)
+                : Color.clear,
+              in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .overlay(
+              RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(
+                  selectedTab == tab ? SerenityPalette.accent.opacity(0.35) : Color.clear,
+                  lineWidth: 1
+                )
+            )
+            .foregroundStyle(
+              selectedTab == tab ? SerenityPalette.accent : SerenityPalette.textSecondary
+            )
+          }
+          .buttonStyle(.plain)
+          .hoverCursor(.pointingHand)
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-
-        VStack(alignment: .leading, spacing: 16) {
-          appLockPanel
-          localDatabasePanel
-          diagnosticsPanel
-        }
-        .frame(width: 360, alignment: .topLeading)
       }
+      .padding(.horizontal, 2)
+    }
+  }
 
-      VStack(alignment: .leading, spacing: 16) {
-        appearancePanel
-        backendPanel
-        authPanel
-        appLockPanel
-        localDatabasePanel
-        diagnosticsPanel
-      }
+  private func warningDot(for tab: SettingsTab) -> Color? {
+    switch tab {
+    case .aiProvider:
+      return hasEnabledCredential ? nil : .orange
+    case .backend:
+      return backendValidation.isAvailable ? nil : .orange
+    default:
+      return nil
+    }
+  }
+
+  @ViewBuilder
+  private var selectedPanel: some View {
+    switch selectedTab {
+    case .appearance:
+      appearancePanel
+    case .aiProvider:
+      aiProviderPanel
+    case .backend:
+      backendPanel
+    case .auth:
+      authPanel
+    case .appLock:
+      appLockPanel
+    case .localDatabase:
+      localDatabasePanel
+    case .diagnostics:
+      diagnosticsPanel
+    }
+  }
+
+  private var backendProfileDropdownOptions: [SerenityDropdownOption<BackendProfile>] {
+    BackendProfile.allCases.map { profile in
+      SerenityDropdownOption(
+        value: profile,
+        title: profile.title,
+        subtitle: backendProfileSubtitle(profile),
+        systemImage: backendProfileIcon(profile),
+        tint: backendProfileTint(profile)
+      )
+    }
+  }
+
+  private var postgresSSLModeDropdownOptions: [SerenityDropdownOption<String>] {
+    postgresSSLModes.map { mode in
+      SerenityDropdownOption(
+        value: mode,
+        title: mode,
+        subtitle: sslModeSubtitle(mode),
+        systemImage: mode == "disable" ? "lock.open" : "lock.fill",
+        tint: mode == "disable" ? .orange : .green
+      )
     }
   }
 
@@ -5322,6 +6265,464 @@ private struct SettingsSectionView: View {
     }
   }
 
+  private var aiProviderPanel: some View {
+    settingsPanel(
+      title: "AI Provider",
+      subtitle: credentialStatusText,
+      systemImage: "key.horizontal.fill",
+      tint: hasEnabledCredential ? .green : .orange
+    ) {
+      VStack(alignment: .leading, spacing: 20) {
+        statusBanner(
+          hasEnabledCredential
+            ? "An enabled provider key is configured."
+            : "Add and enable a provider key to use AI features.",
+          systemImage: hasEnabledCredential ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+          tint: hasEnabledCredential ? .green : .orange
+        )
+
+        if !appState.aiCredentials.isEmpty {
+          configuredKeysSection
+        }
+
+        addCredentialSection
+      }
+    }
+  }
+
+  private var configuredKeysSection: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("Configured keys")
+          .font(SerenityType.sectionTitle)
+          .foregroundStyle(SerenityPalette.textPrimary)
+        Spacer()
+        Text("\(appState.aiCredentials.count) total")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      VStack(alignment: .leading, spacing: 10) {
+        ForEach(appState.aiCredentials) { credential in
+          credentialRow(credential)
+        }
+      }
+    }
+  }
+
+  private var addCredentialSection: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      Text(appState.aiCredentials.isEmpty ? "Add a provider key" : "Add another key")
+        .font(SerenityType.sectionTitle)
+        .foregroundStyle(SerenityPalette.textPrimary)
+
+      settingsField("Provider") {
+        providerPickerRow
+      }
+
+      settingsField("API key", help: "Stored securely in the system Keychain.") {
+        HStack(spacing: 10) {
+          SecureField("sk-…", text: $newCredentialAPIKey)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+            .frame(maxWidth: 520)
+
+          Button {
+            Task { await runKeyVerification() }
+          } label: {
+            switch keyVerification {
+            case .validating:
+              HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Verifying…")
+              }
+            default:
+              Label("Verify", systemImage: "checkmark.shield")
+            }
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .disabled(
+            newCredentialAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              || keyVerification == .validating
+          )
+        }
+
+        keyVerificationStatusView
+      }
+
+      HStack(alignment: .top, spacing: 18) {
+        settingsField("Model (optional)") {
+          SerenityDropdownField(
+            placeholder: "Default",
+            selection: $newCredentialModel,
+            options: addFormModelOptions
+          )
+          .frame(maxWidth: 280, alignment: .leading)
+        }
+
+        settingsField("Label (optional)") {
+          TextField(providerTitle(newCredentialProvider), text: $newCredentialName)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+            .frame(maxWidth: 260)
+        }
+
+        Spacer(minLength: 0)
+      }
+
+      HStack {
+        Spacer()
+        Button {
+          Task {
+            let trimmed = newCredentialName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalName = trimmed.isEmpty ? providerTitle(newCredentialProvider) : trimmed
+            let verifiedModels: [String]? = {
+              if case .valid(let models) = keyVerification, !models.isEmpty {
+                return models
+              }
+              return nil
+            }()
+            await appState.addAICredential(
+              provider: newCredentialProvider,
+              name: finalName,
+              apiKey: newCredentialAPIKey,
+              modelPreference: newCredentialModel.isEmpty ? nil : newCredentialModel,
+              availableModels: verifiedModels
+            )
+            newCredentialName = ""
+            newCredentialAPIKey = ""
+            newCredentialModel = ""
+            keyVerification = .idle
+          }
+        } label: {
+          Label("Save provider key", systemImage: "plus")
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .disabled(
+          newCredentialAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || keyVerification == .validating
+        )
+      }
+    }
+    .padding(18)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+    .onChange(of: newCredentialProvider) { _, _ in keyVerification = .idle }
+    .onChange(of: newCredentialAPIKey) { _, _ in
+      if keyVerification != .validating { keyVerification = .idle }
+    }
+  }
+
+  @ViewBuilder
+  private var keyVerificationStatusView: some View {
+    switch keyVerification {
+    case .idle:
+      EmptyView()
+    case .validating:
+      HStack(spacing: 6) {
+        ProgressView().controlSize(.small)
+        Text("Validating key…")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+    case .valid(let models):
+      HStack(spacing: 6) {
+        Image(systemName: "checkmark.circle.fill")
+          .foregroundStyle(.green)
+        Text("Key valid · \(models.count) model\(models.count == 1 ? "" : "s") available")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+    case .invalid(let message):
+      HStack(spacing: 6) {
+        Image(systemName: "exclamationmark.circle.fill")
+          .foregroundStyle(.red)
+        Text(message)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(2)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+  }
+
+  private var addFormModelOptions: [SerenityDropdownOption<String>] {
+    if case .valid(let models) = keyVerification, !models.isEmpty {
+      return [
+        SerenityDropdownOption(
+          value: "",
+          title: "Default",
+          subtitle: "Use Serenity's recommended model",
+          systemImage: "sparkles",
+          tint: SerenityPalette.accent
+        )
+      ] + models.map { model in
+        SerenityDropdownOption(
+          value: model,
+          title: model,
+          systemImage: "cpu",
+          tint: providerTint(newCredentialProvider)
+        )
+      }
+    }
+    return modelDropdownOptions(for: newCredentialProvider)
+  }
+
+  private func runKeyVerification() async {
+    let trimmed = newCredentialAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    keyVerification = .validating
+    do {
+      let models = try await appState.validateAICredentialKey(
+        provider: newCredentialProvider,
+        apiKey: trimmed
+      )
+      keyVerification = .valid(models: models)
+    } catch {
+      let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+      keyVerification = .invalid(message: message)
+    }
+  }
+
+  private var providerPickerRow: some View {
+    HStack(spacing: 10) {
+      ForEach(providerOptions, id: \.self) { provider in
+        providerPickerCard(provider)
+      }
+    }
+  }
+
+  private func providerPickerCard(_ provider: AICredentialProvider) -> some View {
+    let isSelected = newCredentialProvider == provider
+    let tint = providerTint(provider)
+    return Button {
+      newCredentialProvider = provider
+    } label: {
+      VStack(spacing: 8) {
+        providerLogo(provider, size: 23)
+          .frame(width: 42, height: 42)
+          .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        Text(providerTitle(provider))
+          .font(SerenityType.bodyMedium.weight(.semibold))
+          .foregroundStyle(SerenityPalette.textPrimary)
+      }
+      .padding(.vertical, 14)
+      .padding(.horizontal, 12)
+      .frame(maxWidth: .infinity)
+      .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .background(
+        isSelected ? tint.opacity(0.10) : SerenityPalette.panelBackground,
+        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(isSelected ? tint : SerenityPalette.thinBorder, lineWidth: isSelected ? 2 : 1)
+      )
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+  }
+
+  private func credentialRow(_ credential: AICredentialEntity) -> some View {
+    HStack(alignment: .center, spacing: 14) {
+      providerLogo(credential.provider, size: 20)
+        .frame(width: 38, height: 38)
+        .background(providerTint(credential.provider).opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+      VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 8) {
+          Text(credential.name)
+            .font(SerenityType.bodyMedium.weight(.semibold))
+            .foregroundStyle(SerenityPalette.textPrimary)
+          statusDot(isActive: credential.enabled)
+        }
+        Text("\(providerTitle(credential.provider)) · \(credential.totalRequests) requests · \(credential.totalTokens) tokens")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(1)
+      }
+
+      Spacer(minLength: 12)
+
+      SerenityDropdownField(
+        placeholder: "Default",
+        selection: Binding(
+          get: { credential.modelPreference ?? "" },
+          set: { model in
+            Task {
+              await appState.updateAICredentialModel(id: credential.id, modelPreference: model.isEmpty ? nil : model)
+            }
+          }
+        ),
+        options: credentialModelOptions(for: credential)
+      )
+      .frame(width: 220)
+
+      Toggle("Enabled", isOn: Binding(
+        get: { credential.enabled },
+        set: { enabled in
+          Task { await appState.updateAICredentialEnabled(id: credential.id, enabled: enabled) }
+        }
+      ))
+      .toggleStyle(.switch)
+      .labelsHidden()
+
+      Button {
+        Task { await appState.deleteAICredential(id: credential.id) }
+      } label: {
+        Image(systemName: "trash")
+          .font(SerenityType.scaledSystem(size: 14, weight: .semibold))
+          .foregroundStyle(.red.opacity(0.85))
+          .frame(width: 30, height: 30)
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+      .help("Delete credential")
+    }
+    .padding(14)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+  }
+
+  private var credentialStatusText: String {
+    if appState.aiCredentials.isEmpty {
+      return "No keys"
+    }
+    let enabledCount = appState.aiCredentials.filter(\.enabled).count
+    return "\(enabledCount) enabled of \(appState.aiCredentials.count)"
+  }
+
+  private var hasEnabledCredential: Bool {
+    appState.aiCredentials.contains { $0.enabled }
+  }
+
+  private var providerDropdownOptions: [SerenityDropdownOption<AICredentialProvider>] {
+    providerOptions.map { provider in
+      SerenityDropdownOption(
+        value: provider,
+        title: providerTitle(provider),
+        systemImage: providerIcon(provider),
+        tint: providerTint(provider)
+      )
+    }
+  }
+
+  private func modelDropdownOptions(for provider: AICredentialProvider) -> [SerenityDropdownOption<String>] {
+    [SerenityDropdownOption(value: "", title: "Default", subtitle: "Use Serenity's recommended model", systemImage: "sparkles", tint: SerenityPalette.accent)]
+      + (appState.aiModelCatalog[provider] ?? []).map { model in
+        SerenityDropdownOption(value: model, title: model, systemImage: "cpu", tint: providerTint(provider))
+      }
+  }
+
+  private func credentialModelOptions(for credential: AICredentialEntity) -> [SerenityDropdownOption<String>] {
+    var models = decodeAvailableModels(from: credential.metadataJSON)
+    if let pref = credential.modelPreference, !pref.isEmpty, !models.contains(pref) {
+      models.append(pref)
+    }
+    guard !models.isEmpty else {
+      return modelDropdownOptions(for: credential.provider)
+    }
+    return [
+      SerenityDropdownOption(
+        value: "",
+        title: "Default",
+        subtitle: "Use Serenity's recommended model",
+        systemImage: "sparkles",
+        tint: SerenityPalette.accent
+      )
+    ] + models.map { model in
+      SerenityDropdownOption(
+        value: model,
+        title: model,
+        systemImage: "cpu",
+        tint: providerTint(credential.provider)
+      )
+    }
+  }
+
+  private func decodeAvailableModels(from json: String) -> [String] {
+    guard
+      let data = json.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let models = object["availableModels"] as? [String]
+    else {
+      return []
+    }
+    return models
+  }
+
+  private var providerOptions: [AICredentialProvider] {
+    [.openai, .gemini, .anthropic]
+  }
+
+  private func providerTitle(_ provider: AICredentialProvider) -> String {
+    switch provider {
+    case .openai:
+      return "OpenAI"
+    case .gemini:
+      return "Gemini"
+    case .anthropic:
+      return "Anthropic"
+    }
+  }
+
+  private func providerLogo(_ provider: AICredentialProvider, size: CGFloat) -> some View {
+    Image(providerLogoAsset(provider))
+      .renderingMode(.template)
+      .resizable()
+      .scaledToFit()
+      .foregroundStyle(providerTint(provider))
+      .frame(width: size, height: size)
+      .accessibilityHidden(true)
+  }
+
+  private func providerLogoAsset(_ provider: AICredentialProvider) -> String {
+    switch provider {
+    case .openai:
+      return "ProviderOpenAI"
+    case .gemini:
+      return "ProviderGemini"
+    case .anthropic:
+      return "ProviderAnthropic"
+    }
+  }
+
+  private func providerIcon(_ provider: AICredentialProvider) -> String {
+    switch provider {
+    case .openai:
+      return "sparkles"
+    case .gemini:
+      return "diamond.fill"
+    case .anthropic:
+      return "brain.head.profile"
+    }
+  }
+
+  private func providerTint(_ provider: AICredentialProvider) -> Color {
+    switch provider {
+    case .openai:
+      return SerenityPalette.accent
+    case .gemini:
+      return .purple
+    case .anthropic:
+      return .orange
+    }
+  }
+
+  private func statusDot(isActive: Bool) -> some View {
+    Circle()
+      .fill(isActive ? Color.green : Color.orange)
+      .frame(width: 8, height: 8)
+  }
+
   private var backendPanel: some View {
     settingsPanel(
       title: "Backend Configuration",
@@ -5331,13 +6732,11 @@ private struct SettingsSectionView: View {
     ) {
       VStack(alignment: .leading, spacing: 14) {
         settingsField("Primary backend", help: "Controls the active storage adapter used by the app.") {
-          Picker("Primary backend", selection: $appState.settings.backendProfile) {
-            ForEach(BackendProfile.allCases) { profile in
-              Text(profile.title).tag(profile)
-            }
-          }
-          .labelsHidden()
-          .pickerStyle(.menu)
+          SerenityDropdownField(
+            placeholder: "Primary backend",
+            selection: $appState.settings.backendProfile,
+            options: backendProfileDropdownOptions
+          )
           .frame(maxWidth: 300, alignment: .leading)
         }
 
@@ -5351,13 +6750,11 @@ private struct SettingsSectionView: View {
           .overlay(SerenityPalette.thinBorder)
 
         settingsField("Edit configuration", help: "Select a backend profile, then update its connection details.") {
-          Picker("Edit configuration", selection: $backendConfigProfile) {
-            ForEach(BackendProfile.allCases) { profile in
-              Text(profile.title).tag(profile)
-            }
-          }
-          .labelsHidden()
-          .pickerStyle(.menu)
+          SerenityDropdownField(
+            placeholder: "Edit configuration",
+            selection: $backendConfigProfile,
+            options: backendProfileDropdownOptions
+          )
           .frame(maxWidth: 300, alignment: .leading)
         }
 
@@ -5704,49 +7101,6 @@ private struct SettingsSectionView: View {
     }
   }
 
-  private func settingsStatusCard(
-    title: String,
-    value: String,
-    detail: String,
-    systemImage: String,
-    tint: Color
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(alignment: .center, spacing: 9) {
-        Image(systemName: systemImage)
-          .font(SerenityType.scaledSystem(size: 13, weight: .semibold))
-          .foregroundStyle(tint)
-          .frame(width: 28, height: 28)
-          .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-        Text(title.uppercased())
-          .font(SerenityType.scaledSystem(size: 10, weight: .semibold))
-          .foregroundStyle(SerenityPalette.textSecondary)
-          .lineLimit(1)
-
-        Spacer(minLength: 0)
-      }
-
-      Text(value)
-        .font(SerenityType.bodyLarge.weight(.semibold))
-        .foregroundStyle(SerenityPalette.textPrimary)
-        .lineLimit(1)
-
-      Text(detail)
-        .font(SerenityType.caption)
-        .foregroundStyle(SerenityPalette.textSecondary)
-        .lineLimit(2)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-    .padding(14)
-    .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
-    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
-    )
-  }
-
   private func settingsPanel<Content: View>(
     title: String,
     subtitle: String,
@@ -5837,33 +7191,53 @@ private struct SettingsSectionView: View {
     appState.validationState(for: appState.settings.backendProfile)
   }
 
-  private var authOverviewTitle: String {
-    switch appState.authSessionState {
-    case .authenticated:
-      return "Signed in"
-    case .authenticating:
-      return "Signing in"
-    case .refreshing:
-      return "Refreshing"
-    case .failed:
-      return "Needs attention"
-    case .unauthenticated:
-      return "Signed out"
+  private func backendProfileSubtitle(_ profile: BackendProfile) -> String {
+    switch profile {
+    case .sqliteLocal:
+      return "Private storage on this Mac"
+    case .serenityCloud:
+      return "Sync through Serenity Cloud"
+    case .externalPostgres:
+      return "Use a custom PostgreSQL database"
     }
   }
 
-  private var authOverviewDetail: String {
-    switch appState.authSessionState {
-    case .authenticated(let session):
-      return session.userEmail
-    case .authenticating:
-      return "Authentication is in progress."
-    case .refreshing:
-      return "Refreshing the active session."
-    case .failed(let message):
-      return message
-    case .unauthenticated:
-      return isOAuthConfigured ? "OAuth is configured." : "OAuth configuration is required."
+  private func backendProfileIcon(_ profile: BackendProfile) -> String {
+    switch profile {
+    case .sqliteLocal:
+      return "internaldrive"
+    case .serenityCloud:
+      return "cloud.fill"
+    case .externalPostgres:
+      return "server.rack"
+    }
+  }
+
+  private func backendProfileTint(_ profile: BackendProfile) -> Color {
+    switch profile {
+    case .sqliteLocal:
+      return SerenityPalette.accent
+    case .serenityCloud:
+      return .purple
+    case .externalPostgres:
+      return .orange
+    }
+  }
+
+  private func sslModeSubtitle(_ mode: String) -> String {
+    switch mode {
+    case "disable":
+      return "No encrypted transport"
+    case "prefer":
+      return "Use TLS when available"
+    case "require":
+      return "Require encrypted transport"
+    case "verify-ca":
+      return "Validate the certificate authority"
+    case "verify-full":
+      return "Validate CA and hostname"
+    default:
+      return "PostgreSQL SSL setting"
     }
   }
 
@@ -5877,32 +7251,6 @@ private struct SettingsSectionView: View {
       return SerenityPalette.accent
     case .unauthenticated:
       return isOAuthConfigured ? SerenityPalette.textSecondary : .orange
-    }
-  }
-
-  private var databaseOverviewTitle: String {
-    switch appState.databaseBootstrapState {
-    case .idle:
-      return "Not started"
-    case .bootstrapping:
-      return "Bootstrapping"
-    case .ready:
-      return "Ready"
-    case .failed:
-      return "Failed"
-    }
-  }
-
-  private var databaseOverviewDetail: String {
-    switch appState.databaseBootstrapState {
-    case .idle:
-      return "Bootstrap has not started."
-    case .bootstrapping:
-      return "Applying migrations."
-    case .ready(_, let appliedCount):
-      return "\(appliedCount) migrations applied this run."
-    case .failed(let message):
-      return message
     }
   }
 
@@ -5998,13 +7346,11 @@ private struct SettingsSectionView: View {
           .frame(maxWidth: 140)
 
           settingsField("SSL mode") {
-            Picker("SSL mode", selection: $postgresSSLMode) {
-              ForEach(postgresSSLModes, id: \.self) { mode in
-                Text(mode).tag(mode)
-              }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
+            SerenityDropdownField(
+              placeholder: "SSL mode",
+              selection: $postgresSSLMode,
+              options: postgresSSLModeDropdownOptions
+            )
             .frame(maxWidth: .infinity, alignment: .leading)
           }
         }
