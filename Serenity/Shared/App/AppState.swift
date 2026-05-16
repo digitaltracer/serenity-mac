@@ -64,13 +64,6 @@ enum BackendSwitchState: Equatable {
   case failed(message: String)
 }
 
-enum CloudSyncState: Equatable {
-  case idle
-  case syncing
-  case succeeded(message: String)
-  case failed(message: String)
-}
-
 struct AppAlert: Identifiable {
   let id = UUID()
   let title: String
@@ -171,10 +164,6 @@ final class AppState: ObservableObject {
   @Published var aiUsageEntries: [AIUsageEntity] = []
   @Published var aiStatusMessage = "AI features require a configured provider key."
   @Published var lastSummaryExportPath: String?
-  @Published var cloudSyncState: CloudSyncState = .idle
-  @Published var cloudSyncPolicy: CloudSyncResolutionPolicy = .deferConflicts
-  @Published var cloudSyncConflicts: [CloudSyncConflict] = []
-  @Published var cloudSyncDiagnostics: [String] = []
   @Published var iCloudSyncState: ICloudSyncState = .idle
 
   private let sqliteBackendAdapter: SQLiteBackendAdapter
@@ -190,7 +179,6 @@ final class AppState: ObservableObject {
   private let googleIntegrationService: GoogleIntegrationService
   private let githubIntegrationService: GitHubIntegrationService
   private let aiWorkflowService: AIWorkflowService
-  private var cloudSyncEngine: CloudSyncEngine?
   private var iCloudSyncEngine: ICloudSyncEngine?
 
   private var sqliteCoreRepositories: GRDBCoreRepositorySet?
@@ -230,7 +218,6 @@ final class AppState: ObservableObject {
     self.googleIntegrationService = googleIntegrationService ?? GoogleIntegrationService()
     self.githubIntegrationService = githubIntegrationService
     self.aiWorkflowService = aiWorkflowService ?? AIWorkflowService(sqliteBackendAdapter: sqliteBackendAdapter)
-    self.cloudSyncEngine = serenityCloudAdapter.map { CloudSyncEngine(sqliteBackendAdapter: sqliteBackendAdapter, remoteBackend: $0) }
 
     if let storedTheme = UserDefaults.standard.string(forKey: Self.themePreferenceDefaultsKey),
        let preference = AppThemePreference(rawValue: storedTheme) {
@@ -694,9 +681,6 @@ final class AppState: ObservableObject {
         accessToken: accessToken
       )
       serenityCloudAdapter = SerenityCloudAdapter(configuration: configuration)
-      cloudSyncEngine = serenityCloudAdapter.map {
-        CloudSyncEngine(sqliteBackendAdapter: sqliteBackendAdapter, remoteBackend: $0)
-      }
       showToast("Serenity Cloud configuration saved")
 
       await refreshActiveBackendValidation()
@@ -740,7 +724,6 @@ final class AppState: ObservableObject {
   func clearSerenityCloudConfiguration() async {
     backendConfigurationStore.clearSerenityCloudConfiguration()
     serenityCloudAdapter = nil
-    cloudSyncEngine = nil
 
     if settings.backendProfile == .serenityCloud {
       await handleBackendProfileSelection(.sqliteLocal)
@@ -887,7 +870,6 @@ final class AppState: ObservableObject {
     }
 
     await refreshIntegrationDiagnostics()
-    await refreshCloudSyncDiagnostics()
   }
 
   func connectGoogleIntegration() async {
@@ -1093,60 +1075,6 @@ final class AppState: ObservableObject {
     }
 
     integrationDiagnosticsLines = lines
-  }
-
-  func runCloudSync() async {
-    guard let cloudSyncEngine else {
-      cloudSyncState = .failed(message: "Cloud sync engine is unavailable.")
-      await refreshCloudSyncDiagnostics()
-      return
-    }
-
-    cloudSyncState = .syncing
-    do {
-      let result = try await cloudSyncEngine.syncAllEntities(policy: cloudSyncPolicy)
-      cloudSyncConflicts = result.conflicts
-      cloudSyncState = .succeeded(message: result.summaryLine)
-      await refreshCoreWorkflowData()
-      await refreshCloudSyncDiagnostics()
-      showToast(result.summaryLine)
-    } catch {
-      cloudSyncState = .failed(message: error.localizedDescription)
-      await refreshCloudSyncDiagnostics()
-      showError(title: "Cloud sync failed", message: error.localizedDescription)
-    }
-  }
-
-  func resolveCloudSyncConflict(_ conflict: CloudSyncConflict, policy: CloudSyncResolutionPolicy) async {
-    guard let cloudSyncEngine else { return }
-
-    do {
-      try await cloudSyncEngine.resolveConflict(conflict, policy: policy)
-      cloudSyncConflicts.removeAll { $0.id == conflict.id }
-      await refreshCoreWorkflowData()
-      await refreshCloudSyncDiagnostics()
-      showToast("Resolved conflict for \(conflict.entityID)")
-    } catch {
-      showError(title: "Conflict resolution failed", message: error.localizedDescription)
-    }
-  }
-
-  func refreshCloudSyncDiagnostics() async {
-    var lines: [String] = []
-    lines.append("Policy: \(cloudSyncPolicy.rawValue)")
-    lines.append("Pending conflicts: \(cloudSyncConflicts.count)")
-    switch cloudSyncState {
-    case .idle:
-      lines.append("Sync state: idle")
-    case .syncing:
-      lines.append("Sync state: syncing")
-    case .succeeded(let message):
-      lines.append("Sync state: succeeded (\(message))")
-    case .failed(let message):
-      lines.append("Sync state: failed (\(message))")
-    }
-
-    cloudSyncDiagnostics = lines
   }
 
   func bootstrapAIWorkflows() async {

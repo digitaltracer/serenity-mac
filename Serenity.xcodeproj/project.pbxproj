@@ -22,7 +22,6 @@
 		A00000000000000000000088 /* AIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000028 /* AIRepositories.swift */; };
 		A00000000000000000000089 /* BackendConfigurationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000029 /* BackendConfigurationStore.swift */; };
 		A0000000000000000000008A /* BackendProfiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002A /* BackendProfiles.swift */; };
-		A0000000000000000000008B /* CloudSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002B /* CloudSyncEngine.swift */; };
 		A0000000000000000000008C /* CoreEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002C /* CoreEntities.swift */; };
 		A0000000000000000000008D /* CoreRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002D /* CoreRepositories.swift */; };
 		A0000000000000000000008E /* DatabaseMigrationRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002E /* DatabaseMigrationRunner.swift */; };
@@ -50,7 +49,6 @@
 		A000000000000000000000A8 /* AIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000028 /* AIRepositories.swift */; };
 		A000000000000000000000A9 /* BackendConfigurationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000029 /* BackendConfigurationStore.swift */; };
 		A000000000000000000000AA /* BackendProfiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002A /* BackendProfiles.swift */; };
-		A000000000000000000000AB /* CloudSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002B /* CloudSyncEngine.swift */; };
 		A000000000000000000000AC /* CoreEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002C /* CoreEntities.swift */; };
 		A000000000000000000000AD /* CoreRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002D /* CoreRepositories.swift */; };
 		A000000000000000000000AE /* DatabaseMigrationRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002E /* DatabaseMigrationRunner.swift */; };
@@ -99,7 +97,6 @@
 		A00000000000000000000028 /* AIRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRepositories.swift; sourceTree = "<group>"; };
 		A00000000000000000000029 /* BackendConfigurationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendConfigurationStore.swift; sourceTree = "<group>"; };
 		A0000000000000000000002A /* BackendProfiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendProfiles.swift; sourceTree = "<group>"; };
-		A0000000000000000000002B /* CloudSyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncEngine.swift; sourceTree = "<group>"; };
 		A0000000000000000000002C /* CoreEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreEntities.swift; sourceTree = "<group>"; };
 		A0000000000000000000002D /* CoreRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreRepositories.swift; sourceTree = "<group>"; };
 		A0000000000000000000002E /* DatabaseMigrationRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseMigrationRunner.swift; sourceTree = "<group>"; };
@@ -239,7 +236,6 @@
 				A00000000000000000000028 /* AIRepositories.swift */,
 				A00000000000000000000029 /* BackendConfigurationStore.swift */,
 				A0000000000000000000002A /* BackendProfiles.swift */,
-				A0000000000000000000002B /* CloudSyncEngine.swift */,
 				A000000000000000000000F3 /* CloudSyncInitialExporter.swift */,
 				A000000000000000000000E6 /* CloudKitRecordMapping.swift */,
 				A000000000000000000000E0 /* CloudSyncStateStore.swift */,
@@ -445,7 +441,6 @@
 				A00000000000000000000088 /* AIRepositories.swift in Sources */,
 				A00000000000000000000089 /* BackendConfigurationStore.swift in Sources */,
 				A0000000000000000000008A /* BackendProfiles.swift in Sources */,
-				A0000000000000000000008B /* CloudSyncEngine.swift in Sources */,
 				A000000000000000000000F4 /* CloudSyncInitialExporter.swift in Sources */,
 				A0000000000000000000008C /* CoreEntities.swift in Sources */,
 				A0000000000000000000008D /* CoreRepositories.swift in Sources */,
@@ -487,7 +482,6 @@
 				A000000000000000000000A8 /* AIRepositories.swift in Sources */,
 				A000000000000000000000A9 /* BackendConfigurationStore.swift in Sources */,
 				A000000000000000000000AA /* BackendProfiles.swift in Sources */,
-				A000000000000000000000AB /* CloudSyncEngine.swift in Sources */,
 				A000000000000000000000F5 /* CloudSyncInitialExporter.swift in Sources */,
 				A000000000000000000000AC /* CoreEntities.swift in Sources */,
 				A000000000000000000000AD /* CoreRepositories.swift in Sources */,
