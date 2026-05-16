@@ -79,6 +79,10 @@
 		A000000000000000000000E8 /* CloudKitRecordMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000E6 /* CloudKitRecordMapping.swift */; };
 		A000000000000000000000EA /* iCloudSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000E9 /* iCloudSyncEngine.swift */; };
 		A000000000000000000000EB /* iCloudSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000E9 /* iCloudSyncEngine.swift */; };
+		A000000000000000000000F4 /* CloudSyncInitialExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F3 /* CloudSyncInitialExporter.swift */; };
+		A000000000000000000000F5 /* CloudSyncInitialExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F3 /* CloudSyncInitialExporter.swift */; };
+		A000000000000000000000F7 /* SyncAwareAIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F6 /* SyncAwareAIRepositories.swift */; };
+		A000000000000000000000F8 /* SyncAwareAIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F6 /* SyncAwareAIRepositories.swift */; };
 		A000000000000000000000EC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000EF /* Assets.xcassets */; };
 		A000000000000000000000ED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000EF /* Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -124,6 +128,8 @@
 		A000000000000000000000E3 /* SyncAwareRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncAwareRepositories.swift; sourceTree = "<group>"; };
 		A000000000000000000000E6 /* CloudKitRecordMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitRecordMapping.swift; sourceTree = "<group>"; };
 		A000000000000000000000E9 /* iCloudSyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iCloudSyncEngine.swift; sourceTree = "<group>"; };
+		A000000000000000000000F3 /* CloudSyncInitialExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncInitialExporter.swift; sourceTree = "<group>"; };
+		A000000000000000000000F6 /* SyncAwareAIRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncAwareAIRepositories.swift; sourceTree = "<group>"; };
 		A000000000000000000000EF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C73A2CAF2FAA2C2200AB200C /* GoogleAuth.local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = GoogleAuth.local.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -234,6 +240,7 @@
 				A00000000000000000000029 /* BackendConfigurationStore.swift */,
 				A0000000000000000000002A /* BackendProfiles.swift */,
 				A0000000000000000000002B /* CloudSyncEngine.swift */,
+				A000000000000000000000F3 /* CloudSyncInitialExporter.swift */,
 				A000000000000000000000E6 /* CloudKitRecordMapping.swift */,
 				A000000000000000000000E0 /* CloudSyncStateStore.swift */,
 				A0000000000000000000002C /* CoreEntities.swift */,
@@ -243,6 +250,7 @@
 				A000000000000000000000E9 /* iCloudSyncEngine.swift */,
 				A00000000000000000000030 /* SQLiteBackendAdapter.swift */,
 				A00000000000000000000031 /* SerenityCloudAdapter.swift */,
+				A000000000000000000000F6 /* SyncAwareAIRepositories.swift */,
 				A000000000000000000000E3 /* SyncAwareRepositories.swift */,
 			);
 			path = Data;
@@ -438,6 +446,7 @@
 				A00000000000000000000089 /* BackendConfigurationStore.swift in Sources */,
 				A0000000000000000000008A /* BackendProfiles.swift in Sources */,
 				A0000000000000000000008B /* CloudSyncEngine.swift in Sources */,
+				A000000000000000000000F4 /* CloudSyncInitialExporter.swift in Sources */,
 				A0000000000000000000008C /* CoreEntities.swift in Sources */,
 				A0000000000000000000008D /* CoreRepositories.swift in Sources */,
 				A0000000000000000000008E /* DatabaseMigrationRunner.swift in Sources */,
@@ -455,6 +464,7 @@
 				A0000000000000000000009A /* SerenityMacApp.swift in Sources */,
 				A000000000000000000000D1 /* SettingsSyncCoordinator.swift in Sources */,
 				A000000000000000000000E1 /* CloudSyncStateStore.swift in Sources */,
+				A000000000000000000000F7 /* SyncAwareAIRepositories.swift in Sources */,
 				A000000000000000000000E4 /* SyncAwareRepositories.swift in Sources */,
 				A000000000000000000000E7 /* CloudKitRecordMapping.swift in Sources */,
 				A000000000000000000000EA /* iCloudSyncEngine.swift in Sources */,
@@ -478,6 +488,7 @@
 				A000000000000000000000A9 /* BackendConfigurationStore.swift in Sources */,
 				A000000000000000000000AA /* BackendProfiles.swift in Sources */,
 				A000000000000000000000AB /* CloudSyncEngine.swift in Sources */,
+				A000000000000000000000F5 /* CloudSyncInitialExporter.swift in Sources */,
 				A000000000000000000000AC /* CoreEntities.swift in Sources */,
 				A000000000000000000000AD /* CoreRepositories.swift in Sources */,
 				A000000000000000000000AE /* DatabaseMigrationRunner.swift in Sources */,
@@ -495,6 +506,7 @@
 				A000000000000000000000BA /* SerenityIOSApp.swift in Sources */,
 				A000000000000000000000D2 /* SettingsSyncCoordinator.swift in Sources */,
 				A000000000000000000000E2 /* CloudSyncStateStore.swift in Sources */,
+				A000000000000000000000F8 /* SyncAwareAIRepositories.swift in Sources */,
 				A000000000000000000000E5 /* SyncAwareRepositories.swift in Sources */,
 				A000000000000000000000E8 /* CloudKitRecordMapping.swift in Sources */,
 				A000000000000000000000EB /* iCloudSyncEngine.swift in Sources */,

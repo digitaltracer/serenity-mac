@@ -834,7 +834,7 @@ final class AppState: ObservableObject {
       let summary = try await sqliteBackendAdapter.bootstrap()
       let repositories = try sqliteBackendAdapter.makeCoreRepositories()
       sqliteCoreRepositories = repositories
-      installICloudSyncEngine(using: repositories)
+      await installICloudSyncEngine(using: repositories)
 
       databaseBootstrapState = .ready(
         path: summary.databasePath,
@@ -1311,6 +1311,7 @@ final class AppState: ObservableObject {
         projects: aiSettings.dataTypes.includeProjects ? projects : [],
         goals: goals
       )
+      triggerICloudSync()
       showToast("Insights generated")
       await refreshAIWorkflows()
     } catch {
@@ -1335,6 +1336,7 @@ final class AppState: ObservableObject {
         markedHelpful: markedHelpful,
         userNotes: userNotes
       )
+      triggerICloudSync()
       await refreshAIWorkflows()
     } catch {
       showError(title: "Failed to update insight feedback", message: error.localizedDescription)
@@ -1349,6 +1351,7 @@ final class AppState: ObservableObject {
         journalEntries: journalEntries,
         projects: projects
       )
+      triggerICloudSync()
       showToast("\(type == .weekly ? "Weekly" : "Monthly") recap generated")
       await refreshAIWorkflows()
     } catch {
@@ -1361,6 +1364,7 @@ final class AppState: ObservableObject {
   func markRecapViewed(id: String) async {
     do {
       try await aiWorkflowService.updateRecapInteraction(id: id, viewed: true, favorited: nil, exported: nil)
+      triggerICloudSync()
       await refreshAIWorkflows()
     } catch {
       showError(title: "Failed to update recap", message: error.localizedDescription)
@@ -1372,6 +1376,7 @@ final class AppState: ObservableObject {
 
     do {
       try await aiWorkflowService.updateRecapInteraction(id: id, viewed: nil, favorited: !recap.favorited, exported: nil)
+      triggerICloudSync()
       await refreshAIWorkflows()
     } catch {
       showError(title: "Failed to update recap favorite", message: error.localizedDescription)
@@ -1406,6 +1411,7 @@ final class AppState: ObservableObject {
         startDate: startDate,
         endDate: endDate
       )
+      triggerICloudSync()
       showToast("\(type.rawValue.capitalized) summary generated")
       await refreshAIWorkflows()
     } catch {
@@ -1418,6 +1424,7 @@ final class AppState: ObservableObject {
   func deleteAISummary(id: String) async {
     do {
       try await aiWorkflowService.deleteSummary(id: id)
+      triggerICloudSync()
       showToast("Summary deleted")
       await refreshAIWorkflows()
     } catch {
@@ -2263,7 +2270,7 @@ final class AppState: ObservableObject {
     let summary = try await sqliteBackendAdapter.bootstrap()
     let repositories = try sqliteBackendAdapter.makeCoreRepositories()
     sqliteCoreRepositories = repositories
-    installICloudSyncEngine(using: repositories)
+    await installICloudSyncEngine(using: repositories)
 
     if case .ready = databaseBootstrapState {
       // Already reflected by an explicit bootstrap call.
@@ -2287,16 +2294,44 @@ final class AppState: ObservableObject {
   /// Skipped under XCTest because the test binary is unsigned and lacks the
   /// CloudKit entitlement; talking to the CloudKit XPC service from a detached
   /// task would crash the test process at teardown.
-  private func installICloudSyncEngine(using repositories: GRDBCoreRepositorySet) {
+  private func installICloudSyncEngine(using repositories: GRDBCoreRepositorySet) async {
     guard iCloudSyncEngine == nil else { return }
     guard !Self.isRunningUnderXCTest else { return }
+
+    await aiWorkflowService.configureCloudSync(pendingStore: repositories.pendingSyncChanges)
+
+    let aiRepositories: GRDBAIRepositorySet
+    do {
+      aiRepositories = try sqliteBackendAdapter.makeAIRepositories(pendingStore: repositories.pendingSyncChanges)
+      try CloudSyncInitialExporter(
+        coreRepositories: repositories,
+        aiRepositories: aiRepositories
+      ).enqueueIfNeeded()
+    } catch {
+      AppLogger.error("iCloudSync: failed to prepare sync repositories: \(error.localizedDescription)")
+      return
+    }
+
+    guard
+      let insightRepository = aiRepositories.insights as? SyncAwareAIInsightRepository,
+      let recapRepository = aiRepositories.recaps as? SyncAwareAIRecapRepository,
+      let summaryRepository = aiRepositories.summaries as? SyncAwareSummaryRepository
+    else {
+      AppLogger.error("iCloudSync: AI repositories were not sync-aware.")
+      return
+    }
 
     let engine = ICloudSyncEngine(
       pendingStore: repositories.pendingSyncChanges,
       stateStore: repositories.cloudSyncState,
       recordKinds: [
         TaskSyncRecordKind(repository: repositories.tasks),
+        ProjectSyncRecordKind(repository: repositories.projects),
         JournalEntrySyncRecordKind(repository: repositories.journal),
+        GoalSyncRecordKind(repository: repositories.goals),
+        AIInsightSyncRecordKind(repository: insightRepository),
+        AIRecapSyncRecordKind(repository: recapRepository),
+        SummarySyncRecordKind(repository: summaryRepository),
       ],
       stateUpdate: { [weak self] state in
         Task { @MainActor [weak self] in

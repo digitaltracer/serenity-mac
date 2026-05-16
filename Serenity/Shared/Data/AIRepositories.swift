@@ -865,14 +865,14 @@ final class GRDBAISettingsRepository: AISettingsRepository {
 }
 
 struct GRDBAIRepositorySet {
-  let insights: GRDBAIInsightRepository
-  let recaps: GRDBAIRecapRepository
+  let insights: AIInsightRepository
+  let recaps: AIRecapRepository
   let usage: GRDBAIUsageRepository
-  let summaries: GRDBSummaryRepository
+  let summaries: SummaryRepository
   let credentials: GRDBAICredentialRepository
   let settings: GRDBAISettingsRepository
 
-  static func make(databasePath: String) throws -> GRDBAIRepositorySet {
+  static func make(databasePath: String, pendingStore: PendingSyncChangeStore? = nil) throws -> GRDBAIRepositorySet {
     var configuration = Configuration()
     configuration.prepareDatabase { db in
       try db.execute(sql: "PRAGMA foreign_keys = ON")
@@ -880,11 +880,24 @@ struct GRDBAIRepositorySet {
 
     let dbQueue = try DatabaseQueue(path: databasePath, configuration: configuration)
 
+    let insights = GRDBAIInsightRepository(dbQueue: dbQueue)
+    let recaps = GRDBAIRecapRepository(dbQueue: dbQueue)
+    let summaries = GRDBSummaryRepository(dbQueue: dbQueue)
+    let syncAwareInsights: AIInsightRepository = pendingStore.map {
+      SyncAwareAIInsightRepository(underlying: insights, pendingStore: $0) as AIInsightRepository
+    } ?? insights
+    let syncAwareRecaps: AIRecapRepository = pendingStore.map {
+      SyncAwareAIRecapRepository(underlying: recaps, pendingStore: $0) as AIRecapRepository
+    } ?? recaps
+    let syncAwareSummaries: SummaryRepository = pendingStore.map {
+      SyncAwareSummaryRepository(underlying: summaries, pendingStore: $0) as SummaryRepository
+    } ?? summaries
+
     return GRDBAIRepositorySet(
-      insights: GRDBAIInsightRepository(dbQueue: dbQueue),
-      recaps: GRDBAIRecapRepository(dbQueue: dbQueue),
+      insights: syncAwareInsights,
+      recaps: syncAwareRecaps,
       usage: GRDBAIUsageRepository(dbQueue: dbQueue),
-      summaries: GRDBSummaryRepository(dbQueue: dbQueue),
+      summaries: syncAwareSummaries,
       credentials: GRDBAICredentialRepository(dbQueue: dbQueue),
       settings: GRDBAISettingsRepository(dbQueue: dbQueue)
     )

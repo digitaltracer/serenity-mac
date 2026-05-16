@@ -55,6 +55,46 @@ final class ICloudSyncTests: XCTestCase {
     XCTAssertEqual(pending.first?.operation, .delete)
   }
 
+  func testSyncAwareProjectGoalAndAIRepositoriesEnqueueOnMutations() async throws {
+    let (repositories, aiRepositories, _) = try await makeRepositoryBundle()
+    let now = Date()
+    let project = makeProject(now: now)
+    let goal = makeGoal(now: now)
+    let insight = makeInsight(now: now)
+    let recap = makeRecap(now: now)
+    let summary = makeSummary(now: now)
+
+    try repositories.projects.save(project)
+    try repositories.goals.save(goal)
+    try aiRepositories.insights.save(insight)
+    try aiRepositories.recaps.save(recap)
+    try aiRepositories.summaries.save(summary)
+
+    var pending = try repositories.pendingSyncChanges.fetchPending(limit: 20)
+    XCTAssertEqual(pending.count, 5)
+    XCTAssertEqual(
+      Set(pending.map(\.entityType)),
+      Set([
+        SyncEntityType.project,
+        SyncEntityType.goal,
+        SyncEntityType.aiInsight,
+        SyncEntityType.aiRecap,
+        SyncEntityType.summary,
+      ])
+    )
+
+    try repositories.pendingSyncChanges.markCompleted(ids: pending.map(\.id))
+    try repositories.projects.delete(id: project.id)
+    try repositories.goals.delete(id: goal.id)
+    try aiRepositories.insights.delete(id: insight.id)
+    try aiRepositories.recaps.delete(id: recap.id)
+    try aiRepositories.summaries.delete(id: summary.id)
+
+    pending = try repositories.pendingSyncChanges.fetchPending(limit: 20)
+    XCTAssertEqual(pending.count, 5)
+    XCTAssertTrue(pending.allSatisfy { $0.operation == .delete })
+  }
+
   func testApplyRemoteUpsertSkipsLedger() async throws {
     let repositories = try await makeRepositorySet()
     let now = Date()
@@ -81,6 +121,38 @@ final class ICloudSyncTests: XCTestCase {
     let saved = try repositories.tasks.fetchByID(task.id)
     XCTAssertNotNil(saved)
     XCTAssertEqual(try repositories.pendingSyncChanges.count(), 0)
+  }
+
+  func testApplyRemoteUpsertForAllSyncedTypesSkipsLedger() async throws {
+    let (repositories, aiRepositories, _) = try await makeRepositoryBundle()
+    let now = Date(timeIntervalSince1970: 1_700_000_000)
+    let project = makeProject(now: now)
+    let goal = makeGoal(now: now)
+    let insight = makeInsight(now: now)
+    let recap = makeRecap(now: now)
+    let summary = makeSummary(now: now)
+
+    guard
+      let insightRepository = aiRepositories.insights as? SyncAwareAIInsightRepository,
+      let recapRepository = aiRepositories.recaps as? SyncAwareAIRecapRepository,
+      let summaryRepository = aiRepositories.summaries as? SyncAwareSummaryRepository
+    else {
+      XCTFail("Expected sync-aware AI repositories")
+      return
+    }
+
+    try repositories.projects.applyRemoteUpsert(project)
+    try repositories.goals.applyRemoteUpsert(goal)
+    try insightRepository.applyRemoteUpsert(insight)
+    try recapRepository.applyRemoteUpsert(recap)
+    try summaryRepository.applyRemoteUpsert(summary)
+
+    XCTAssertEqual(try repositories.pendingSyncChanges.count(), 0)
+    XCTAssertEqual(try repositories.projects.fetchByID(project.id), project)
+    XCTAssertEqual(try repositories.goals.fetchByID(goal.id), goal)
+    XCTAssertEqual(try aiRepositories.insights.fetchByID(insight.id), insight)
+    XCTAssertEqual(try aiRepositories.recaps.fetchByID(recap.id), recap)
+    XCTAssertEqual(try aiRepositories.summaries.fetchByID(summary.id), summary)
   }
 
   func testMarkCompletedRemovesEntries() async throws {
@@ -194,9 +266,168 @@ final class ICloudSyncTests: XCTestCase {
     XCTAssertEqual(decoded, entry)
   }
 
+  func testProjectGoalAndAIRecordRoundTripsPreserveAllFields() throws {
+    let now = Date(timeIntervalSince1970: 1_700_000_000)
+    let project = makeProject(now: now)
+    let goal = makeGoal(now: now)
+    let insight = makeInsight(now: now)
+    let recap = makeRecap(now: now)
+    let summary = makeSummary(now: now)
+
+    let projectRecord = CKRecord(
+      recordType: SyncEntityType.project,
+      recordID: CKRecord.ID(recordName: project.id, zoneID: SerenityCloudKit.zoneID)
+    )
+    try ProjectSyncRecordKind.encode(project, into: projectRecord)
+    XCTAssertEqual(try ProjectSyncRecordKind.decode(projectRecord), project)
+
+    let goalRecord = CKRecord(
+      recordType: SyncEntityType.goal,
+      recordID: CKRecord.ID(recordName: goal.id, zoneID: SerenityCloudKit.zoneID)
+    )
+    try GoalSyncRecordKind.encode(goal, into: goalRecord)
+    XCTAssertEqual(try GoalSyncRecordKind.decode(goalRecord), goal)
+
+    let insightRecord = CKRecord(
+      recordType: SyncEntityType.aiInsight,
+      recordID: CKRecord.ID(recordName: insight.id, zoneID: SerenityCloudKit.zoneID)
+    )
+    try AIInsightSyncRecordKind.encode(insight, into: insightRecord)
+    XCTAssertEqual(try AIInsightSyncRecordKind.decode(insightRecord), insight)
+
+    let recapRecord = CKRecord(
+      recordType: SyncEntityType.aiRecap,
+      recordID: CKRecord.ID(recordName: recap.id, zoneID: SerenityCloudKit.zoneID)
+    )
+    try AIRecapSyncRecordKind.encode(recap, into: recapRecord)
+    XCTAssertEqual(try AIRecapSyncRecordKind.decode(recapRecord), recap)
+
+    let summaryRecord = CKRecord(
+      recordType: SyncEntityType.summary,
+      recordID: CKRecord.ID(recordName: summary.id, zoneID: SerenityCloudKit.zoneID)
+    )
+    try SummarySyncRecordKind.encode(summary, into: summaryRecord)
+    XCTAssertEqual(try SummarySyncRecordKind.decode(summaryRecord), summary)
+  }
+
+  func testICloudEngineRegistersEverySyncedEntityType() async throws {
+    let (repositories, aiRepositories, _) = try await makeRepositoryBundle()
+    guard
+      let insightRepository = aiRepositories.insights as? SyncAwareAIInsightRepository,
+      let recapRepository = aiRepositories.recaps as? SyncAwareAIRecapRepository,
+      let summaryRepository = aiRepositories.summaries as? SyncAwareSummaryRepository
+    else {
+      XCTFail("Expected sync-aware AI repositories")
+      return
+    }
+
+    let engine = ICloudSyncEngine(
+      container: FakeICloudSyncContainer(),
+      pendingStore: repositories.pendingSyncChanges,
+      stateStore: repositories.cloudSyncState,
+      recordKinds: [
+        TaskSyncRecordKind(repository: repositories.tasks),
+        ProjectSyncRecordKind(repository: repositories.projects),
+        JournalEntrySyncRecordKind(repository: repositories.journal),
+        GoalSyncRecordKind(repository: repositories.goals),
+        AIInsightSyncRecordKind(repository: insightRepository),
+        AIRecapSyncRecordKind(repository: recapRepository),
+        SummarySyncRecordKind(repository: summaryRepository),
+      ],
+      stateUpdate: { _ in }
+    )
+
+    let registered = await engine.registeredEntityTypes()
+    XCTAssertEqual(
+      registered,
+      Set([
+        SyncEntityType.task,
+        SyncEntityType.project,
+        SyncEntityType.journalEntry,
+        SyncEntityType.goal,
+        SyncEntityType.aiInsight,
+        SyncEntityType.aiRecap,
+        SyncEntityType.summary,
+      ])
+    )
+  }
+
+  func testInitialExportEnqueuesEverySyncedEntityOnce() async throws {
+    let (repositories, aiRepositories, _) = try await makeRepositoryBundle()
+    let now = Date()
+
+    try repositories.tasks.save(
+      TaskEntity(
+        id: "task-initial",
+        title: "Initial task",
+        description: nil,
+        completed: false,
+        completedAt: nil,
+        priority: .medium,
+        dueDate: nil,
+        projectId: nil,
+        tags: [],
+        createdAt: now,
+        updatedAt: now,
+        subtasks: [],
+        recurring: nil,
+        userId: nil
+      )
+    )
+    try repositories.projects.save(makeProject(now: now))
+    try repositories.journal.save(
+      JournalEntryEntity(
+        id: "journal-initial",
+        title: "Initial journal",
+        content: "Entry",
+        date: now,
+        tags: [],
+        createdAt: now,
+        updatedAt: now,
+        pinned: false,
+        mood: nil,
+        attachments: [],
+        userId: nil
+      )
+    )
+    try repositories.goals.save(makeGoal(now: now))
+    try aiRepositories.insights.save(makeInsight(now: now))
+    try aiRepositories.recaps.save(makeRecap(now: now))
+    try aiRepositories.summaries.save(makeSummary(now: now))
+    try repositories.pendingSyncChanges.markCompleted(
+      ids: try repositories.pendingSyncChanges.fetchPending(limit: 20).map(\.id)
+    )
+
+    let exporter = CloudSyncInitialExporter(coreRepositories: repositories, aiRepositories: aiRepositories)
+    try exporter.enqueueIfNeeded()
+
+    let pending = try repositories.pendingSyncChanges.fetchPending(limit: 20)
+    XCTAssertEqual(pending.count, 7)
+    XCTAssertEqual(
+      Set(pending.map(\.entityType)),
+      Set([
+        SyncEntityType.task,
+        SyncEntityType.project,
+        SyncEntityType.journalEntry,
+        SyncEntityType.goal,
+        SyncEntityType.aiInsight,
+        SyncEntityType.aiRecap,
+        SyncEntityType.summary,
+      ])
+    )
+
+    try exporter.enqueueIfNeeded()
+    XCTAssertEqual(try repositories.pendingSyncChanges.fetchPending(limit: 20).count, 7)
+  }
+
   // MARK: - Helpers
 
   private func makeRepositorySet() async throws -> GRDBCoreRepositorySet {
+    let (repositories, _, _) = try await makeRepositoryBundle()
+    return repositories
+  }
+
+  private func makeRepositoryBundle() async throws -> (GRDBCoreRepositorySet, GRDBAIRepositorySet, URL) {
     let databaseURL = FileManager.default.temporaryDirectory
       .appendingPathComponent("serenity-icloud-tests")
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -205,6 +436,147 @@ final class ICloudSyncTests: XCTestCase {
     let runner = DatabaseMigrationRunner()
     _ = try await runner.bootstrapDatabase(at: databaseURL)
 
-    return try GRDBCoreRepositorySet.make(databasePath: databaseURL.path)
+    let repositories = try GRDBCoreRepositorySet.make(databasePath: databaseURL.path)
+    let aiRepositories = try GRDBAIRepositorySet.make(
+      databasePath: databaseURL.path,
+      pendingStore: repositories.pendingSyncChanges
+    )
+    return (repositories, aiRepositories, databaseURL)
+  }
+
+  private func makeProject(now: Date) -> ProjectEntity {
+    ProjectEntity(
+      id: "project-1",
+      name: "Project",
+      description: "Project description",
+      color: "#33AA77",
+      icon: "folder",
+      createdAt: now.addingTimeInterval(-300),
+      updatedAt: now,
+      archived: true,
+      userId: "user-1"
+    )
+  }
+
+  private func makeGoal(now: Date) -> GoalEntity {
+    GoalEntity(
+      id: "goal-1",
+      title: "Goal",
+      description: "Goal description",
+      type: .projectTasks,
+      config: GoalConfig(
+        targetCount: 10,
+        projectId: "project-1",
+        priority: .high,
+        streakDays: nil,
+        targetRate: nil,
+        timeframe: .weekly
+      ),
+      progress: GoalProgress(
+        current: 4,
+        target: 10,
+        percentage: 40,
+        isCompleted: false,
+        periodStart: now.addingTimeInterval(-86_400),
+        periodEnd: now.addingTimeInterval(86_400)
+      ),
+      status: .active,
+      priority: .high,
+      reminders: [
+        GoalReminder(
+          id: "reminder-1",
+          goalId: "goal-1",
+          taskId: nil,
+          title: "Check goal",
+          description: "Review progress",
+          reminderDate: now.addingTimeInterval(3600),
+          type: .goalCheck,
+          status: .pending,
+          repeatPattern: ReminderRepeatPattern(type: .weekly, interval: 1, endDate: nil),
+          notificationSettings: ReminderNotificationSettings(enabled: true, sound: false, popup: true, beforeMinutes: 15),
+          createdAt: now,
+          updatedAt: now,
+          userId: "user-1"
+        )
+      ],
+      createdAt: now.addingTimeInterval(-400),
+      updatedAt: now,
+      userId: "user-1"
+    )
+  }
+
+  private func makeInsight(now: Date) -> AIInsightEntity {
+    AIInsightEntity(
+      id: "insight-1",
+      provider: .openai,
+      type: .recommendation,
+      title: "Insight",
+      description: "Recommendation body",
+      confidence: 0.82,
+      category: .goals,
+      actionable: true,
+      metadataJSON: #"{"metric":"test"}"#,
+      createdAt: now.addingTimeInterval(-200),
+      updatedAt: now,
+      userRating: 4,
+      dismissed: false,
+      markedHelpful: true,
+      userNotes: "Helpful",
+      visualizationDataJSON: #"{"kind":"bar"}"#,
+      actionabilitySuggestions: ["Do one thing", "Then another"],
+      themeID: "theme-1",
+      isRecurring: true,
+      occurrenceNumber: 2
+    )
+  }
+
+  private func makeRecap(now: Date) -> AIRecapEntity {
+    AIRecapEntity(
+      id: "recap-1",
+      provider: .gemini,
+      type: .weekly,
+      title: "Weekly recap",
+      summary: "Summary",
+      highlights: ["A", "B"],
+      challenges: ["C"],
+      recommendations: ["D"],
+      period: AIRecapPeriod(start: now.addingTimeInterval(-604_800), end: now),
+      metadataJSON: #"{"source":"test"}"#,
+      createdAt: now.addingTimeInterval(-100),
+      updatedAt: now,
+      viewed: true,
+      favorited: true,
+      exported: false
+    )
+  }
+
+  private func makeSummary(now: Date) -> SummaryEntity {
+    SummaryEntity(
+      id: "summary-1",
+      title: "Task summary",
+      content: "Summary content",
+      summaryType: .tasks,
+      startDate: now.addingTimeInterval(-604_800),
+      endDate: now,
+      generatedAt: now,
+      wordCount: 2,
+      metadataJSON: #"{"source":"test"}"#,
+      provider: .anthropic,
+      promptTokens: 10,
+      completionTokens: 20,
+      totalTokens: 30,
+      createdAt: now.addingTimeInterval(-50),
+      updatedAt: now
+    )
+  }
+}
+
+private struct FakeICloudSyncContainer: ICloudSyncContainer {
+  func accountStatus() async throws -> CKAccountStatus {
+    .available
+  }
+
+  func privateDatabase() -> CKDatabase {
+    CKContainer.default().privateCloudDatabase
   }
 }

@@ -59,6 +59,10 @@ actor ICloudSyncEngine {
     self.logger = logger
   }
 
+  func registeredEntityTypes() -> Set<String> {
+    Set(recordKinds.keys)
+  }
+
   /// One-shot sync: account-status check → ensure zone + subscription → push
   /// pending changes → pull remote changes. Coalesces concurrent calls so
   /// only one round-trip is in flight at any time.

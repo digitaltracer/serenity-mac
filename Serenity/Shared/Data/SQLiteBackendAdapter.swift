@@ -39,8 +39,8 @@ final class SQLiteBackendAdapter {
     try GRDBCoreRepositorySet.make(databasePath: try requireDatabasePath())
   }
 
-  func makeAIRepositories() throws -> GRDBAIRepositorySet {
-    try GRDBAIRepositorySet.make(databasePath: try requireDatabasePath())
+  func makeAIRepositories(pendingStore: PendingSyncChangeStore? = nil) throws -> GRDBAIRepositorySet {
+    try GRDBAIRepositorySet.make(databasePath: try requireDatabasePath(), pendingStore: pendingStore)
   }
 
   func makeSecurityAuditRepository() throws -> GRDBSecurityAuditRepository {

@@ -5,7 +5,12 @@ import Foundation
 /// on-disk + on-iCloud schema.
 enum SyncEntityType {
   static let task = "Task"
+  static let project = "Project"
   static let journalEntry = "JournalEntry"
+  static let goal = "Goal"
+  static let aiInsight = "AIInsight"
+  static let aiRecap = "AIRecap"
+  static let summary = "Summary"
 }
 
 /// Wraps a `CoreTaskRepository` so every successful save/delete pushes a
@@ -50,6 +55,42 @@ final class SyncAwareTaskRepository: CoreTaskRepository {
   }
 }
 
+final class SyncAwareProjectRepository: CoreProjectRepository {
+  private let underlying: CoreProjectRepository
+  private let pendingStore: PendingSyncChangeStore
+
+  init(underlying: CoreProjectRepository, pendingStore: PendingSyncChangeStore) {
+    self.underlying = underlying
+    self.pendingStore = pendingStore
+  }
+
+  func fetchAll(includeArchived: Bool = true) throws -> [ProjectEntity] {
+    try underlying.fetchAll(includeArchived: includeArchived)
+  }
+
+  func fetchByID(_ id: String) throws -> ProjectEntity? {
+    try underlying.fetchByID(id)
+  }
+
+  func save(_ project: ProjectEntity) throws {
+    try underlying.save(project)
+    try pendingStore.enqueue(entityType: SyncEntityType.project, entityId: project.id, operation: .upsert)
+  }
+
+  func delete(id: String) throws {
+    try underlying.delete(id: id)
+    try pendingStore.enqueue(entityType: SyncEntityType.project, entityId: id, operation: .delete)
+  }
+
+  func applyRemoteUpsert(_ project: ProjectEntity) throws {
+    try underlying.save(project)
+  }
+
+  func applyRemoteDelete(id: String) throws {
+    try underlying.delete(id: id)
+  }
+}
+
 final class SyncAwareJournalRepository: CoreJournalRepository {
   private let underlying: CoreJournalRepository
   private let pendingStore: PendingSyncChangeStore
@@ -83,6 +124,46 @@ final class SyncAwareJournalRepository: CoreJournalRepository {
 
   func applyRemoteUpsert(_ entry: JournalEntryEntity) throws {
     try underlying.save(entry)
+  }
+
+  func applyRemoteDelete(id: String) throws {
+    try underlying.delete(id: id)
+  }
+}
+
+final class SyncAwareGoalRepository: CoreGoalRepository {
+  private let underlying: CoreGoalRepository
+  private let pendingStore: PendingSyncChangeStore
+
+  init(underlying: CoreGoalRepository, pendingStore: PendingSyncChangeStore) {
+    self.underlying = underlying
+    self.pendingStore = pendingStore
+  }
+
+  func fetchAll() throws -> [GoalEntity] {
+    try underlying.fetchAll()
+  }
+
+  func fetchActive() throws -> [GoalEntity] {
+    try underlying.fetchActive()
+  }
+
+  func fetchByID(_ id: String) throws -> GoalEntity? {
+    try underlying.fetchByID(id)
+  }
+
+  func save(_ goal: GoalEntity) throws {
+    try underlying.save(goal)
+    try pendingStore.enqueue(entityType: SyncEntityType.goal, entityId: goal.id, operation: .upsert)
+  }
+
+  func delete(id: String) throws {
+    try underlying.delete(id: id)
+    try pendingStore.enqueue(entityType: SyncEntityType.goal, entityId: id, operation: .delete)
+  }
+
+  func applyRemoteUpsert(_ goal: GoalEntity) throws {
+    try underlying.save(goal)
   }
 
   func applyRemoteDelete(id: String) throws {

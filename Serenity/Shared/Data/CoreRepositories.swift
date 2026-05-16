@@ -630,9 +630,9 @@ struct GRDBCoreRepositorySet {
   /// sync change. The iCloud engine drains those into CloudKit, and pulled
   /// remote records come back in via `applyRemoteUpsert(_:)`/`applyRemoteDelete(id:)`.
   let tasks: SyncAwareTaskRepository
-  let projects: GRDBProjectRepository
+  let projects: SyncAwareProjectRepository
   let journal: SyncAwareJournalRepository
-  let goals: GRDBGoalRepository
+  let goals: SyncAwareGoalRepository
   let pendingSyncChanges: PendingSyncChangeStore
   let cloudSyncState: CloudSyncStateStore
 
@@ -650,12 +650,18 @@ struct GRDBCoreRepositorySet {
         underlying: GRDBTaskRepository(dbQueue: dbQueue),
         pendingStore: pendingStore
       ),
-      projects: GRDBProjectRepository(dbQueue: dbQueue),
+      projects: SyncAwareProjectRepository(
+        underlying: GRDBProjectRepository(dbQueue: dbQueue),
+        pendingStore: pendingStore
+      ),
       journal: SyncAwareJournalRepository(
         underlying: GRDBJournalRepository(dbQueue: dbQueue),
         pendingStore: pendingStore
       ),
-      goals: GRDBGoalRepository(dbQueue: dbQueue),
+      goals: SyncAwareGoalRepository(
+        underlying: GRDBGoalRepository(dbQueue: dbQueue),
+        pendingStore: pendingStore
+      ),
       pendingSyncChanges: pendingStore,
       cloudSyncState: GRDBCloudSyncStateStore(dbQueue: dbQueue)
     )

@@ -47,6 +47,7 @@ actor AIWorkflowService {
   private let sqliteBackendAdapter: SQLiteBackendAdapter
   private let secretStore: KeychainSecretStore
   private var repositories: GRDBAIRepositorySet?
+  private var pendingSyncStore: PendingSyncChangeStore?
 
   init(
     sqliteBackendAdapter: SQLiteBackendAdapter,
@@ -71,6 +72,11 @@ actor AIWorkflowService {
       summaries: try repositories.summaries.fetchAll(),
       usage: try repositories.usage.fetchAll(limit: limit)
     )
+  }
+
+  func configureCloudSync(pendingStore: PendingSyncChangeStore) {
+    pendingSyncStore = pendingStore
+    repositories = nil
   }
 
   func addCredential(
@@ -540,7 +546,7 @@ actor AIWorkflowService {
     }
 
     _ = try await sqliteBackendAdapter.bootstrap()
-    let created = try sqliteBackendAdapter.makeAIRepositories()
+    let created = try sqliteBackendAdapter.makeAIRepositories(pendingStore: pendingSyncStore)
     repositories = created
     return created
   }
