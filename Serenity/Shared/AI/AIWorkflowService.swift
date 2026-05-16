@@ -61,6 +61,10 @@ actor AIWorkflowService {
     AIProviderModelCatalog.models
   }
 
+  func validateAPIKey(provider: AICredentialProvider, apiKey: String) async throws -> [String] {
+    try await AIProviderAPIClient.fetchModels(provider: provider, apiKey: apiKey)
+  }
+
   func fetchSnapshot(limit: Int = 200) async throws -> AIWorkflowSnapshot {
     let repositories = try await requireRepositories()
     let settings = try repositories.settings.fetch() ?? .defaultValue
@@ -83,7 +87,8 @@ actor AIWorkflowService {
     provider: AICredentialProvider,
     name: String,
     apiKey: String,
-    modelPreference: String?
+    modelPreference: String?,
+    availableModels: [String]? = nil
   ) async throws -> AICredentialEntity {
     let repositories = try await requireRepositories()
     let now = Date()
@@ -101,7 +106,7 @@ actor AIWorkflowService {
       modelPreference: modelPreference,
       enabled: true,
       priority: currentCount,
-      metadataJSON: "{}",
+      metadataJSON: encodeCredentialMetadata(availableModels: availableModels),
       lastUsedAt: nil,
       totalRequests: 0,
       totalTokens: 0,
@@ -115,6 +120,18 @@ actor AIWorkflowService {
 
     try repositories.credentials.save(credential)
     return credential
+  }
+
+  private func encodeCredentialMetadata(availableModels: [String]?) -> String {
+    guard let availableModels, !availableModels.isEmpty else { return "{}" }
+    let payload: [String: Any] = ["availableModels": availableModels]
+    guard
+      let data = try? JSONSerialization.data(withJSONObject: payload),
+      let json = String(data: data, encoding: .utf8)
+    else {
+      return "{}"
+    }
+    return json
   }
 
   func updateCredential(

@@ -17,6 +17,7 @@
 		A00000000000000000000083 /* CoreWorkflowModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000023 /* CoreWorkflowModels.swift */; };
 		A00000000000000000000084 /* SerenityAppScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000024 /* SerenityAppScene.swift */; };
 		A00000000000000000000085 /* AIWorkflowService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000025 /* AIWorkflowService.swift */; };
+		A000000000000000000000F1 /* AIProviderAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F0 /* AIProviderAPIClient.swift */; };
 		A00000000000000000000086 /* AuthSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000026 /* AuthSessionManager.swift */; };
 		A00000000000000000000087 /* AIEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000027 /* AIEntities.swift */; };
 		A00000000000000000000088 /* AIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000028 /* AIRepositories.swift */; };
@@ -44,6 +45,7 @@
 		A000000000000000000000A3 /* CoreWorkflowModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000023 /* CoreWorkflowModels.swift */; };
 		A000000000000000000000A4 /* SerenityAppScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000024 /* SerenityAppScene.swift */; };
 		A000000000000000000000A5 /* AIWorkflowService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000025 /* AIWorkflowService.swift */; };
+		A000000000000000000000F2 /* AIProviderAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F0 /* AIProviderAPIClient.swift */; };
 		A000000000000000000000A6 /* AuthSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000026 /* AuthSessionManager.swift */; };
 		A000000000000000000000A7 /* AIEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000027 /* AIEntities.swift */; };
 		A000000000000000000000A8 /* AIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000028 /* AIRepositories.swift */; };
@@ -92,6 +94,7 @@
 		A00000000000000000000023 /* CoreWorkflowModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreWorkflowModels.swift; sourceTree = "<group>"; };
 		A00000000000000000000024 /* SerenityAppScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityAppScene.swift; sourceTree = "<group>"; };
 		A00000000000000000000025 /* AIWorkflowService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIWorkflowService.swift; sourceTree = "<group>"; };
+		A000000000000000000000F0 /* AIProviderAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProviderAPIClient.swift; sourceTree = "<group>"; };
 		A00000000000000000000026 /* AuthSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionManager.swift; sourceTree = "<group>"; };
 		A00000000000000000000027 /* AIEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIEntities.swift; sourceTree = "<group>"; };
 		A00000000000000000000028 /* AIRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRepositories.swift; sourceTree = "<group>"; };
@@ -217,6 +220,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000025 /* AIWorkflowService.swift */,
+				A000000000000000000000F0 /* AIProviderAPIClient.swift */,
 			);
 			path = AI;
 			sourceTree = "<group>";
@@ -436,6 +440,7 @@
 				A0000000000000000000009B /* DotEnv.swift in Sources */,
 				A00000000000000000000084 /* SerenityAppScene.swift in Sources */,
 				A00000000000000000000085 /* AIWorkflowService.swift in Sources */,
+				A000000000000000000000F1 /* AIProviderAPIClient.swift in Sources */,
 				A00000000000000000000086 /* AuthSessionManager.swift in Sources */,
 				A00000000000000000000087 /* AIEntities.swift in Sources */,
 				A00000000000000000000088 /* AIRepositories.swift in Sources */,
@@ -477,6 +482,7 @@
 				A000000000000000000000BB /* DotEnv.swift in Sources */,
 				A000000000000000000000A4 /* SerenityAppScene.swift in Sources */,
 				A000000000000000000000A5 /* AIWorkflowService.swift in Sources */,
+				A000000000000000000000F2 /* AIProviderAPIClient.swift in Sources */,
 				A000000000000000000000A6 /* AuthSessionManager.swift in Sources */,
 				A000000000000000000000A7 /* AIEntities.swift in Sources */,
 				A000000000000000000000A8 /* AIRepositories.swift in Sources */,

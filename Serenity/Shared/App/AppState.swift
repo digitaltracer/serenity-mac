@@ -1102,11 +1102,20 @@ final class AppState: ObservableObject {
     }
   }
 
+  func validateAICredentialKey(
+    provider: AICredentialProvider,
+    apiKey: String
+  ) async throws -> [String] {
+    let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    return try await aiWorkflowService.validateAPIKey(provider: provider, apiKey: trimmed)
+  }
+
   func addAICredential(
     provider: AICredentialProvider,
     name: String,
     apiKey: String,
-    modelPreference: String?
+    modelPreference: String?,
+    availableModels: [String]? = nil
   ) async {
     let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedKey.isEmpty else {
@@ -1119,7 +1128,8 @@ final class AppState: ObservableObject {
         provider: provider,
         name: name,
         apiKey: trimmedKey,
-        modelPreference: modelPreference
+        modelPreference: modelPreference,
+        availableModels: availableModels
       )
       showToast("\(provider.rawValue.capitalized) credential added")
       await refreshAIWorkflows()
