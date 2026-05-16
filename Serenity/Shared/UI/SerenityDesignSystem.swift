@@ -309,6 +309,93 @@ struct SerenityFlowLayout: Layout {
   }
 }
 
+private struct SerenityScrollMetrics: Equatable {
+  var offset: CGFloat
+  var content: CGFloat
+  var viewport: CGFloat
+}
+
+struct SerenityThemedScrollView<Content: View>: View {
+  private let content: Content
+
+  @State private var contentHeight: CGFloat = 0
+  @State private var viewportHeight: CGFloat = 0
+  @State private var scrollOffset: CGFloat = 0
+  @State private var hovered = false
+
+  init(@ViewBuilder content: () -> Content) {
+    self.content = content()
+  }
+
+  private var shouldShowScrollbar: Bool {
+    viewportHeight > 0 && contentHeight > viewportHeight + 4
+  }
+
+  private var thumbHeight: CGFloat {
+    guard shouldShowScrollbar else { return 0 }
+    let trackHeight = max(viewportHeight - 24, 1)
+    return min(trackHeight, max(44, trackHeight * viewportHeight / contentHeight))
+  }
+
+  private var thumbOffset: CGFloat {
+    guard shouldShowScrollbar else { return 0 }
+    let trackHeight = max(viewportHeight - 24, 1)
+    let maxScrollOffset = max(contentHeight - viewportHeight, 1)
+    let maxThumbOffset = max(trackHeight - thumbHeight, 0)
+    return 12 + min(max(scrollOffset / maxScrollOffset, 0), 1) * maxThumbOffset
+  }
+
+  var body: some View {
+    if #available(macOS 15.0, iOS 18.0, *) {
+      ScrollView(.vertical, showsIndicators: false) {
+        content
+      }
+      .onScrollGeometryChange(for: SerenityScrollMetrics.self) { geometry in
+        SerenityScrollMetrics(
+          offset: max(0, geometry.contentOffset.y),
+          content: geometry.contentSize.height,
+          viewport: geometry.containerSize.height
+        )
+      } action: { _, metrics in
+        scrollOffset = metrics.offset
+        contentHeight = metrics.content
+        viewportHeight = metrics.viewport
+      }
+      .overlay(alignment: .topTrailing) {
+        if shouldShowScrollbar {
+          scrollbar
+            .opacity(hovered ? 1 : 0.72)
+            .animation(.easeOut(duration: 0.16), value: hovered)
+        }
+      }
+      .onHover { isHovering in
+        hovered = isHovering
+      }
+    } else {
+      ScrollView(.vertical) {
+        content
+      }
+      .scrollIndicators(.automatic)
+    }
+  }
+
+  private var scrollbar: some View {
+    ZStack(alignment: .top) {
+      Capsule()
+        .fill(SerenityPalette.thinBorder.opacity(0.55))
+        .frame(width: 5)
+
+      Capsule()
+        .fill(SerenityPalette.textSecondary.opacity(hovered ? 0.62 : 0.42))
+        .frame(width: 5, height: thumbHeight)
+        .offset(y: thumbOffset)
+    }
+    .frame(width: 12)
+    .padding(.trailing, 6)
+    .allowsHitTesting(false)
+  }
+}
+
 struct SerenityTagInputField: View {
   @Binding var tags: [String]
   @Binding var inputText: String
@@ -413,9 +500,31 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
   @Binding var selection: Value
   @State private var showingPopover = false
   @State private var hovered = false
+  @State private var hoveredOption: Value?
+  @State private var menuContentHeight: CGFloat = 0
+  @State private var menuViewportHeight: CGFloat = 0
+  @State private var menuScrollOffset: CGFloat = 0
 
   private var selectedOption: SerenityDropdownOption<Value>? {
     options.first { $0.value == selection }
+  }
+
+  private var shouldShowMenuScrollbar: Bool {
+    menuViewportHeight > 0 && menuContentHeight > menuViewportHeight + 4
+  }
+
+  private var menuScrollbarThumbHeight: CGFloat {
+    guard shouldShowMenuScrollbar else { return 0 }
+    let trackHeight = max(menuViewportHeight - 12, 1)
+    return min(trackHeight, max(34, trackHeight * menuViewportHeight / menuContentHeight))
+  }
+
+  private var menuScrollbarThumbOffset: CGFloat {
+    guard shouldShowMenuScrollbar else { return 0 }
+    let trackHeight = max(menuViewportHeight - 12, 1)
+    let maxScrollOffset = max(menuContentHeight - menuViewportHeight, 1)
+    let maxThumbOffset = max(trackHeight - menuScrollbarThumbHeight, 0)
+    return 6 + min(max(menuScrollOffset / maxScrollOffset, 0), 1) * maxThumbOffset
   }
 
   var body: some View {
@@ -463,6 +572,9 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
       .shadow(color: SerenityPalette.accent.opacity(hovered || showingPopover ? 0.12 : 0.06), radius: hovered || showingPopover ? 8 : 5, x: 0, y: 1)
     }
     .buttonStyle(.plain)
+    .disabled(options.isEmpty)
+    .accessibilityLabel(placeholder)
+    .accessibilityValue(selectedOption?.title ?? "No selection")
     .onHover { isHovering in
       hovered = isHovering
     }
@@ -477,14 +589,7 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
 
   private var dropdownMenu: some View {
     VStack(alignment: .leading, spacing: 6) {
-      ScrollView {
-        VStack(alignment: .leading, spacing: 4) {
-          ForEach(options) { option in
-            dropdownRow(option)
-          }
-        }
-      }
-      .frame(maxHeight: maxMenuHeight)
+      dropdownScrollArea
 
       footer
         .simultaneousGesture(
@@ -495,11 +600,75 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
           }
         )
     }
-    .background(SerenityPalette.panelBackground)
+    .padding(4)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  @ViewBuilder
+  private var dropdownScrollArea: some View {
+    if #available(macOS 15.0, iOS 18.0, *) {
+      ScrollView(.vertical, showsIndicators: false) {
+        dropdownOptionsList
+      }
+      .frame(maxHeight: maxMenuHeight)
+      .fixedSize(horizontal: false, vertical: true)
+      .onScrollGeometryChange(for: SerenityScrollMetrics.self) { geometry in
+        SerenityScrollMetrics(
+          offset: max(0, geometry.contentOffset.y),
+          content: geometry.contentSize.height,
+          viewport: geometry.containerSize.height
+        )
+      } action: { _, metrics in
+        menuScrollOffset = metrics.offset
+        menuContentHeight = metrics.content
+        menuViewportHeight = metrics.viewport
+      }
+      .overlay(alignment: .topTrailing) {
+        if shouldShowMenuScrollbar {
+          Capsule()
+            .fill(SerenityPalette.textSecondary.opacity(0.48))
+            .frame(width: 4, height: menuScrollbarThumbHeight)
+            .offset(y: menuScrollbarThumbOffset)
+            .padding(.trailing, 2)
+            .allowsHitTesting(false)
+        }
+      }
+    } else {
+      ScrollView(.vertical) {
+        dropdownOptionsList
+      }
+      .frame(maxHeight: maxMenuHeight)
+      .fixedSize(horizontal: false, vertical: true)
+      .scrollIndicators(.automatic)
+    }
+  }
+
+  private var dropdownOptionsList: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      if options.isEmpty {
+        Text("No options")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 8)
+      } else {
+        ForEach(options) { option in
+          dropdownRow(option)
+        }
+      }
+    }
   }
 
   private func dropdownRow(_ option: SerenityDropdownOption<Value>) -> some View {
-    Button {
+    let isSelected = option.value == selection
+    let isHovered = hoveredOption == option.value
+
+    return Button {
       selection = option.value
       showingPopover = false
     } label: {
@@ -530,7 +699,7 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
 
         Spacer(minLength: 8)
 
-        if option.value == selection {
+        if isSelected {
           Image(systemName: "checkmark")
             .font(SerenityType.scaledSystem(size: 11, weight: .bold))
             .foregroundStyle(SerenityPalette.accent)
@@ -541,10 +710,13 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(
         RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .fill(option.value == selection ? SerenityPalette.activeItemBackground.opacity(0.72) : Color.clear)
+          .fill(isSelected ? SerenityPalette.activeItemBackground.opacity(0.72) : SerenityPalette.panelBackgroundRaised.opacity(isHovered ? 0.48 : 0))
       )
     }
     .buttonStyle(.plain)
+    .onHover { isHovering in
+      hoveredOption = isHovering ? option.value : nil
+    }
   }
 }
 
