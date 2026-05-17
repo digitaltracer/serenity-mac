@@ -5,6 +5,7 @@ enum AIWorkflowError: Error, LocalizedError, Equatable {
   case missingCredentialSecret(String)
   case credentialNotFound(String)
   case summaryNotFound(String)
+  case invalidQuickCaptureResponse(String)
 
   var errorDescription: String? {
     switch self {
@@ -16,6 +17,8 @@ enum AIWorkflowError: Error, LocalizedError, Equatable {
       return "Credential \(id) was not found."
     case .summaryNotFound(let id):
       return "Summary \(id) was not found."
+    case .invalidQuickCaptureResponse(let reason):
+      return "AI quick capture response was invalid: \(reason)"
     }
   }
 }
@@ -44,17 +47,29 @@ struct AIWorkflowSnapshot {
 }
 
 actor AIWorkflowService {
+  typealias QuickCaptureGenerationHandler = (
+    AICredentialProvider,
+    String,
+    String,
+    String,
+    String,
+    [String: Any]
+  ) async throws -> AIProviderTextGenerationResponse
+
   private let sqliteBackendAdapter: SQLiteBackendAdapter
   private let secretStore: KeychainSecretStore
+  private let quickCaptureGenerator: QuickCaptureGenerationHandler
   private var repositories: GRDBAIRepositorySet?
   private var pendingSyncStore: PendingSyncChangeStore?
 
   init(
     sqliteBackendAdapter: SQLiteBackendAdapter,
-    secretStore: KeychainSecretStore = KeychainSecretStore(service: "com.digitaltracer.serenity.ai")
+    secretStore: KeychainSecretStore = KeychainSecretStore(service: "com.digitaltracer.serenity.ai"),
+    quickCaptureGenerator: @escaping QuickCaptureGenerationHandler = AIProviderAPIClient.generateQuickCaptureJSON
   ) {
     self.sqliteBackendAdapter = sqliteBackendAdapter
     self.secretStore = secretStore
+    self.quickCaptureGenerator = quickCaptureGenerator
   }
 
   func modelCatalog() -> [AICredentialProvider: [String]] {
@@ -63,6 +78,86 @@ actor AIWorkflowService {
 
   func validateAPIKey(provider: AICredentialProvider, apiKey: String) async throws -> [String] {
     try await AIProviderAPIClient.fetchModels(provider: provider, apiKey: apiKey)
+  }
+
+  func classifyQuickCapture(
+    input: String,
+    credentialID: String,
+    projects: [AIQuickCaptureProjectContext],
+    availableTags: [String],
+    now: Date = Date()
+  ) async throws -> AIQuickCaptureClassification {
+    let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedInput.isEmpty else {
+      throw AIWorkflowError.invalidQuickCaptureResponse("Input was empty")
+    }
+
+    let repositories = try await requireRepositories()
+    let selection = try chooseCredential(id: credentialID)
+    let schema = quickCaptureSchema()
+    let systemPrompt = quickCaptureSystemPrompt()
+    let userPrompt = quickCaptureUserPrompt(
+      input: trimmedInput,
+      projects: projects,
+      availableTags: availableTags,
+      now: now
+    )
+
+    do {
+      let response = try await quickCaptureGenerator(
+        selection.credential.provider,
+        selection.apiKey,
+        selection.model,
+        systemPrompt,
+        userPrompt,
+        schema
+      )
+      do {
+        let classification = try decodeQuickCaptureClassification(
+          response.text,
+          projects: projects,
+          availableTags: availableTags
+        )
+        try recordUsage(
+          repositories: repositories,
+          selection: selection,
+          operation: .quickadd,
+          promptTokens: response.promptTokens,
+          completionTokens: response.completionTokens
+        )
+        return classification
+      } catch {
+        let repairPrompt = quickCaptureRepairPrompt(
+          invalidResponse: response.text,
+          validationError: error.localizedDescription,
+          schema: schema
+        )
+        let repaired = try await quickCaptureGenerator(
+          selection.credential.provider,
+          selection.apiKey,
+          selection.model,
+          systemPrompt,
+          repairPrompt,
+          schema
+        )
+        let classification = try decodeQuickCaptureClassification(
+          repaired.text,
+          projects: projects,
+          availableTags: availableTags
+        )
+        try recordUsage(
+          repositories: repositories,
+          selection: selection,
+          operation: .quickadd,
+          promptTokens: response.promptTokens + repaired.promptTokens,
+          completionTokens: response.completionTokens + repaired.completionTokens
+        )
+        return classification
+      }
+    } catch {
+      try? repositories.credentials.recordError(id: selection.credential.id, message: error.localizedDescription, at: Date())
+      throw error
+    }
   }
 
   func fetchSnapshot(limit: Int = 200) async throws -> AIWorkflowSnapshot {
@@ -467,6 +562,297 @@ actor AIWorkflowService {
     return fileURL.path
   }
 
+  private struct RawQuickCaptureClassification: Decodable {
+    var kind: AIQuickCaptureKind
+    var confidence: Double
+    var tasks: [RawQuickCaptureTask]
+    var journal: RawQuickCaptureJournal?
+  }
+
+  private struct RawQuickCaptureTask: Decodable {
+    var title: String
+    var description: String?
+    var priority: String?
+    var dueDate: String?
+    var projectId: String?
+    var tags: [String]?
+    var subtasks: [String]?
+
+    enum CodingKeys: String, CodingKey {
+      case title
+      case description
+      case priority
+      case dueDate
+      case projectId
+      case tags
+      case subtasks
+    }
+  }
+
+  private struct RawQuickCaptureJournal: Decodable {
+    var title: String?
+    var content: String
+    var mood: String?
+    var tags: [String]?
+  }
+
+  private func decodeQuickCaptureClassification(
+    _ text: String,
+    projects: [AIQuickCaptureProjectContext],
+    availableTags: [String]
+  ) throws -> AIQuickCaptureClassification {
+    let jsonText = extractJSONObject(from: text)
+    guard let data = jsonText.data(using: .utf8) else {
+      throw AIWorkflowError.invalidQuickCaptureResponse("Response was not UTF-8 text")
+    }
+
+    let raw: RawQuickCaptureClassification
+    do {
+      raw = try JSONDecoder().decode(RawQuickCaptureClassification.self, from: data)
+    } catch {
+      throw AIWorkflowError.invalidQuickCaptureResponse(error.localizedDescription)
+    }
+
+    let activeProjectIDs = Set(projects.filter { !$0.archived }.map(\.id))
+    let knownTags = Set(availableTags.map(normalizeTag).filter { !$0.isEmpty })
+    let confidence = min(1, max(0, raw.confidence))
+
+    switch raw.kind {
+    case .tasks:
+      let tasks = raw.tasks.compactMap { rawTask -> AIQuickCaptureTaskDraft? in
+        let title = rawTask.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return nil }
+
+        let projectID = rawTask.projectId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let validProjectID = projectID.flatMap { activeProjectIDs.contains($0) ? $0 : nil }
+        let description = rawTask.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let priority = rawTask.priority
+          .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+          .flatMap(TaskPriority.init(rawValue:)) ?? .medium
+
+        return AIQuickCaptureTaskDraft(
+          title: title,
+          description: description?.isEmpty == true ? nil : description,
+          priority: priority,
+          dueDate: parseQuickCaptureDueDate(rawTask.dueDate),
+          projectId: validProjectID,
+          tags: normalizeTags(rawTask.tags ?? [], knownTags: knownTags),
+          subtasks: normalizeList(rawTask.subtasks ?? [])
+        )
+      }
+      guard !tasks.isEmpty else {
+        throw AIWorkflowError.invalidQuickCaptureResponse("Task classification did not include any valid tasks")
+      }
+      return AIQuickCaptureClassification(kind: .tasks, confidence: confidence, tasks: tasks, journal: nil)
+
+    case .journal:
+      guard let rawJournal = raw.journal else {
+        throw AIWorkflowError.invalidQuickCaptureResponse("Journal classification did not include a journal object")
+      }
+      let content = rawJournal.content.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !content.isEmpty else {
+        throw AIWorkflowError.invalidQuickCaptureResponse("Journal classification did not include content")
+      }
+      let title = rawJournal.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let mood = rawJournal.mood
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        .flatMap(JournalMood.init(rawValue:))
+      let journal = AIQuickCaptureJournalDraft(
+        title: title?.isEmpty == true ? nil : title,
+        content: content,
+        mood: mood,
+        tags: normalizeTags(rawJournal.tags ?? [], knownTags: knownTags)
+      )
+      return AIQuickCaptureClassification(kind: .journal, confidence: confidence, tasks: [], journal: journal)
+    }
+  }
+
+  private func extractJSONObject(from text: String) -> String {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard
+      let start = trimmed.firstIndex(of: "{"),
+      let end = trimmed.lastIndex(of: "}"),
+      start <= end
+    else {
+      return trimmed
+    }
+    return String(trimmed[start...end])
+  }
+
+  private func normalizeTags(_ tags: [String], knownTags: Set<String>) -> [String] {
+    var seen: Set<String> = []
+    var normalized: [String] = []
+    for tag in tags {
+      let value = normalizeTag(tag)
+      guard !value.isEmpty, !seen.contains(value) else { continue }
+      seen.insert(value)
+      normalized.append(value)
+    }
+    return normalized
+  }
+
+  private func normalizeTag(_ tag: String) -> String {
+    tag
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+      .lowercased()
+      .replacingOccurrences(of: " ", with: "-")
+  }
+
+  private func normalizeList(_ values: [String]) -> [String] {
+    var seen: Set<String> = []
+    var normalized: [String] = []
+    for value in values {
+      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty, !seen.contains(trimmed.lowercased()) else { continue }
+      seen.insert(trimmed.lowercased())
+      normalized.append(trimmed)
+    }
+    return normalized
+  }
+
+  private func parseQuickCaptureDueDate(_ rawDate: String?) -> Date? {
+    guard let trimmed = rawDate?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+      return nil
+    }
+
+    let fractionalFormatter = ISO8601DateFormatter()
+    fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = fractionalFormatter.date(from: trimmed) {
+      return date
+    }
+
+    let isoFormatter = ISO8601DateFormatter()
+    if let date = isoFormatter.date(from: trimmed) {
+      return date
+    }
+
+    let dateFormatter = DateFormatter()
+    dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+    dateFormatter.timeZone = .current
+    dateFormatter.dateFormat = "yyyy-MM-dd"
+    return dateFormatter.date(from: trimmed)
+  }
+
+  private func quickCaptureSystemPrompt() -> String {
+    """
+    You classify one quick-capture input for Serenity, a private task and journal app.
+    Choose exactly one mode for the whole input: tasks or journal.
+    Do not require or rely on the user saying this is a journal or task list.
+    If the input is actionable, split it into separate tasks. If it is reflective, emotional, observational, or narrative, return one journal entry.
+    Use only active project ids from the supplied context. Return null when no project fits.
+    Return dueDate as an ISO 8601 string when the user implies a date or time, otherwise null.
+    Return concise task titles and preserve journal content faithfully.
+    """
+  }
+
+  private func quickCaptureUserPrompt(
+    input: String,
+    projects: [AIQuickCaptureProjectContext],
+    availableTags: [String],
+    now: Date
+  ) -> String {
+    let encodedProjects = (try? jsonString(projects)) ?? "[]"
+    let encodedTags = (try? jsonString(availableTags)) ?? "[]"
+    let nowText = ISO8601DateFormatter().string(from: now)
+
+    return """
+    Current time: \(nowText)
+
+    Active and archived project context:
+    \(encodedProjects)
+
+    Existing tags:
+    \(encodedTags)
+
+    User input:
+    \(input)
+    """
+  }
+
+  private func quickCaptureRepairPrompt(
+    invalidResponse: String,
+    validationError: String,
+    schema: [String: Any]
+  ) -> String {
+    let schemaText = (try? jsonString(schema)) ?? "{}"
+    return """
+    The previous response could not be decoded or validated.
+    Validation error: \(validationError)
+
+    Previous response:
+    \(invalidResponse)
+
+    Return only one corrected JSON object matching this schema:
+    \(schemaText)
+    """
+  }
+
+  private func quickCaptureSchema() -> [String: Any] {
+    [
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "confidence", "tasks", "journal"],
+      "properties": [
+        "kind": [
+          "type": "string",
+          "enum": ["tasks", "journal"],
+        ],
+        "confidence": [
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+        ],
+        "tasks": [
+          "type": "array",
+          "items": [
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "description", "priority", "dueDate", "projectId", "tags", "subtasks"],
+            "properties": [
+              "title": ["type": "string"],
+              "description": ["type": ["string", "null"]],
+              "priority": ["type": ["string", "null"], "enum": ["low", "medium", "high", NSNull()]],
+              "dueDate": ["type": ["string", "null"]],
+              "projectId": ["type": ["string", "null"]],
+              "tags": ["type": "array", "items": ["type": "string"]],
+              "subtasks": ["type": "array", "items": ["type": "string"]],
+            ],
+          ],
+        ],
+        "journal": [
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["title", "content", "mood", "tags"],
+          "properties": [
+            "title": ["type": ["string", "null"]],
+            "content": ["type": "string"],
+            "mood": ["type": ["string", "null"], "enum": ["happy", "neutral", "sad", "excited", "stressed", NSNull()]],
+            "tags": ["type": "array", "items": ["type": "string"]],
+          ],
+        ],
+      ],
+    ]
+  }
+
+  private func jsonString<T: Encodable>(_ value: T) throws -> String {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    let data = try encoder.encode(value)
+    guard let string = String(data: data, encoding: .utf8) else {
+      throw AIWorkflowError.invalidQuickCaptureResponse("Failed to encode context")
+    }
+    return string
+  }
+
+  private func jsonString(_ value: [String: Any]) throws -> String {
+    let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+    guard let string = String(data: data, encoding: .utf8) else {
+      throw AIWorkflowError.invalidQuickCaptureResponse("Failed to encode schema")
+    }
+    return string
+  }
+
   private func chooseCredential(settings: AISettingsEntity) throws -> AICredentialSelectionResult {
     let repositories = try requireRepositoriesSync()
     let enabledCredentials = try repositories.credentials.fetchAll(enabledOnly: true)
@@ -497,6 +883,23 @@ actor AIWorkflowService {
     }
 
     throw AIWorkflowError.noCredentialConfigured
+  }
+
+  private func chooseCredential(id: String) throws -> AICredentialSelectionResult {
+    let repositories = try requireRepositoriesSync()
+    guard let credential = try repositories.credentials.fetchByID(id), credential.enabled else {
+      throw AIWorkflowError.credentialNotFound(id)
+    }
+
+    let keychainKey = keychainKeyForCredential(credential.id)
+    guard let secret = try secretStore.secret(for: keychainKey), !secret.isEmpty else {
+      try repositories.credentials.recordError(id: credential.id, message: "Missing keychain secret", at: Date())
+      throw AIWorkflowError.missingCredentialSecret(credential.id)
+    }
+
+    let settings = try repositories.settings.fetch() ?? .defaultValue
+    let model = credential.modelPreference ?? preferredModel(for: credential.provider, settings: settings)
+    return AICredentialSelectionResult(credential: credential, apiKey: secret, model: model)
   }
 
   private func preferredModel(for provider: AICredentialProvider, settings: AISettingsEntity) -> String {

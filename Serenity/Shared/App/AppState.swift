@@ -110,6 +110,7 @@ enum OAuthConfigurationValidationError: Error, LocalizedError {
 final class AppState: ObservableObject {
   static let themePreferenceDefaultsKey = "serenity.ui.themePreference"
   static let localLockEnabledDefaultsKey = "serenity.security.localLock.enabled"
+  static let aiQuickCapturePreviewThreshold = 0.75
   private let settingsSync: SettingsSyncCoordinator
   private var settingsSyncObserver: NSObjectProtocol?
 
@@ -164,6 +165,7 @@ final class AppState: ObservableObject {
   @Published var aiSummaries: [SummaryEntity] = []
   @Published var aiUsageEntries: [AIUsageEntity] = []
   @Published var aiStatusMessage = "AI features require a configured provider key."
+  @Published var pendingAIQuickCapturePreview: AIQuickCapturePreview?
   @Published var lastSummaryExportPath: String?
   @Published var iCloudSyncState: ICloudSyncState = .idle
 
@@ -1363,6 +1365,174 @@ final class AppState: ObservableObject {
       showError(title: "Summary generation failed", message: error.localizedDescription)
       await refreshAIWorkflows()
     }
+  }
+
+  @discardableResult
+  func submitAIQuickCapture(input: String, credentialID: String) async -> Bool {
+    let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedInput.isEmpty else {
+      showToast("Quick capture cannot be empty")
+      return false
+    }
+
+    do {
+      let classification = try await aiWorkflowService.classifyQuickCapture(
+        input: trimmedInput,
+        credentialID: credentialID,
+        projects: quickCaptureProjectContext,
+        availableTags: quickCaptureAvailableTags,
+        now: Date()
+      )
+
+      if classification.confidence < Self.aiQuickCapturePreviewThreshold {
+        pendingAIQuickCapturePreview = AIQuickCapturePreview(
+          originalInput: trimmedInput,
+          classification: classification
+        )
+        showToast("Review AI capture before saving")
+        await refreshAIWorkflows()
+        return false
+      }
+
+      let saved = try await saveAIQuickCaptureClassification(classification)
+      await refreshAIWorkflows()
+      return saved
+    } catch {
+      aiStatusMessage = error.localizedDescription
+      showError(title: "AI quick capture failed", message: error.localizedDescription)
+      await refreshAIWorkflows()
+      return false
+    }
+  }
+
+  @discardableResult
+  func savePendingAIQuickCapturePreview() async -> Bool {
+    guard let preview = pendingAIQuickCapturePreview else { return false }
+
+    do {
+      let saved = try await saveAIQuickCaptureClassification(preview.classification)
+      if saved {
+        pendingAIQuickCapturePreview = nil
+      }
+      await refreshAIWorkflows()
+      return saved
+    } catch {
+      showError(title: "Failed to save AI capture", message: error.localizedDescription)
+      await refreshAIWorkflows()
+      return false
+    }
+  }
+
+  func discardPendingAIQuickCapturePreview() {
+    pendingAIQuickCapturePreview = nil
+  }
+
+  private func saveAIQuickCaptureClassification(_ classification: AIQuickCaptureClassification) async throws -> Bool {
+    switch classification.kind {
+    case .tasks:
+      let validTasks = classification.tasks.filter { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+      guard !validTasks.isEmpty else {
+        showToast("AI capture did not include any tasks")
+        return false
+      }
+
+      for draft in validTasks {
+        let now = Date()
+        let trimmedDescription = draft.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let task = TaskEntity(
+          id: UUID().uuidString,
+          title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
+          description: trimmedDescription?.isEmpty == true ? nil : trimmedDescription,
+          completed: false,
+          completedAt: nil,
+          priority: draft.priority,
+          dueDate: draft.dueDate,
+          projectId: validQuickCaptureProjectID(draft.projectId),
+          tags: normalizedQuickCaptureValues(draft.tags),
+          createdAt: now,
+          updatedAt: now,
+          subtasks: normalizedQuickCaptureValues(draft.subtasks).enumerated().map { offset, title in
+            TaskSubtask(id: UUID().uuidString, title: title, completed: false, order: offset)
+          },
+          recurring: nil,
+          userId: nil
+        )
+        try await createTask(task)
+      }
+
+      showToast("Created \(validTasks.count) task\(validTasks.count == 1 ? "" : "s")")
+      await refreshCoreWorkflowData()
+      return true
+
+    case .journal:
+      guard let draft = classification.journal else {
+        showToast("AI capture did not include a journal entry")
+        return false
+      }
+
+      let content = draft.content.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !content.isEmpty else {
+        showToast("AI capture did not include journal content")
+        return false
+      }
+
+      let title = draft.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let now = Date()
+      let entry = JournalEntryEntity(
+        id: UUID().uuidString,
+        title: title?.isEmpty == true ? nil : title,
+        content: content,
+        date: now,
+        tags: normalizedQuickCaptureValues(draft.tags),
+        createdAt: now,
+        updatedAt: now,
+        pinned: false,
+        mood: draft.mood,
+        attachments: [],
+        userId: nil
+      )
+      try await createJournalEntry(entry)
+      showToast("Journal entry created")
+      await refreshCoreWorkflowData()
+      return true
+    }
+  }
+
+  private var quickCaptureProjectContext: [AIQuickCaptureProjectContext] {
+    projects.map { project in
+      AIQuickCaptureProjectContext(
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        archived: project.archived
+      )
+    }
+  }
+
+  private var quickCaptureAvailableTags: [String] {
+    let allTags = tasks.flatMap(\.tags) + journalEntries.flatMap(\.tags)
+    return normalizedQuickCaptureValues(allTags)
+  }
+
+  private func validQuickCaptureProjectID(_ projectID: String?) -> String? {
+    guard let projectID = projectID?.trimmingCharacters(in: .whitespacesAndNewlines), !projectID.isEmpty else {
+      return nil
+    }
+    return projects.contains { $0.id == projectID && !$0.archived } ? projectID : nil
+  }
+
+  private func normalizedQuickCaptureValues(_ values: [String]) -> [String] {
+    var seen: Set<String> = []
+    var normalized: [String] = []
+    for value in values {
+      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else { continue }
+      let key = trimmed.lowercased()
+      guard !seen.contains(key) else { continue }
+      seen.insert(key)
+      normalized.append(trimmed)
+    }
+    return normalized
   }
 
   func deleteAISummary(id: String) async {

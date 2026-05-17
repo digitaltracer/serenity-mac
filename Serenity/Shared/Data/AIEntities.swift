@@ -377,3 +377,102 @@ public struct AISettingsEntity: Codable, Equatable, Sendable {
     preferredModels: nil
   )
 }
+
+public enum AIQuickCaptureKind: String, Codable, CaseIterable, Sendable {
+  case tasks
+  case journal
+}
+
+public struct AIQuickCaptureTaskDraft: Codable, Equatable, Sendable, Identifiable {
+  public var id: String
+  public var title: String
+  public var description: String?
+  public var priority: TaskPriority
+  public var dueDate: Date?
+  public var projectId: String?
+  public var tags: [String]
+  public var subtasks: [String]
+
+  public init(
+    id: String = UUID().uuidString,
+    title: String,
+    description: String?,
+    priority: TaskPriority,
+    dueDate: Date?,
+    projectId: String?,
+    tags: [String],
+    subtasks: [String]
+  ) {
+    self.id = id
+    self.title = title
+    self.description = description
+    self.priority = priority
+    self.dueDate = dueDate
+    self.projectId = projectId
+    self.tags = tags
+    self.subtasks = subtasks
+  }
+}
+
+public struct AIQuickCaptureJournalDraft: Codable, Equatable, Sendable {
+  public var title: String?
+  public var content: String
+  public var mood: JournalMood?
+  public var tags: [String]
+
+  public init(title: String?, content: String, mood: JournalMood?, tags: [String]) {
+    self.title = title
+    self.content = content
+    self.mood = mood
+    self.tags = tags
+  }
+}
+
+public struct AIQuickCaptureClassification: Codable, Equatable, Sendable {
+  public var kind: AIQuickCaptureKind
+  public var confidence: Double
+  public var tasks: [AIQuickCaptureTaskDraft]
+  public var journal: AIQuickCaptureJournalDraft?
+
+  public init(
+    kind: AIQuickCaptureKind,
+    confidence: Double,
+    tasks: [AIQuickCaptureTaskDraft],
+    journal: AIQuickCaptureJournalDraft?
+  ) {
+    self.kind = kind
+    self.confidence = confidence
+    self.tasks = tasks
+    self.journal = journal
+  }
+}
+
+public struct AIQuickCaptureProjectContext: Codable, Equatable, Sendable {
+  public var id: String
+  public var name: String
+  public var description: String?
+  public var archived: Bool
+
+  public init(id: String, name: String, description: String?, archived: Bool) {
+    self.id = id
+    self.name = name
+    self.description = description
+    self.archived = archived
+  }
+}
+
+public struct AIQuickCapturePreview: Identifiable, Equatable, Sendable {
+  public var id: String
+  public var originalInput: String
+  public var classification: AIQuickCaptureClassification
+
+  public init(
+    id: String = UUID().uuidString,
+    originalInput: String,
+    classification: AIQuickCaptureClassification
+  ) {
+    self.id = id
+    self.originalInput = originalInput
+    self.classification = classification
+  }
+}

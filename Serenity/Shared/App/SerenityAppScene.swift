@@ -1007,11 +1007,20 @@ private struct HomeSectionView: View {
   @State private var selectedQuickCaptureCredentialID = ""
 
   private let nativeQuickCaptureProviderID = "native"
+  private static let quickCapturePreviewDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateStyle = .medium
+    formatter.timeStyle = .short
+    return formatter
+  }()
 
   var body: some View {
     VStack(alignment: .leading, spacing: density.sectionSpacing) {
       hero
       quickCaptureCard
+      if let preview = appState.pendingAIQuickCapturePreview {
+        aiQuickCapturePreview(preview)
+      }
       featureGrid
     }
   }
@@ -1235,6 +1244,16 @@ private struct HomeSectionView: View {
     submitting = true
     defer { submitting = false }
 
+    if let credential = selectedQuickCaptureCredential {
+      let saved = await appState.submitAIQuickCapture(input: text, credentialID: credential.id)
+      if saved {
+        quickCapture = ""
+      }
+      return
+    }
+
+    appState.discardPendingAIQuickCapturePreview()
+
     if text.lowercased().hasPrefix("journal:") {
       let content = text.replacingOccurrences(of: "journal:", with: "", options: [.caseInsensitive])
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1256,6 +1275,155 @@ private struct HomeSectionView: View {
 
     quickCapture = ""
     await appState.refreshCoreWorkflowData()
+  }
+
+  private func aiQuickCapturePreview(_ preview: AIQuickCapturePreview) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .firstTextBaseline) {
+        Label(previewTitle(for: preview.classification), systemImage: "sparkles")
+          .font(SerenityType.sectionTitle)
+          .foregroundStyle(SerenityPalette.textPrimary)
+
+        Spacer()
+
+        Text("\(Int(preview.classification.confidence * 100))%")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      switch preview.classification.kind {
+      case .tasks:
+        VStack(alignment: .leading, spacing: 8) {
+          ForEach(preview.classification.tasks) { task in
+            aiQuickCaptureTaskPreviewRow(task)
+          }
+        }
+      case .journal:
+        if let journal = preview.classification.journal {
+          aiQuickCaptureJournalPreview(journal)
+        }
+      }
+
+      HStack {
+        Spacer()
+        Button("Cancel") {
+          appState.discardPendingAIQuickCapturePreview()
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .hoverCursor(.pointingHand)
+
+        Button("Save") {
+          Task {
+            let saved = await appState.savePendingAIQuickCapturePreview()
+            if saved {
+              quickCapture = ""
+            }
+          }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(16)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private func aiQuickCaptureTaskPreviewRow(_ task: AIQuickCaptureTaskDraft) -> some View {
+    VStack(alignment: .leading, spacing: 5) {
+      HStack(spacing: 8) {
+        Image(systemName: "checkmark.circle")
+          .foregroundStyle(SerenityPalette.accent)
+        Text(task.title)
+          .font(SerenityType.bodyLarge)
+          .foregroundStyle(SerenityPalette.textPrimary)
+          .lineLimit(2)
+        Spacer()
+        Text(task.priority.rawValue.capitalized)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      let metadata = taskPreviewMetadata(task)
+      if !metadata.isEmpty {
+        Text(metadata.joined(separator: " · "))
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(2)
+      }
+    }
+    .padding(10)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+  }
+
+  private func aiQuickCaptureJournalPreview(_ journal: AIQuickCaptureJournalDraft) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if let title = journal.title, !title.isEmpty {
+        Text(title)
+          .font(SerenityType.bodyLarge)
+          .foregroundStyle(SerenityPalette.textPrimary)
+      }
+
+      Text(journal.content)
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .lineLimit(5)
+
+      let metadata = journalPreviewMetadata(journal)
+      if !metadata.isEmpty {
+        Text(metadata.joined(separator: " · "))
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+    }
+    .padding(10)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+  }
+
+  private func previewTitle(for classification: AIQuickCaptureClassification) -> String {
+    switch classification.kind {
+    case .tasks:
+      return "Review \(classification.tasks.count) Task\(classification.tasks.count == 1 ? "" : "s")"
+    case .journal:
+      return "Review Journal Entry"
+    }
+  }
+
+  private func taskPreviewMetadata(_ task: AIQuickCaptureTaskDraft) -> [String] {
+    var metadata: [String] = []
+    if let dueDate = task.dueDate {
+      metadata.append(Self.quickCapturePreviewDateFormatter.string(from: dueDate))
+    }
+    if let projectName = projectName(for: task.projectId) {
+      metadata.append(projectName)
+    }
+    if !task.tags.isEmpty {
+      metadata.append(task.tags.map { "#\($0)" }.joined(separator: " "))
+    }
+    if !task.subtasks.isEmpty {
+      metadata.append("\(task.subtasks.count) subtask\(task.subtasks.count == 1 ? "" : "s")")
+    }
+    return metadata
+  }
+
+  private func journalPreviewMetadata(_ journal: AIQuickCaptureJournalDraft) -> [String] {
+    var metadata: [String] = []
+    if let mood = journal.mood {
+      metadata.append(mood.rawValue.capitalized)
+    }
+    if !journal.tags.isEmpty {
+      metadata.append(journal.tags.map { "#\($0)" }.joined(separator: " "))
+    }
+    return metadata
+  }
+
+  private func projectName(for projectID: String?) -> String? {
+    guard let projectID else { return nil }
+    return appState.projects.first { $0.id == projectID }?.name
   }
 
   private var quickCaptureHelperText: String {

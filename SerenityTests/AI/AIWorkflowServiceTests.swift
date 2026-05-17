@@ -57,7 +57,144 @@ final class AIWorkflowServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.usage.first?.provider, .gemini)
   }
 
-  private func makeService() throws -> (AIWorkflowService, InMemorySecretStorageBackend, String) {
+  func testClassifyQuickCaptureSplitsMultipleTasksAndDropsInvalidProject() async throws {
+    let (service, _, _) = try makeService { _, _, _, _, _, _ in
+      AIProviderTextGenerationResponse(
+        text: """
+        {
+          "kind": "tasks",
+          "confidence": 0.92,
+          "tasks": [
+            {
+              "title": "Send budget report",
+              "description": "Share the latest budget report",
+              "priority": "high",
+              "dueDate": "2026-05-18T09:00:00Z",
+              "projectId": "work",
+              "tags": ["Finance", "reports"],
+              "subtasks": ["Review numbers", "Email team"]
+            },
+            {
+              "title": "Buy groceries",
+              "description": null,
+              "priority": null,
+              "dueDate": null,
+              "projectId": "missing",
+              "tags": ["Errands"],
+              "subtasks": []
+            }
+          ],
+          "journal": null
+        }
+        """,
+        promptTokens: 20,
+        completionTokens: 40
+      )
+    }
+    let credential = try await service.addCredential(provider: .openai, name: "OpenAI", apiKey: "sk-test", modelPreference: "gpt-4o")
+
+    let classification = try await service.classifyQuickCapture(
+      input: "send budget report tomorrow and buy groceries",
+      credentialID: credential.id,
+      projects: [
+        AIQuickCaptureProjectContext(id: "work", name: "Work", description: nil, archived: false),
+      ],
+      availableTags: ["finance"],
+      now: Date()
+    )
+
+    XCTAssertEqual(classification.kind, .tasks)
+    XCTAssertEqual(classification.tasks.count, 2)
+    XCTAssertEqual(classification.tasks[0].projectId, "work")
+    XCTAssertEqual(classification.tasks[0].priority, .high)
+    XCTAssertEqual(classification.tasks[0].tags, ["finance", "reports"])
+    XCTAssertNil(classification.tasks[1].projectId)
+    XCTAssertEqual(classification.tasks[1].priority, .medium)
+  }
+
+  func testClassifyQuickCaptureReturnsSingleJournalEntry() async throws {
+    let (service, _, _) = try makeService { _, _, _, _, _, _ in
+      AIProviderTextGenerationResponse(
+        text: """
+        {
+          "kind": "journal",
+          "confidence": 0.88,
+          "tasks": [],
+          "journal": {
+            "title": "A quieter morning",
+            "content": "I felt calmer today after taking a walk before work.",
+            "mood": "happy",
+            "tags": ["reflection"]
+          }
+        }
+        """,
+        promptTokens: 15,
+        completionTokens: 30
+      )
+    }
+    let credential = try await service.addCredential(provider: .openai, name: "OpenAI", apiKey: "sk-test", modelPreference: "gpt-4o")
+
+    let classification = try await service.classifyQuickCapture(
+      input: "I felt calmer today after taking a walk before work.",
+      credentialID: credential.id,
+      projects: [],
+      availableTags: [],
+      now: Date()
+    )
+
+    XCTAssertEqual(classification.kind, .journal)
+    XCTAssertEqual(classification.journal?.title, "A quieter morning")
+    XCTAssertEqual(classification.journal?.mood, .happy)
+    XCTAssertTrue(classification.tasks.isEmpty)
+  }
+
+  func testClassifyQuickCaptureRetriesMalformedJSONOnce() async throws {
+    var callCount = 0
+    let (service, _, _) = try makeService { _, _, _, _, _, _ in
+      callCount += 1
+      if callCount == 1 {
+        return AIProviderTextGenerationResponse(text: "not json", promptTokens: 5, completionTokens: 5)
+      }
+      return AIProviderTextGenerationResponse(
+        text: """
+        {
+          "kind": "tasks",
+          "confidence": 0.81,
+          "tasks": [
+            {
+              "title": "Book dentist appointment",
+              "description": null,
+              "priority": "medium",
+              "dueDate": null,
+              "projectId": null,
+              "tags": [],
+              "subtasks": []
+            }
+          ],
+          "journal": null
+        }
+        """,
+        promptTokens: 8,
+        completionTokens: 16
+      )
+    }
+    let credential = try await service.addCredential(provider: .openai, name: "OpenAI", apiKey: "sk-test", modelPreference: "gpt-4o")
+
+    let classification = try await service.classifyQuickCapture(
+      input: "book dentist appointment",
+      credentialID: credential.id,
+      projects: [],
+      availableTags: [],
+      now: Date()
+    )
+
+    XCTAssertEqual(callCount, 2)
+    XCTAssertEqual(classification.tasks.first?.title, "Book dentist appointment")
+  }
+
+  private func makeService(
+    quickCaptureGenerator: @escaping AIWorkflowService.QuickCaptureGenerationHandler = AIProviderAPIClient.generateQuickCaptureJSON
+  ) throws -> (AIWorkflowService, InMemorySecretStorageBackend, String) {
     let baseURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
       .appendingPathComponent("serenity-ai-tests-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
@@ -67,7 +204,11 @@ final class AIWorkflowServiceTests: XCTestCase {
     let backend = InMemorySecretStorageBackend()
     let secretServiceName = "test.ai.workflow"
     let secretStore = KeychainSecretStore(service: secretServiceName, backend: backend)
-    let service = AIWorkflowService(sqliteBackendAdapter: sqliteAdapter, secretStore: secretStore)
+    let service = AIWorkflowService(
+      sqliteBackendAdapter: sqliteAdapter,
+      secretStore: secretStore,
+      quickCaptureGenerator: quickCaptureGenerator
+    )
 
     return (service, backend, secretServiceName)
   }
@@ -96,4 +237,3 @@ private final class InMemorySecretStorageBackend: SecretStorageBackend {
     values[namespacedKey(service: service, key: key)] != nil
   }
 }
-
