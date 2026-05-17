@@ -586,17 +586,17 @@ private enum SerenityContentDensity {
 
   var heroAvatarSize: CGFloat {
     switch self {
-    case .regular: return 76
-    case .compact: return 64
-    case .tight: return 56
+    case .regular: return 88
+    case .compact: return 76
+    case .tight: return 64
     }
   }
 
   var heroLetterSize: CGFloat {
     switch self {
-    case .regular: return 32
-    case .compact: return 28
-    case .tight: return 24
+    case .regular: return 36
+    case .compact: return 32
+    case .tight: return 27
     }
   }
 
@@ -613,6 +613,14 @@ private enum SerenityContentDensity {
     case .regular: return 700
     case .compact: return 560
     case .tight: return 460
+    }
+  }
+
+  var heroBottomPadding: CGFloat {
+    switch self {
+    case .regular: return 28
+    case .compact: return 24
+    case .tight: return 20
     }
   }
 
@@ -764,7 +772,9 @@ private struct SectionView: View {
           }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(density.contentPadding)
+        .padding(.top, density.contentPadding)
+        .padding(.leading, density.contentPadding)
+        .padding(.trailing, density.contentPadding + 14)
         .padding(.bottom, density.contentBottomPadding)
       }
     }
@@ -1007,7 +1017,7 @@ private struct HomeSectionView: View {
   }
 
   private var hero: some View {
-    VStack(spacing: 10) {
+    VStack(spacing: 14) {
       ZStack {
         Circle()
           .fill(SerenityPalette.headerIconBackground)
@@ -1028,7 +1038,7 @@ private struct HomeSectionView: View {
     }
     .frame(maxWidth: .infinity)
     .padding(.top, 8)
-    .padding(.bottom, 4)
+    .padding(.bottom, density.heroBottomPadding)
   }
 
   private var quickCaptureCard: some View {
@@ -1066,7 +1076,7 @@ private struct HomeSectionView: View {
 
       ViewThatFits(in: .horizontal) {
         HStack(spacing: 12) {
-          Text("Write naturally. Prefix with `journal:` to create an entry; otherwise we create a task.")
+          Text(quickCaptureHelperText)
             .font(SerenityType.bodyLarge)
             .foregroundStyle(SerenityPalette.textSecondary)
 
@@ -1077,7 +1087,7 @@ private struct HomeSectionView: View {
         }
 
         VStack(alignment: .leading, spacing: 10) {
-          Text("Write naturally. Prefix with `journal:` to create an entry; otherwise we create a task.")
+          Text(quickCaptureHelperText)
             .font(SerenityType.body)
             .foregroundStyle(SerenityPalette.textSecondary)
 
@@ -1161,7 +1171,7 @@ private struct HomeSectionView: View {
       .foregroundStyle(SerenityPalette.accent)
       .hoverCursor(.pointingHand)
     }
-    .frame(width: 250, alignment: .leading)
+    .frame(width: 200, alignment: .leading)
   }
 
   private var submitButton: some View {
@@ -1248,6 +1258,18 @@ private struct HomeSectionView: View {
     await appState.refreshCoreWorkflowData()
   }
 
+  private var quickCaptureHelperText: String {
+    if let credential = selectedQuickCaptureCredential {
+      return "Write naturally. \(providerTitle(credential.provider)) is selected for AI-assisted capture."
+    }
+
+    return "Write naturally. Prefix with journal: to create a journal entry; otherwise we create a task."
+  }
+
+  private var selectedQuickCaptureCredential: AICredentialEntity? {
+    enabledQuickCaptureCredentials.first { $0.id == quickCaptureSelectedCredentialID }
+  }
+
   private var enabledQuickCaptureCredentials: [AICredentialEntity] {
     appState.aiCredentials
       .filter(\.enabled)
@@ -1280,7 +1302,7 @@ private struct HomeSectionView: View {
     [
       SerenityDropdownOption(
         value: nativeQuickCaptureProviderID,
-        title: "Provider: native",
+        title: "Native",
         subtitle: "Create tasks and journal entries locally",
         systemImage: "macwindow",
         tint: SerenityPalette.accent
@@ -1288,8 +1310,8 @@ private struct HomeSectionView: View {
     ] + enabledQuickCaptureCredentials.map { credential in
       SerenityDropdownOption(
         value: credential.id,
-        title: "\(credential.name) · \(effectiveModel(for: credential))",
-        subtitle: providerTitle(credential.provider),
+        title: providerTitle(credential.provider),
+        subtitle: "\(credential.name) · \(effectiveModel(for: credential))",
         systemImage: providerIcon(credential.provider),
         tint: providerTint(credential.provider)
       )
