@@ -437,6 +437,7 @@ public struct AIQuickCaptureTaskDraft: Codable, Equatable, Sendable, Identifiabl
   public var priority: TaskPriority
   public var dueDate: Date?
   public var projectId: String?
+  public var projectName: String?
   public var tags: [String]
   public var subtasks: [String]
 
@@ -447,6 +448,7 @@ public struct AIQuickCaptureTaskDraft: Codable, Equatable, Sendable, Identifiabl
     priority: TaskPriority,
     dueDate: Date?,
     projectId: String?,
+    projectName: String? = nil,
     tags: [String],
     subtasks: [String]
   ) {
@@ -456,8 +458,25 @@ public struct AIQuickCaptureTaskDraft: Codable, Equatable, Sendable, Identifiabl
     self.priority = priority
     self.dueDate = dueDate
     self.projectId = projectId
+    self.projectName = projectName
     self.tags = tags
     self.subtasks = subtasks
+  }
+}
+
+public struct AIQuickCaptureProjectDraft: Codable, Equatable, Sendable, Identifiable {
+  public var id: String
+  public var name: String
+  public var description: String?
+
+  public init(
+    id: String = UUID().uuidString,
+    name: String,
+    description: String?
+  ) {
+    self.id = id
+    self.name = name
+    self.description = description
   }
 }
 
@@ -478,17 +497,20 @@ public struct AIQuickCaptureJournalDraft: Codable, Equatable, Sendable {
 public struct AIQuickCaptureClassification: Codable, Equatable, Sendable {
   public var kind: AIQuickCaptureKind
   public var confidence: Double
+  public var newProjects: [AIQuickCaptureProjectDraft]
   public var tasks: [AIQuickCaptureTaskDraft]
   public var journal: AIQuickCaptureJournalDraft?
 
   public init(
     kind: AIQuickCaptureKind,
     confidence: Double,
+    newProjects: [AIQuickCaptureProjectDraft] = [],
     tasks: [AIQuickCaptureTaskDraft],
     journal: AIQuickCaptureJournalDraft?
   ) {
     self.kind = kind
     self.confidence = confidence
+    self.newProjects = newProjects
     self.tasks = tasks
     self.journal = journal
   }

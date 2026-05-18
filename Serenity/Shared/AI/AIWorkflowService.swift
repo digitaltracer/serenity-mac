@@ -639,6 +639,7 @@ actor AIWorkflowService {
   private struct RawQuickCaptureClassification: Decodable {
     var kind: AIQuickCaptureKind
     var confidence: Double
+    var newProjects: [RawQuickCaptureProject]?
     var tasks: [RawQuickCaptureTask]
     var journal: RawQuickCaptureJournal?
   }
@@ -649,6 +650,7 @@ actor AIWorkflowService {
     var priority: String?
     var dueDate: String?
     var projectId: String?
+    var projectName: String?
     var tags: [String]?
     var subtasks: [String]?
 
@@ -658,9 +660,15 @@ actor AIWorkflowService {
       case priority
       case dueDate
       case projectId
+      case projectName
       case tags
       case subtasks
     }
+  }
+
+  private struct RawQuickCaptureProject: Decodable {
+    var name: String
+    var description: String?
   }
 
   private struct RawQuickCaptureJournal: Decodable {
@@ -688,7 +696,8 @@ actor AIWorkflowService {
     }
 
     let activeProjectIDs = Set(projects.filter { !$0.archived }.map(\.id))
-    let knownTags = Set(availableTags.map(normalizeTag).filter { !$0.isEmpty })
+    let activeProjectNames = Set(projects.filter { !$0.archived }.map { normalizedProjectName($0.name) }.filter { !$0.isEmpty })
+    let newProjects = normalizeProjectDrafts(raw.newProjects ?? [], existingProjectNames: activeProjectNames)
     let confidence = min(1, max(0, raw.confidence))
 
     switch raw.kind {
@@ -699,6 +708,7 @@ actor AIWorkflowService {
 
         let projectID = rawTask.projectId?.trimmingCharacters(in: .whitespacesAndNewlines)
         let validProjectID = projectID.flatMap { activeProjectIDs.contains($0) ? $0 : nil }
+        let projectName = rawTask.projectName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let description = rawTask.description?.trimmingCharacters(in: .whitespacesAndNewlines)
         let priority = rawTask.priority
           .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
@@ -710,14 +720,21 @@ actor AIWorkflowService {
           priority: priority,
           dueDate: parseQuickCaptureDueDate(rawTask.dueDate),
           projectId: validProjectID,
-          tags: normalizeTags(rawTask.tags ?? [], knownTags: knownTags),
+          projectName: projectName?.isEmpty == true ? nil : projectName,
+          tags: normalizeTags(rawTask.tags ?? []),
           subtasks: normalizeList(rawTask.subtasks ?? [])
         )
       }
       guard !tasks.isEmpty else {
         throw AIWorkflowError.invalidQuickCaptureResponse("Task classification did not include any valid tasks")
       }
-      return AIQuickCaptureClassification(kind: .tasks, confidence: confidence, tasks: tasks, journal: nil)
+      return AIQuickCaptureClassification(
+        kind: .tasks,
+        confidence: confidence,
+        newProjects: newProjects,
+        tasks: tasks,
+        journal: nil
+      )
 
     case .journal:
       guard let rawJournal = raw.journal else {
@@ -735,7 +752,7 @@ actor AIWorkflowService {
         title: title?.isEmpty == true ? nil : title,
         content: content,
         mood: mood,
-        tags: normalizeTags(rawJournal.tags ?? [], knownTags: knownTags)
+        tags: normalizeTags(rawJournal.tags ?? [])
       )
       return AIQuickCaptureClassification(kind: .journal, confidence: confidence, tasks: [], journal: journal)
     }
@@ -753,7 +770,30 @@ actor AIWorkflowService {
     return String(trimmed[start...end])
   }
 
-  private func normalizeTags(_ tags: [String], knownTags: Set<String>) -> [String] {
+  private func normalizeProjectDrafts(
+    _ projects: [RawQuickCaptureProject],
+    existingProjectNames: Set<String>
+  ) -> [AIQuickCaptureProjectDraft] {
+    var seen = existingProjectNames
+    var normalized: [AIQuickCaptureProjectDraft] = []
+    for project in projects {
+      let name = project.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      let key = normalizedProjectName(name)
+      guard !key.isEmpty, !seen.contains(key) else { continue }
+      seen.insert(key)
+
+      let description = project.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+      normalized.append(
+        AIQuickCaptureProjectDraft(
+          name: name,
+          description: description?.isEmpty == true ? nil : description
+        )
+      )
+    }
+    return normalized
+  }
+
+  private func normalizeTags(_ tags: [String]) -> [String] {
     var seen: Set<String> = []
     var normalized: [String] = []
     for tag in tags {
@@ -771,6 +811,10 @@ actor AIWorkflowService {
       .trimmingCharacters(in: CharacterSet(charactersIn: "#"))
       .lowercased()
       .replacingOccurrences(of: " ", with: "-")
+  }
+
+  private func normalizedProjectName(_ name: String) -> String {
+    name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
   }
 
   private func normalizeList(_ values: [String]) -> [String] {
@@ -814,7 +858,11 @@ actor AIWorkflowService {
     Choose exactly one mode for the whole input: tasks or journal.
     Do not require or rely on the user saying this is a journal or task list.
     If the input is actionable, split it into separate tasks. If it is reflective, emotional, observational, or narrative, return one journal entry.
-    Use only active project ids from the supplied context. Return null when no project fits.
+    Prefer active existing projects and available tags when they fit.
+    Do not use archived projects. Return null when no project fits.
+    If existing tags are insufficient, create concise new tags in the task or journal tags array.
+    Create a new project only when the task clearly belongs to a durable project that is not represented by an active existing project.
+    For new projects, add them to newProjects and reference them from tasks by exact projectName.
     Return dueDate as an ISO 8601 string when the user implies a date or time, otherwise null.
     Return concise task titles and preserve journal content faithfully.
     """
@@ -836,7 +884,7 @@ actor AIWorkflowService {
     Active and archived project context:
     \(encodedProjects)
 
-    Existing tags:
+    Available tags:
     \(encodedTags)
 
     User input:
@@ -866,7 +914,7 @@ actor AIWorkflowService {
     [
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "confidence", "tasks", "journal"],
+      "required": ["kind", "confidence", "newProjects", "tasks", "journal"],
       "properties": [
         "kind": [
           "type": "string",
@@ -877,18 +925,31 @@ actor AIWorkflowService {
           "minimum": 0,
           "maximum": 1,
         ],
+        "newProjects": [
+          "type": "array",
+          "items": [
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "description"],
+            "properties": [
+              "name": ["type": "string"],
+              "description": ["type": ["string", "null"]],
+            ],
+          ],
+        ],
         "tasks": [
           "type": "array",
           "items": [
             "type": "object",
             "additionalProperties": false,
-            "required": ["title", "description", "priority", "dueDate", "projectId", "tags", "subtasks"],
+            "required": ["title", "description", "priority", "dueDate", "projectId", "projectName", "tags", "subtasks"],
             "properties": [
               "title": ["type": "string"],
               "description": ["type": ["string", "null"]],
               "priority": ["type": ["string", "null"], "enum": ["low", "medium", "high", NSNull()]],
               "dueDate": ["type": ["string", "null"]],
               "projectId": ["type": ["string", "null"]],
+              "projectName": ["type": ["string", "null"]],
               "tags": ["type": "array", "items": ["type": "string"]],
               "subtasks": ["type": "array", "items": ["type": "string"]],
             ],

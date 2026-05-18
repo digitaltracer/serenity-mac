@@ -59,13 +59,19 @@ final class AIWorkflowServiceTests: XCTestCase {
     XCTAssertNotNil(snapshot.usage.first?.totalCostUSD)
   }
 
-  func testClassifyQuickCaptureSplitsMultipleTasksAndDropsInvalidProject() async throws {
+  func testClassifyQuickCaptureSplitsMultipleTasksAndKeepsNewProject() async throws {
     let (service, _, _) = try makeService { _, _, _, _, _, _ in
       AIProviderTextGenerationResponse(
         text: """
         {
           "kind": "tasks",
           "confidence": 0.92,
+          "newProjects": [
+            {
+              "name": "Home Ops",
+              "description": "Household errands and appointments"
+            }
+          ],
           "tasks": [
             {
               "title": "Send budget report",
@@ -73,6 +79,7 @@ final class AIWorkflowServiceTests: XCTestCase {
               "priority": "high",
               "dueDate": "2026-05-18T09:00:00Z",
               "projectId": "work",
+              "projectName": null,
               "tags": ["Finance", "reports"],
               "subtasks": ["Review numbers", "Email team"]
             },
@@ -81,7 +88,8 @@ final class AIWorkflowServiceTests: XCTestCase {
               "description": null,
               "priority": null,
               "dueDate": null,
-              "projectId": "missing",
+              "projectId": "archived-home",
+              "projectName": "Home Ops",
               "tags": ["Errands"],
               "subtasks": []
             }
@@ -100,17 +108,24 @@ final class AIWorkflowServiceTests: XCTestCase {
       credentialID: credential.id,
       projects: [
         AIQuickCaptureProjectContext(id: "work", name: "Work", description: nil, archived: false),
+        AIQuickCaptureProjectContext(id: "archived-home", name: "Old Home", description: nil, archived: true),
       ],
       availableTags: ["finance"],
       now: Date()
     )
 
     XCTAssertEqual(classification.kind, .tasks)
+    XCTAssertEqual(classification.newProjects.count, 1)
+    XCTAssertEqual(classification.newProjects.first?.name, "Home Ops")
+    XCTAssertEqual(classification.newProjects.first?.description, "Household errands and appointments")
     XCTAssertEqual(classification.tasks.count, 2)
     XCTAssertEqual(classification.tasks[0].projectId, "work")
+    XCTAssertNil(classification.tasks[0].projectName)
     XCTAssertEqual(classification.tasks[0].priority, .high)
     XCTAssertEqual(classification.tasks[0].tags, ["finance", "reports"])
     XCTAssertNil(classification.tasks[1].projectId)
+    XCTAssertEqual(classification.tasks[1].projectName, "Home Ops")
+    XCTAssertEqual(classification.tasks[1].tags, ["errands"])
     XCTAssertEqual(classification.tasks[1].priority, .medium)
   }
 
@@ -121,6 +136,7 @@ final class AIWorkflowServiceTests: XCTestCase {
         {
           "kind": "journal",
           "confidence": 0.88,
+          "newProjects": [],
           "tasks": [],
           "journal": {
             "title": "A quieter morning",
@@ -162,6 +178,7 @@ final class AIWorkflowServiceTests: XCTestCase {
         {
           "kind": "tasks",
           "confidence": 0.81,
+          "newProjects": [],
           "tasks": [
             {
               "title": "Book dentist appointment",
@@ -169,6 +186,7 @@ final class AIWorkflowServiceTests: XCTestCase {
               "priority": "medium",
               "dueDate": null,
               "projectId": null,
+              "projectName": null,
               "tags": [],
               "subtasks": []
             }

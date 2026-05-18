@@ -1500,6 +1500,8 @@ final class AppState: ObservableObject {
         return false
       }
 
+      let projectLookup = try await ensureQuickCaptureProjects(for: classification.newProjects)
+
       for draft in validTasks {
         let now = Date()
         let trimmedDescription = draft.description?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1511,7 +1513,7 @@ final class AppState: ObservableObject {
           completedAt: nil,
           priority: draft.priority,
           dueDate: draft.dueDate,
-          projectId: validQuickCaptureProjectID(draft.projectId),
+          projectId: resolvedQuickCaptureProjectID(for: draft, projectLookup: projectLookup),
           tags: normalizedQuickCaptureValues(draft.tags),
           createdAt: now,
           updatedAt: now,
@@ -1583,6 +1585,55 @@ final class AppState: ObservableObject {
       return nil
     }
     return projects.contains { $0.id == projectID && !$0.archived } ? projectID : nil
+  }
+
+  private func ensureQuickCaptureProjects(for drafts: [AIQuickCaptureProjectDraft]) async throws -> [String: String] {
+    var lookup: [String: String] = [:]
+    for project in projects where !project.archived {
+      let key = normalizedQuickCaptureProjectName(project.name)
+      guard !key.isEmpty, lookup[key] == nil else { continue }
+      lookup[key] = project.id
+    }
+
+    for draft in drafts {
+      let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      let key = normalizedQuickCaptureProjectName(name)
+      guard !key.isEmpty, lookup[key] == nil else { continue }
+
+      let now = Date()
+      let description = draft.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let project = ProjectEntity(
+        id: UUID().uuidString,
+        name: name,
+        description: description?.isEmpty == true ? nil : description,
+        color: "#4A90E2",
+        icon: nil,
+        createdAt: now,
+        updatedAt: now,
+        archived: false,
+        userId: nil
+      )
+      try await createProject(project)
+      lookup[key] = project.id
+    }
+
+    return lookup
+  }
+
+  private func resolvedQuickCaptureProjectID(
+    for draft: AIQuickCaptureTaskDraft,
+    projectLookup: [String: String]
+  ) -> String? {
+    if let projectID = validQuickCaptureProjectID(draft.projectId) {
+      return projectID
+    }
+
+    guard let projectName = draft.projectName else { return nil }
+    return projectLookup[normalizedQuickCaptureProjectName(projectName)]
+  }
+
+  private func normalizedQuickCaptureProjectName(_ name: String) -> String {
+    name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
   }
 
   private func normalizedQuickCaptureValues(_ values: [String]) -> [String] {
