@@ -16,6 +16,46 @@ final class AppStateTests: XCTestCase {
     XCTAssertFalse(settings.localLockEnabled)
   }
 
+  func testAIProviderDropdownHasNoOptionsWithoutCredentials() {
+    XCTAssertEqual(AIProviderDropdownAvailability.enabledProviders(from: []), [])
+  }
+
+  func testAIProviderDropdownIgnoresDisabledCredentials() {
+    let credentials = [
+      makeAICredential(provider: .openai, enabled: false),
+    ]
+
+    XCTAssertEqual(AIProviderDropdownAvailability.enabledProviders(from: credentials), [])
+  }
+
+  func testAIProviderDropdownShowsOnlyEnabledProvider() {
+    let credentials = [
+      makeAICredential(provider: .gemini, enabled: true),
+    ]
+
+    XCTAssertEqual(AIProviderDropdownAvailability.enabledProviders(from: credentials), [.gemini])
+  }
+
+  func testAIProviderDropdownShowsEnabledProvidersOnly() {
+    let credentials = [
+      makeAICredential(provider: .openai, enabled: true),
+      makeAICredential(provider: .gemini, enabled: false),
+      makeAICredential(provider: .anthropic, enabled: true),
+    ]
+
+    XCTAssertEqual(AIProviderDropdownAvailability.enabledProviders(from: credentials), [.openai, .anthropic])
+  }
+
+  func testAIProviderDropdownDeduplicatesEnabledProviders() {
+    let credentials = [
+      makeAICredential(provider: .openai, enabled: true),
+      makeAICredential(provider: .openai, enabled: true),
+      makeAICredential(provider: .gemini, enabled: true),
+    ]
+
+    XCTAssertEqual(AIProviderDropdownAvailability.enabledProviders(from: credentials), [.openai, .gemini])
+  }
+
   @MainActor
   func testOpeningGlobalSearchClosesHelpCenterAndPrefillsQuery() {
     let state = AppState()
@@ -360,6 +400,31 @@ final class AppStateTests: XCTestCase {
     """
   }
 
+  private func makeAICredential(
+    provider: AICredentialProvider,
+    enabled: Bool,
+    id: String = UUID().uuidString
+  ) -> AICredentialEntity {
+    AICredentialEntity(
+      id: id,
+      provider: provider,
+      name: provider.rawValue,
+      apiKeyEncrypted: "keychain://\(id)",
+      modelPreference: nil,
+      enabled: enabled,
+      priority: 0,
+      metadataJSON: "{}",
+      lastUsedAt: nil,
+      totalRequests: 0,
+      totalTokens: 0,
+      successCount: 0,
+      errorCount: 0,
+      lastError: nil,
+      lastErrorAt: nil,
+      createdAt: Date(),
+      updatedAt: Date()
+    )
+  }
 }
 
 private final class InMemoryAppStateSecretStorageBackend: SecretStorageBackend {

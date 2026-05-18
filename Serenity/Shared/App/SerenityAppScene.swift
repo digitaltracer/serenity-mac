@@ -4363,6 +4363,18 @@ private struct ProjectsSectionView: View {
   }
 }
 
+struct AIProviderDropdownAvailability {
+  static func enabledProviders(from credentials: [AICredentialEntity]) -> [AICredentialProvider] {
+    var providers: [AICredentialProvider] = []
+
+    for credential in credentials where credential.enabled && !providers.contains(credential.provider) {
+      providers.append(credential.provider)
+    }
+
+    return providers
+  }
+}
+
 struct InsightsSectionView: View {
   @EnvironmentObject private var appState: AppState
 
@@ -4566,12 +4578,13 @@ struct InsightsSectionView: View {
       VStack(alignment: .leading, spacing: 14) {
         labeledPicker("Active Provider") {
           SerenityDropdownField(
-            placeholder: "Active Provider",
+            placeholder: activeProviderDropdownPlaceholder,
             selection: Binding(
-              get: { appState.aiSettings.activeProvider?.rawValue ?? "none" },
+              get: { selectedActiveProviderValue },
               set: { value in
+                guard let provider = AICredentialProvider(rawValue: value) else { return }
                 Task {
-                  await appState.setAIActiveProvider(AICredentialProvider(rawValue: value))
+                  await appState.setAIActiveProvider(provider)
                 }
               }
             ),
@@ -4975,16 +4988,32 @@ struct InsightsSectionView: View {
     appState.aiCredentials.contains { $0.enabled }
   }
 
+  private var enabledProviderOptions: [AICredentialProvider] {
+    AIProviderDropdownAvailability.enabledProviders(from: appState.aiCredentials)
+  }
+
+  private var selectedActiveProviderValue: String {
+    if let activeProvider = appState.aiSettings.activeProvider,
+       enabledProviderOptions.contains(activeProvider) {
+      return activeProvider.rawValue
+    }
+
+    return enabledProviderOptions.first?.rawValue ?? ""
+  }
+
+  private var activeProviderDropdownPlaceholder: String {
+    enabledProviderOptions.isEmpty ? "No enabled provider keys" : "Active Provider"
+  }
+
   private var activeProviderDropdownOptions: [SerenityDropdownOption<String>] {
-    [SerenityDropdownOption(value: "none", title: "Auto", subtitle: "Use the best enabled provider", systemImage: "wand.and.stars", tint: SerenityPalette.accent)]
-      + providerOptions.map { provider in
-        SerenityDropdownOption(
-          value: provider.rawValue,
-          title: providerTitle(provider),
-          systemImage: providerIcon(provider),
-          tint: providerTint(provider)
-        )
-      }
+    enabledProviderOptions.map { provider in
+      SerenityDropdownOption(
+        value: provider.rawValue,
+        title: providerTitle(provider),
+        systemImage: providerIcon(provider),
+        tint: providerTint(provider)
+      )
+    }
   }
 
   private var frequencyDropdownOptions: [SerenityDropdownOption<AIAnalysisFrequency>] {
