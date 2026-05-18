@@ -25,9 +25,30 @@ enum AIWorkflowError: Error, LocalizedError, Equatable {
 
 struct AIProviderModelCatalog {
   static let models: [AICredentialProvider: [String]] = [
-    .openai: ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
-    .gemini: ["gemini-2.0-flash", "gemini-1.5-pro"],
-    .anthropic: ["claude-3-5-sonnet", "claude-3-5-haiku"],
+    .openai: [
+      "gpt-5.5",
+      "gpt-5.5-pro",
+      "gpt-5.4",
+      "gpt-5.4-pro",
+      "gpt-5.4-mini",
+      "gpt-5.4-nano",
+    ],
+    .gemini: [
+      "gemini-3-pro-preview",
+      "gemini-3-flash-preview",
+      "gemini-2.5-pro",
+      "gemini-2.5-flash-preview-09-2025",
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+    ],
+    .anthropic: [
+      "claude-opus-4-7",
+      "claude-opus-4-6",
+      "claude-sonnet-4-6",
+      "claude-opus-4-5",
+      "claude-sonnet-4-5",
+      "claude-haiku-4-5",
+    ],
   ]
 }
 
@@ -44,6 +65,7 @@ struct AIWorkflowSnapshot {
   let recaps: [AIRecapEntity]
   let summaries: [SummaryEntity]
   let usage: [AIUsageEntity]
+  let modelRates: [AIModelRateEntity]
 }
 
 actor AIWorkflowService {
@@ -163,14 +185,66 @@ actor AIWorkflowService {
   func fetchSnapshot(limit: Int = 200) async throws -> AIWorkflowSnapshot {
     let repositories = try await requireRepositories()
     let settings = try repositories.settings.fetch() ?? .defaultValue
+    try AIUsageCostService.seedDefaultRatesIfNeeded(repositories: repositories)
+    _ = try AIUsageCostService.backfillMissingCostsIfNeeded(repositories: repositories, settings: settings)
     return AIWorkflowSnapshot(
       credentials: try repositories.credentials.fetchAll(enabledOnly: false),
       settings: settings,
       insights: try repositories.insights.fetchAll(limit: limit),
       recaps: try repositories.recaps.fetchAll(limit: limit),
       summaries: try repositories.summaries.fetchAll(),
-      usage: try repositories.usage.fetchAll(limit: limit)
+      usage: try repositories.usage.fetchAll(limit: limit),
+      modelRates: try repositories.modelRates.fetchAll()
     )
+  }
+
+  func saveModelRate(_ rate: AIModelRateEntity) async throws {
+    let repositories = try await requireRepositories()
+    try repositories.modelRates.save(rate)
+    let settings = try repositories.settings.fetch() ?? .defaultValue
+    _ = try AIUsageCostService.backfillMissingCostsIfNeeded(
+      repositories: repositories,
+      settings: settings,
+      provider: rate.provider,
+      model: rate.model
+    )
+  }
+
+  func deleteModelRate(provider: AIUsageProvider, model: String) async throws {
+    let repositories = try await requireRepositories()
+    try repositories.modelRates.delete(provider: provider, model: model)
+  }
+
+  func resetModelRatesToDefaults() async throws {
+    let repositories = try await requireRepositories()
+    try AIUsageCostService.resetRatesToDefaults(repositories: repositories)
+    let settings = try repositories.settings.fetch() ?? .defaultValue
+    _ = try AIUsageCostService.backfillMissingCostsIfNeeded(repositories: repositories, settings: settings)
+  }
+
+  func refreshMissingModelRatesFromLiteLLM() async throws -> Int {
+    let repositories = try await requireRepositories()
+    let settings = try repositories.settings.fetch() ?? .defaultValue
+    let usageRows = try repositories.usage.fetchAll(limit: 10_000)
+    var savedKeys = Set<String>()
+
+    for usage in usageRows {
+      let model = AIUsageCostService.resolvedModel(for: usage, settings: settings)
+      guard !model.isEmpty else { continue }
+      let key = "\(usage.provider.rawValue)::\(model.lowercased())"
+      guard !savedKeys.contains(key) else { continue }
+      if try repositories.modelRates.fetch(provider: usage.provider, model: model) != nil {
+        continue
+      }
+      guard let rate = try await AIUsageCostService.fetchLiteLLMRate(provider: usage.provider, model: model) else {
+        continue
+      }
+      try repositories.modelRates.save(rate)
+      savedKeys.insert(key)
+    }
+
+    _ = try AIUsageCostService.backfillMissingCostsIfNeeded(repositories: repositories, settings: settings)
+    return savedKeys.count
   }
 
   func configureCloudSync(pendingStore: PendingSyncChangeStore) {
@@ -905,11 +979,11 @@ actor AIWorkflowService {
   private func preferredModel(for provider: AICredentialProvider, settings: AISettingsEntity) -> String {
     switch provider {
     case .openai:
-      return settings.preferredModels?.openai ?? AIProviderModelCatalog.models[.openai]?.first ?? "gpt-4o-mini"
+      return settings.preferredModels?.openai ?? AIProviderModelCatalog.models[.openai]?.first ?? "gpt-5.5"
     case .gemini:
-      return settings.preferredModels?.gemini ?? AIProviderModelCatalog.models[.gemini]?.first ?? "gemini-2.0-flash"
+      return settings.preferredModels?.gemini ?? AIProviderModelCatalog.models[.gemini]?.first ?? "gemini-3-pro-preview"
     case .anthropic:
-      return settings.preferredModels?.anthropic ?? AIProviderModelCatalog.models[.anthropic]?.first ?? "claude-3-5-sonnet"
+      return settings.preferredModels?.anthropic ?? AIProviderModelCatalog.models[.anthropic]?.first ?? "claude-opus-4-7"
     }
   }
 
@@ -921,14 +995,27 @@ actor AIWorkflowService {
     completionTokens: Int
   ) throws {
     let total = promptTokens + completionTokens
+    let provider = usageProviderForCredential(selection.credential.provider)
+    try AIUsageCostService.seedDefaultRatesIfNeeded(repositories: repositories)
+    let cost = try AIUsageCostService.calculateCosts(
+      provider: provider,
+      model: selection.model,
+      promptTokens: promptTokens,
+      completionTokens: completionTokens,
+      repositories: repositories
+    )
     let usage = AIUsageEntity(
       id: UUID().uuidString,
       timestamp: Date(),
-      provider: usageProviderForCredential(selection.credential.provider),
+      provider: provider,
       operation: operation,
+      model: selection.model,
       promptTokens: promptTokens,
       completionTokens: completionTokens,
-      totalTokens: total
+      totalTokens: total,
+      inputCostUSD: cost.inputCostUSD,
+      outputCostUSD: cost.outputCostUSD,
+      totalCostUSD: cost.totalCostUSD
     )
     try repositories.usage.save(usage)
     try repositories.credentials.recordSuccess(id: selection.credential.id, tokensUsed: total, at: Date())
@@ -977,5 +1064,223 @@ actor AIWorkflowService {
     }
 
     throw AIWorkflowError.noCredentialConfigured
+  }
+}
+
+struct AIUsageCostBreakdown: Equatable, Sendable {
+  let inputCostUSD: Double?
+  let outputCostUSD: Double?
+  let totalCostUSD: Double?
+
+  static let unavailable = AIUsageCostBreakdown(
+    inputCostUSD: nil,
+    outputCostUSD: nil,
+    totalCostUSD: nil
+  )
+}
+
+enum AIUsageCostService {
+  static let liteLLMPricingURL = URL(
+    string: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+  )!
+
+  private static let defaultRates: [AIModelRateEntity] = [
+    AIModelRateEntity(provider: .openai, model: "gpt-5.5", inputUSDPerMillion: 5.0, outputUSDPerMillion: 30.0, source: .seeded),
+    AIModelRateEntity(provider: .openai, model: "gpt-5.5-pro", inputUSDPerMillion: 30.0, outputUSDPerMillion: 180.0, source: .seeded),
+    AIModelRateEntity(provider: .openai, model: "gpt-5.4", inputUSDPerMillion: 2.5, outputUSDPerMillion: 15.0, source: .seeded),
+    AIModelRateEntity(provider: .openai, model: "gpt-5.4-pro", inputUSDPerMillion: 30.0, outputUSDPerMillion: 180.0, source: .seeded),
+    AIModelRateEntity(provider: .openai, model: "gpt-5.4-mini", inputUSDPerMillion: 0.75, outputUSDPerMillion: 4.5, source: .seeded),
+    AIModelRateEntity(provider: .openai, model: "gpt-5.4-nano", inputUSDPerMillion: 0.2, outputUSDPerMillion: 1.25, source: .seeded),
+    AIModelRateEntity(provider: .anthropic, model: "claude-opus-4-7", inputUSDPerMillion: 5.0, outputUSDPerMillion: 25.0, source: .seeded),
+    AIModelRateEntity(provider: .anthropic, model: "claude-opus-4-6", inputUSDPerMillion: 5.0, outputUSDPerMillion: 25.0, source: .seeded),
+    AIModelRateEntity(provider: .anthropic, model: "claude-sonnet-4-6", inputUSDPerMillion: 3.0, outputUSDPerMillion: 15.0, source: .seeded),
+    AIModelRateEntity(provider: .anthropic, model: "claude-opus-4-5", inputUSDPerMillion: 5.0, outputUSDPerMillion: 25.0, source: .seeded),
+    AIModelRateEntity(provider: .anthropic, model: "claude-sonnet-4-5", inputUSDPerMillion: 3.0, outputUSDPerMillion: 15.0, source: .seeded),
+    AIModelRateEntity(provider: .anthropic, model: "claude-haiku-4-5", inputUSDPerMillion: 1.0, outputUSDPerMillion: 5.0, source: .seeded),
+    AIModelRateEntity(provider: .gemini, model: "gemini-3-pro-preview", inputUSDPerMillion: 2.0, outputUSDPerMillion: 12.0, source: .seeded),
+    AIModelRateEntity(provider: .gemini, model: "gemini-3-flash-preview", inputUSDPerMillion: 0.5, outputUSDPerMillion: 3.0, source: .seeded),
+    AIModelRateEntity(provider: .gemini, model: "gemini-2.5-pro", inputUSDPerMillion: 1.25, outputUSDPerMillion: 10.0, source: .seeded),
+    AIModelRateEntity(provider: .gemini, model: "gemini-2.5-flash-preview-09-2025", inputUSDPerMillion: 0.3, outputUSDPerMillion: 2.5, source: .seeded),
+    AIModelRateEntity(provider: .gemini, model: "gemini-2.5-flash", inputUSDPerMillion: 0.3, outputUSDPerMillion: 2.5, source: .seeded),
+    AIModelRateEntity(provider: .gemini, model: "gemini-2.5-flash-lite", inputUSDPerMillion: 0.1, outputUSDPerMillion: 0.4, source: .seeded),
+  ]
+
+  static func seedDefaultRatesIfNeeded(repositories: GRDBAIRepositorySet) throws {
+    let existing = try repositories.modelRates.fetchAll()
+    let defaultKeys = Set(defaultRates.map { rate in
+      "\(rate.provider.rawValue)::\(rate.model.lowercased())"
+    })
+
+    for rate in existing where rate.source == .seeded {
+      let key = "\(rate.provider.rawValue)::\(rate.model.lowercased())"
+      if !defaultKeys.contains(key) {
+        try repositories.modelRates.delete(provider: rate.provider, model: rate.model)
+      }
+    }
+
+    for defaultRate in defaultRates {
+      if let current = existing.first(where: {
+        $0.provider == defaultRate.provider &&
+        $0.model.caseInsensitiveCompare(defaultRate.model) == .orderedSame
+      }) {
+        guard current.source == .seeded else { continue }
+        if current.inputUSDPerMillion != defaultRate.inputUSDPerMillion ||
+          current.outputUSDPerMillion != defaultRate.outputUSDPerMillion {
+          try repositories.modelRates.save(defaultRate)
+        }
+      } else {
+        try repositories.modelRates.save(defaultRate)
+      }
+    }
+  }
+
+  static func resetRatesToDefaults(repositories: GRDBAIRepositorySet) throws {
+    try repositories.modelRates.deleteAll()
+    try repositories.modelRates.saveMany(defaultRates)
+  }
+
+  static func calculateCosts(
+    provider: AIUsageProvider,
+    model: String?,
+    promptTokens: Int,
+    completionTokens: Int,
+    repositories: GRDBAIRepositorySet
+  ) throws -> AIUsageCostBreakdown {
+    let model = normalizedModel(model)
+    guard !model.isEmpty,
+          let rate = try repositories.modelRates.fetch(provider: provider, model: model) else {
+      return .unavailable
+    }
+
+    let inputCost = (Double(promptTokens) / 1_000_000) * rate.inputUSDPerMillion
+    let outputCost = (Double(completionTokens) / 1_000_000) * rate.outputUSDPerMillion
+    return AIUsageCostBreakdown(
+      inputCostUSD: roundToMicros(inputCost),
+      outputCostUSD: roundToMicros(outputCost),
+      totalCostUSD: roundToMicros(inputCost + outputCost)
+    )
+  }
+
+  @discardableResult
+  static func backfillMissingCostsIfNeeded(
+    repositories: GRDBAIRepositorySet,
+    settings: AISettingsEntity,
+    provider: AIUsageProvider? = nil,
+    model: String? = nil
+  ) throws -> Int {
+    let usageRows = try repositories.usage.fetchAll(limit: 10_000)
+    var updatedCount = 0
+    let requestedModel = normalizedModel(model)
+
+    for row in usageRows {
+      if let provider, row.provider != provider {
+        continue
+      }
+
+      let resolvedModel = resolvedModel(for: row, settings: settings)
+      if !requestedModel.isEmpty,
+         resolvedModel.caseInsensitiveCompare(requestedModel) != .orderedSame {
+        continue
+      }
+
+      guard !resolvedModel.isEmpty else { continue }
+      let hasModel = normalizedModel(row.model).caseInsensitiveCompare(resolvedModel) == .orderedSame
+      if hasModel, row.totalCostUSD != nil {
+        continue
+      }
+
+      let cost = try calculateCosts(
+        provider: row.provider,
+        model: resolvedModel,
+        promptTokens: row.promptTokens,
+        completionTokens: row.completionTokens,
+        repositories: repositories
+      )
+
+      var updated = row
+      updated.model = resolvedModel
+      updated.inputCostUSD = cost.inputCostUSD
+      updated.outputCostUSD = cost.outputCostUSD
+      updated.totalCostUSD = cost.totalCostUSD
+      try repositories.usage.save(updated)
+      updatedCount += 1
+    }
+
+    return updatedCount
+  }
+
+  static func resolvedModel(for usage: AIUsageEntity, settings: AISettingsEntity) -> String {
+    let existing = normalizedModel(usage.model)
+    if !existing.isEmpty {
+      return existing
+    }
+
+    switch usage.provider {
+    case .openai:
+      return normalizedModel(settings.preferredModels?.openai ?? AIProviderModelCatalog.models[.openai]?.first)
+    case .gemini:
+      return normalizedModel(settings.preferredModels?.gemini ?? AIProviderModelCatalog.models[.gemini]?.first)
+    case .anthropic:
+      return normalizedModel(settings.preferredModels?.anthropic ?? AIProviderModelCatalog.models[.anthropic]?.first)
+    }
+  }
+
+  static func fetchLiteLLMRate(provider: AIUsageProvider, model: String) async throws -> AIModelRateEntity? {
+    let (data, _) = try await URLSession.shared.data(from: liteLLMPricingURL)
+    return try parseLiteLLMRate(provider: provider, model: model, data: data)
+  }
+
+  static func parseLiteLLMRate(provider: AIUsageProvider, model: String, data: Data) throws -> AIModelRateEntity? {
+    let object = try JSONSerialization.jsonObject(with: data)
+    guard let pricing = object as? [String: Any] else { return nil }
+    let normalizedProvider = provider.rawValue.lowercased()
+    let normalizedModel = normalizedModel(model)
+    let candidates = pricing.compactMap { key, value -> (String, [String: Any])? in
+      guard let details = value as? [String: Any] else { return nil }
+      return (key, details)
+    }
+
+    let match = candidates.first { key, details in
+      let providerMatches = (details["litellm_provider"] as? String)?.lowercased() == normalizedProvider
+      guard providerMatches else { return false }
+      return modelKeyMatches(key, model: normalizedModel, provider: normalizedProvider)
+    }
+
+    guard let match,
+          let inputCost = doubleValue(match.1["input_cost_per_token"]),
+          let outputCost = doubleValue(match.1["output_cost_per_token"]) else {
+      return nil
+    }
+
+    return AIModelRateEntity(
+      provider: provider,
+      model: normalizedModel,
+      inputUSDPerMillion: roundToMicros(inputCost * 1_000_000),
+      outputUSDPerMillion: roundToMicros(outputCost * 1_000_000),
+      source: .litellm
+    )
+  }
+
+  private static func modelKeyMatches(_ key: String, model: String, provider: String) -> Bool {
+    let normalizedKey = key.lowercased()
+    let normalizedModel = model.lowercased()
+    return normalizedKey == normalizedModel ||
+      normalizedKey == "\(provider)/\(normalizedModel)" ||
+      normalizedKey.hasSuffix("/\(normalizedModel)")
+  }
+
+  private static func doubleValue(_ value: Any?) -> Double? {
+    if let double = value as? Double { return double }
+    if let int = value as? Int { return Double(int) }
+    if let string = value as? String { return Double(string) }
+    return nil
+  }
+
+  private static func normalizedModel(_ model: String?) -> String {
+    model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+  }
+
+  private static func roundToMicros(_ value: Double) -> Double {
+    (value * 1_000_000).rounded() / 1_000_000
   }
 }

@@ -371,5 +371,29 @@ actor DatabaseMigrationRunner {
         "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '5');",
       ]
     ),
+    DatabaseMigration(
+      identifier: "20260517_007_ai_cost_center",
+      statements: [
+        "ALTER TABLE ai_usage ADD COLUMN model TEXT;",
+        "ALTER TABLE ai_usage ADD COLUMN input_cost_usd REAL;",
+        "ALTER TABLE ai_usage ADD COLUMN output_cost_usd REAL;",
+        "ALTER TABLE ai_usage ADD COLUMN total_cost_usd REAL;",
+        """
+        CREATE TABLE IF NOT EXISTS ai_model_rates (
+          id TEXT PRIMARY KEY,
+          provider TEXT NOT NULL CHECK (provider IN ('openai', 'gemini', 'anthropic')),
+          model TEXT NOT NULL,
+          input_usd_per_million REAL NOT NULL DEFAULT 0,
+          output_usd_per_million REAL NOT NULL DEFAULT 0,
+          source TEXT NOT NULL DEFAULT 'seeded' CHECK (source IN ('seeded', 'user', 'litellm')),
+          updated_at TEXT NOT NULL,
+          UNIQUE(provider, model)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_ai_model_rates_provider_model ON ai_model_rates(provider, model);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_usage_model ON ai_usage(provider, model);",
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '6');",
+      ]
+    ),
   ]
 }

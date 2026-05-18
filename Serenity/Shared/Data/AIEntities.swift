@@ -173,26 +173,73 @@ public struct AIUsageEntity: Identifiable, Equatable, Sendable {
   public var timestamp: Date
   public var provider: AIUsageProvider
   public var operation: AIUsageOperation
+  public var model: String?
   public var promptTokens: Int
   public var completionTokens: Int
   public var totalTokens: Int
+  public var inputCostUSD: Double?
+  public var outputCostUSD: Double?
+  public var totalCostUSD: Double?
 
   public init(
     id: String,
     timestamp: Date,
     provider: AIUsageProvider,
     operation: AIUsageOperation,
+    model: String? = nil,
     promptTokens: Int,
     completionTokens: Int,
-    totalTokens: Int
+    totalTokens: Int,
+    inputCostUSD: Double? = nil,
+    outputCostUSD: Double? = nil,
+    totalCostUSD: Double? = nil
   ) {
     self.id = id
     self.timestamp = timestamp
     self.provider = provider
     self.operation = operation
+    self.model = model
     self.promptTokens = promptTokens
     self.completionTokens = completionTokens
     self.totalTokens = totalTokens
+    self.inputCostUSD = inputCostUSD
+    self.outputCostUSD = outputCostUSD
+    self.totalCostUSD = totalCostUSD
+  }
+}
+
+public enum AIModelRateSource: String, Codable, CaseIterable, Sendable {
+  case seeded
+  case user
+  case litellm
+}
+
+public struct AIModelRateEntity: Identifiable, Equatable, Sendable {
+  public var id: String
+  public var provider: AIUsageProvider
+  public var model: String
+  public var inputUSDPerMillion: Double
+  public var outputUSDPerMillion: Double
+  public var source: AIModelRateSource
+  public var updatedAt: Date
+
+  public init(
+    id: String? = nil,
+    provider: AIUsageProvider,
+    model: String,
+    inputUSDPerMillion: Double,
+    outputUSDPerMillion: Double,
+    source: AIModelRateSource,
+    updatedAt: Date = Date()
+  ) {
+    let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+    self.id = id ?? "\(provider.rawValue)::\(trimmedModel.lowercased())"
+    self.provider = provider
+    self.model = trimmedModel
+    self.inputUSDPerMillion = inputUSDPerMillion
+    self.outputUSDPerMillion = outputUSDPerMillion
+    self.source = source
+    self.updatedAt = updatedAt
   }
 }
 

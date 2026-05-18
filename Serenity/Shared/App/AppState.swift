@@ -164,6 +164,7 @@ final class AppState: ObservableObject {
   @Published var aiRecaps: [AIRecapEntity] = []
   @Published var aiSummaries: [SummaryEntity] = []
   @Published var aiUsageEntries: [AIUsageEntity] = []
+  @Published var aiModelRates: [AIModelRateEntity] = []
   @Published var aiStatusMessage = "AI features require a configured provider key."
   @Published var pendingAIQuickCapturePreview: AIQuickCapturePreview?
   @Published var lastSummaryExportPath: String?
@@ -1099,6 +1100,7 @@ final class AppState: ObservableObject {
       aiRecaps = snapshot.recaps
       aiSummaries = snapshot.summaries
       aiUsageEntries = snapshot.usage
+      aiModelRates = snapshot.modelRates
 
       if aiCredentials.contains(where: { $0.enabled }) {
         aiStatusMessage = "AI is ready."
@@ -1172,6 +1174,68 @@ final class AppState: ObservableObject {
       await refreshAIWorkflows()
     } catch {
       showError(title: "Failed to delete credential", message: error.localizedDescription)
+    }
+  }
+
+  func saveAIModelRate(
+    provider: AIUsageProvider,
+    model: String,
+    inputUSDPerMillion: Double,
+    outputUSDPerMillion: Double
+  ) async {
+    let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedModel.isEmpty else {
+      showToast("Model name is required")
+      return
+    }
+
+    do {
+      let rate = AIModelRateEntity(
+        provider: provider,
+        model: trimmedModel,
+        inputUSDPerMillion: max(0, inputUSDPerMillion),
+        outputUSDPerMillion: max(0, outputUSDPerMillion),
+        source: .user
+      )
+      try await aiWorkflowService.saveModelRate(rate)
+      showToast("Model rate saved")
+      await refreshAIWorkflows()
+    } catch {
+      showError(title: "Failed to save model rate", message: error.localizedDescription)
+      await refreshAIWorkflows()
+    }
+  }
+
+  func deleteAIModelRate(provider: AIUsageProvider, model: String) async {
+    do {
+      try await aiWorkflowService.deleteModelRate(provider: provider, model: model)
+      showToast("Model rate removed")
+      await refreshAIWorkflows()
+    } catch {
+      showError(title: "Failed to remove model rate", message: error.localizedDescription)
+      await refreshAIWorkflows()
+    }
+  }
+
+  func resetAIModelRatesToDefaults() async {
+    do {
+      try await aiWorkflowService.resetModelRatesToDefaults()
+      showToast("Default model rates restored")
+      await refreshAIWorkflows()
+    } catch {
+      showError(title: "Failed to reset model rates", message: error.localizedDescription)
+      await refreshAIWorkflows()
+    }
+  }
+
+  func refreshMissingAIModelRatesFromLiteLLM() async {
+    do {
+      let count = try await aiWorkflowService.refreshMissingModelRatesFromLiteLLM()
+      showToast(count == 1 ? "Fetched 1 model rate" : "Fetched \(count) model rates")
+      await refreshAIWorkflows()
+    } catch {
+      showError(title: "Failed to refresh LiteLLM pricing", message: error.localizedDescription)
+      await refreshAIWorkflows()
     }
   }
 

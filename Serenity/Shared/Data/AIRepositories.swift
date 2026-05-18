@@ -37,6 +37,15 @@ protocol AIUsageRepository {
   func saveMany(_ entries: [AIUsageEntity]) throws
 }
 
+protocol AIModelRateRepository {
+  func fetchAll() throws -> [AIModelRateEntity]
+  func fetch(provider: AIUsageProvider, model: String) throws -> AIModelRateEntity?
+  func save(_ rate: AIModelRateEntity) throws
+  func saveMany(_ rates: [AIModelRateEntity]) throws
+  func delete(provider: AIUsageProvider, model: String) throws
+  func deleteAll() throws
+}
+
 protocol SummaryRepository {
   func fetchAll() throws -> [SummaryEntity]
   func fetchByID(_ id: String) throws -> SummaryEntity?
@@ -441,26 +450,38 @@ final class GRDBAIUsageRepository: AIUsageRepository {
             timestamp,
             provider,
             operation,
+            model,
             prompt_tokens,
             completion_tokens,
-            total_tokens
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            total_tokens,
+            input_cost_usd,
+            output_cost_usd,
+            total_cost_usd
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             timestamp = excluded.timestamp,
             provider = excluded.provider,
             operation = excluded.operation,
+            model = excluded.model,
             prompt_tokens = excluded.prompt_tokens,
             completion_tokens = excluded.completion_tokens,
-            total_tokens = excluded.total_tokens;
+            total_tokens = excluded.total_tokens,
+            input_cost_usd = excluded.input_cost_usd,
+            output_cost_usd = excluded.output_cost_usd,
+            total_cost_usd = excluded.total_cost_usd;
           """,
           arguments: [
             entry.id,
             CoreRepositoryCodec.encodeDate(entry.timestamp),
             entry.provider.rawValue,
             entry.operation.rawValue,
+            entry.model,
             entry.promptTokens,
             entry.completionTokens,
             entry.totalTokens,
+            entry.inputCostUSD,
+            entry.outputCostUSD,
+            entry.totalCostUSD,
           ]
         )
       }
@@ -473,9 +494,125 @@ final class GRDBAIUsageRepository: AIUsageRepository {
       timestamp: try CoreRepositoryCodec.decodeDate(row["timestamp"]),
       provider: AIUsageProvider(rawValue: (row["provider"] as String?) ?? AIUsageProvider.openai.rawValue) ?? .openai,
       operation: AIUsageOperation(rawValue: (row["operation"] as String?) ?? AIUsageOperation.analyze.rawValue) ?? .analyze,
+      model: row["model"],
       promptTokens: row["prompt_tokens"] ?? 0,
       completionTokens: row["completion_tokens"] ?? 0,
-      totalTokens: row["total_tokens"] ?? 0
+      totalTokens: row["total_tokens"] ?? 0,
+      inputCostUSD: row["input_cost_usd"],
+      outputCostUSD: row["output_cost_usd"],
+      totalCostUSD: row["total_cost_usd"]
+    )
+  }
+}
+
+final class GRDBAIModelRateRepository: AIModelRateRepository {
+  private let dbQueue: DatabaseQueue
+
+  init(dbQueue: DatabaseQueue) {
+    self.dbQueue = dbQueue
+  }
+
+  func fetchAll() throws -> [AIModelRateEntity] {
+    try dbQueue.read { db in
+      let rows = try Row.fetchAll(
+        db,
+        sql: "SELECT * FROM ai_model_rates ORDER BY provider ASC, model ASC;"
+      )
+      return try rows.map(Self.makeRate(from:))
+    }
+  }
+
+  func fetch(provider: AIUsageProvider, model: String) throws -> AIModelRateEntity? {
+    let normalizedModel = Self.normalizeModel(model)
+    return try dbQueue.read { db in
+      guard let row = try Row.fetchOne(
+        db,
+        sql: """
+        SELECT * FROM ai_model_rates
+        WHERE provider = ? AND lower(model) = lower(?)
+        ORDER BY updated_at DESC
+        LIMIT 1;
+        """,
+        arguments: [provider.rawValue, normalizedModel]
+      ) else {
+        return nil
+      }
+
+      return try Self.makeRate(from: row)
+    }
+  }
+
+  func save(_ rate: AIModelRateEntity) throws {
+    try saveMany([rate])
+  }
+
+  func saveMany(_ rates: [AIModelRateEntity]) throws {
+    guard !rates.isEmpty else { return }
+
+    try dbQueue.write { db in
+      for rate in rates {
+        let model = Self.normalizeModel(rate.model)
+        try db.execute(
+          sql: """
+          INSERT INTO ai_model_rates (
+            id,
+            provider,
+            model,
+            input_usd_per_million,
+            output_usd_per_million,
+            source,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(provider, model) DO UPDATE SET
+            input_usd_per_million = excluded.input_usd_per_million,
+            output_usd_per_million = excluded.output_usd_per_million,
+            source = excluded.source,
+            updated_at = excluded.updated_at;
+          """,
+          arguments: [
+            "\(rate.provider.rawValue)::\(model.lowercased())",
+            rate.provider.rawValue,
+            model,
+            rate.inputUSDPerMillion,
+            rate.outputUSDPerMillion,
+            rate.source.rawValue,
+            CoreRepositoryCodec.encodeDate(rate.updatedAt),
+          ]
+        )
+      }
+    }
+  }
+
+  func delete(provider: AIUsageProvider, model: String) throws {
+    try dbQueue.write { db in
+      try db.execute(
+        sql: "DELETE FROM ai_model_rates WHERE provider = ? AND lower(model) = lower(?);",
+        arguments: [provider.rawValue, Self.normalizeModel(model)]
+      )
+    }
+  }
+
+  func deleteAll() throws {
+    try dbQueue.write { db in
+      try db.execute(sql: "DELETE FROM ai_model_rates;")
+    }
+  }
+
+  private static func normalizeModel(_ model: String) -> String {
+    model.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private static func makeRate(from row: Row) throws -> AIModelRateEntity {
+    let providerRaw = (row["provider"] as String?) ?? AIUsageProvider.openai.rawValue
+    let sourceRaw = (row["source"] as String?) ?? AIModelRateSource.seeded.rawValue
+    return AIModelRateEntity(
+      id: row["id"],
+      provider: AIUsageProvider(rawValue: providerRaw) ?? .openai,
+      model: row["model"],
+      inputUSDPerMillion: row["input_usd_per_million"] ?? 0,
+      outputUSDPerMillion: row["output_usd_per_million"] ?? 0,
+      source: AIModelRateSource(rawValue: sourceRaw) ?? .seeded,
+      updatedAt: try CoreRepositoryCodec.decodeDate(row["updated_at"])
     )
   }
 }
@@ -868,6 +1005,7 @@ struct GRDBAIRepositorySet {
   let insights: AIInsightRepository
   let recaps: AIRecapRepository
   let usage: GRDBAIUsageRepository
+  let modelRates: GRDBAIModelRateRepository
   let summaries: SummaryRepository
   let credentials: GRDBAICredentialRepository
   let settings: GRDBAISettingsRepository
@@ -897,6 +1035,7 @@ struct GRDBAIRepositorySet {
       insights: syncAwareInsights,
       recaps: syncAwareRecaps,
       usage: GRDBAIUsageRepository(dbQueue: dbQueue),
+      modelRates: GRDBAIModelRateRepository(dbQueue: dbQueue),
       summaries: syncAwareSummaries,
       credentials: GRDBAICredentialRepository(dbQueue: dbQueue),
       settings: GRDBAISettingsRepository(dbQueue: dbQueue)

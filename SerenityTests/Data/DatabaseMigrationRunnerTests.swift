@@ -10,7 +10,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
 
     let summary = try await runner.bootstrapDatabase(at: databaseURL)
 
-    XCTAssertEqual(summary.appliedMigrations.count, 6)
+    XCTAssertEqual(summary.appliedMigrations.count, 7)
     XCTAssertTrue(summary.skippedMigrations.isEmpty)
 
     let dbQueue = try DatabaseQueue(path: databaseURL.path)
@@ -33,6 +33,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     XCTAssertTrue(tables.contains("ai_usage"))
     XCTAssertTrue(tables.contains("summaries"))
     XCTAssertTrue(tables.contains("ai_provider_credentials"))
+    XCTAssertTrue(tables.contains("ai_model_rates"))
     XCTAssertTrue(tables.contains("security_audit_events"))
     XCTAssertTrue(tables.contains("pending_sync_changes"))
     XCTAssertTrue(tables.contains("cloud_sync_state"))
@@ -42,9 +43,19 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     XCTAssertTrue(indexes.contains("idx_ai_insights_created_at"))
     XCTAssertTrue(indexes.contains("idx_ai_recaps_created_at"))
     XCTAssertTrue(indexes.contains("idx_ai_usage_timestamp"))
+    XCTAssertTrue(indexes.contains("idx_ai_usage_model"))
+    XCTAssertTrue(indexes.contains("idx_ai_model_rates_provider_model"))
     XCTAssertTrue(indexes.contains("idx_summaries_type"))
     XCTAssertTrue(indexes.contains("idx_ai_credentials_provider"))
     XCTAssertTrue(indexes.contains("idx_security_audit_created_at"))
+
+    let usageColumns = try await dbQueue.read { db in
+      Set(try String.fetchAll(db, sql: "SELECT name FROM pragma_table_info('ai_usage');"))
+    }
+    XCTAssertTrue(usageColumns.contains("model"))
+    XCTAssertTrue(usageColumns.contains("input_cost_usd"))
+    XCTAssertTrue(usageColumns.contains("output_cost_usd"))
+    XCTAssertTrue(usageColumns.contains("total_cost_usd"))
   }
 
   func testBootstrapIsIdempotentForExistingDatabase() async throws {
@@ -55,7 +66,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     let secondRun = try await runner.bootstrapDatabase(at: databaseURL)
 
     XCTAssertTrue(secondRun.appliedMigrations.isEmpty)
-    XCTAssertEqual(secondRun.skippedMigrations.count, 6)
+    XCTAssertEqual(secondRun.skippedMigrations.count, 7)
   }
 
   private func makeTemporaryDatabaseURL() throws -> URL {

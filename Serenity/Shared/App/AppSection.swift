@@ -10,6 +10,7 @@ public enum AppSection: String, CaseIterable, Identifiable {
   case integrations
   case insights
   case aiSummaries
+  case costCenter
   case database
   case settings
 
@@ -35,6 +36,8 @@ public enum AppSection: String, CaseIterable, Identifiable {
       return "Insights"
     case .aiSummaries:
       return "AI Summaries"
+    case .costCenter:
+      return "Cost Center"
     case .database:
       return "Database"
     case .settings:
@@ -62,6 +65,8 @@ public enum AppSection: String, CaseIterable, Identifiable {
       return "chart.bar.xaxis"
     case .aiSummaries:
       return "sparkles"
+    case .costCenter:
+      return "dollarsign.circle"
     case .database:
       return "internaldrive"
     case .settings:

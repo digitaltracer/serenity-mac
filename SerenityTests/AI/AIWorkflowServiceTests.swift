@@ -26,7 +26,7 @@ final class AIWorkflowServiceTests: XCTestCase {
       provider: .gemini,
       name: "Secondary",
       apiKey: "gm-secondary",
-      modelPreference: "gemini-2.0-flash"
+      modelPreference: "gemini-3-flash-preview"
     )
 
     try backend.delete(service: secretServiceName, key: "ai.credentials.\(first.id).apiKey")
@@ -55,6 +55,8 @@ final class AIWorkflowServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.summaries.count, 1)
     XCTAssertEqual(snapshot.usage.count, 1)
     XCTAssertEqual(snapshot.usage.first?.provider, .gemini)
+    XCTAssertEqual(snapshot.usage.first?.model, "gemini-3-flash-preview")
+    XCTAssertNotNil(snapshot.usage.first?.totalCostUSD)
   }
 
   func testClassifyQuickCaptureSplitsMultipleTasksAndDropsInvalidProject() async throws {

@@ -105,9 +105,13 @@ final class AIRepositoriesTests: XCTestCase {
       timestamp: now,
       provider: .gemini,
       operation: .summary,
+      model: "gemini-2.0-flash",
       promptTokens: 120,
       completionTokens: 80,
-      totalTokens: 200
+      totalTokens: 200,
+      inputCostUSD: 0.000042,
+      outputCostUSD: 0.000084,
+      totalCostUSD: 0.000126
     )
 
     try repositories.usage.save(usage)
@@ -115,6 +119,8 @@ final class AIRepositoriesTests: XCTestCase {
     let usageRows = try repositories.usage.fetchAll(limit: 10)
     XCTAssertEqual(usageRows.count, 1)
     XCTAssertEqual(usageRows.first?.totalTokens, 200)
+    XCTAssertEqual(usageRows.first?.model, "gemini-2.0-flash")
+    XCTAssertEqual(usageRows.first?.totalCostUSD, 0.000126)
 
     let summary = SummaryEntity(
       id: UUID().uuidString,
@@ -148,6 +154,102 @@ final class AIRepositoriesTests: XCTestCase {
     )
     XCTAssertEqual(byRange.count, 1)
     XCTAssertEqual(byRange.first?.id, summary.id)
+  }
+
+  func testModelRateRepositorySaveQueryAndDelete() async throws {
+    let repositories = try await makeRepositorySet()
+    let rate = AIModelRateEntity(
+      provider: .openai,
+      model: "gpt-4o-mini",
+      inputUSDPerMillion: 0.15,
+      outputUSDPerMillion: 0.6,
+      source: .user
+    )
+
+    try repositories.modelRates.save(rate)
+
+    let fetched = try repositories.modelRates.fetch(provider: .openai, model: "GPT-4O-MINI")
+    XCTAssertEqual(fetched?.model, "gpt-4o-mini")
+    XCTAssertEqual(fetched?.inputUSDPerMillion, 0.15)
+    XCTAssertEqual(fetched?.outputUSDPerMillion, 0.6)
+    XCTAssertEqual(fetched?.source, .user)
+
+    let updated = AIModelRateEntity(
+      provider: .openai,
+      model: "gpt-4o-mini",
+      inputUSDPerMillion: 0.2,
+      outputUSDPerMillion: 0.8,
+      source: .litellm
+    )
+    try repositories.modelRates.save(updated)
+
+    XCTAssertEqual(try repositories.modelRates.fetchAll().count, 1)
+    XCTAssertEqual(try repositories.modelRates.fetch(provider: .openai, model: "gpt-4o-mini")?.inputUSDPerMillion, 0.2)
+
+    try repositories.modelRates.delete(provider: .openai, model: "gpt-4o-mini")
+    XCTAssertNil(try repositories.modelRates.fetch(provider: .openai, model: "gpt-4o-mini"))
+  }
+
+  func testCostServiceSeedsCalculatesAndBackfillsUsageCosts() async throws {
+    let repositories = try await makeRepositorySet()
+    let now = Date()
+    let usage = AIUsageEntity(
+      id: UUID().uuidString,
+      timestamp: now,
+      provider: .gemini,
+      operation: .quickadd,
+      promptTokens: 100,
+      completionTokens: 200,
+      totalTokens: 300
+    )
+
+    try repositories.usage.save(usage)
+    try AIUsageCostService.seedDefaultRatesIfNeeded(repositories: repositories)
+    let backfilled = try AIUsageCostService.backfillMissingCostsIfNeeded(
+      repositories: repositories,
+      settings: .defaultValue
+    )
+
+    XCTAssertEqual(backfilled, 1)
+    let fetched = try repositories.usage.fetchAll(limit: 1).first
+    XCTAssertEqual(fetched?.model, "gemini-3-pro-preview")
+    XCTAssertEqual(fetched?.inputCostUSD, 0.0002)
+    XCTAssertEqual(fetched?.outputCostUSD, 0.0024)
+    XCTAssertEqual(fetched?.totalCostUSD, 0.0026)
+
+    let calculated = try AIUsageCostService.calculateCosts(
+      provider: .gemini,
+      model: "gemini-3-pro-preview",
+      promptTokens: 100,
+      completionTokens: 200,
+      repositories: repositories
+    )
+    XCTAssertEqual(calculated.totalCostUSD, 0.0026)
+  }
+
+  func testLiteLLMPricingParserConvertsPerTokenRates() throws {
+    let json = """
+    {
+      "openai/gpt-4o-mini": {
+        "litellm_provider": "openai",
+        "mode": "chat",
+        "input_cost_per_token": 0.00000015,
+        "output_cost_per_token": 0.0000006
+      }
+    }
+    """
+
+    let rate = try AIUsageCostService.parseLiteLLMRate(
+      provider: .openai,
+      model: "gpt-4o-mini",
+      data: Data(json.utf8)
+    )
+
+    XCTAssertEqual(rate?.provider, .openai)
+    XCTAssertEqual(rate?.model, "gpt-4o-mini")
+    XCTAssertEqual(rate?.inputUSDPerMillion, 0.15)
+    XCTAssertEqual(rate?.outputUSDPerMillion, 0.6)
+    XCTAssertEqual(rate?.source, .litellm)
   }
 
   func testCredentialAndSettingsRepositories() async throws {

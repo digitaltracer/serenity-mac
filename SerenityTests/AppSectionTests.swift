@@ -5,7 +5,7 @@ final class AppSectionTests: XCTestCase {
   func testAllSectionsArePresentInNavigationOrder() {
     XCTAssertEqual(
       AppSection.allCases,
-      [.home, .actionHub, .today, .journal, .goals, .projects, .integrations, .insights, .aiSummaries, .database, .settings],
+      [.home, .actionHub, .today, .journal, .goals, .projects, .integrations, .insights, .aiSummaries, .costCenter, .database, .settings],
     )
   }
 
