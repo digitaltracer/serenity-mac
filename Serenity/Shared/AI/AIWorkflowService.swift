@@ -1301,11 +1301,13 @@ enum AIUsageCostService {
       return (key, details)
     }
 
-    let match = candidates.first { key, details in
-      let providerMatches = (details["litellm_provider"] as? String)?.lowercased() == normalizedProvider
-      guard providerMatches else { return false }
-      return modelKeyMatches(key, model: normalizedModel, provider: normalizedProvider)
-    }
+    let match = modelLookupAliases(for: normalizedModel, provider: normalizedProvider).lazy.compactMap { modelAlias in
+      candidates.first { key, details in
+        let providerMatches = (details["litellm_provider"] as? String)?.lowercased() == normalizedProvider
+        guard providerMatches else { return false }
+        return modelKeyMatches(key, model: modelAlias, provider: normalizedProvider)
+      }
+    }.first
 
     guard let match,
           let inputCost = doubleValue(match.1["input_cost_per_token"]),
@@ -1328,6 +1330,17 @@ enum AIUsageCostService {
     return normalizedKey == normalizedModel ||
       normalizedKey == "\(provider)/\(normalizedModel)" ||
       normalizedKey.hasSuffix("/\(normalizedModel)")
+  }
+
+  private static func modelLookupAliases(for model: String, provider: String) -> [String] {
+    var aliases = [model]
+
+    if provider == AIUsageProvider.gemini.rawValue,
+       !model.hasSuffix("-preview") {
+      aliases.append("\(model)-preview")
+    }
+
+    return aliases
   }
 
   private static func doubleValue(_ value: Any?) -> Double? {

@@ -252,6 +252,31 @@ final class AIRepositoriesTests: XCTestCase {
     XCTAssertEqual(rate?.source, .litellm)
   }
 
+  func testLiteLLMPricingParserMatchesGeminiPreviewAlias() throws {
+    let json = """
+    {
+      "gemini/gemini-3.1-flash-lite-preview": {
+        "litellm_provider": "gemini",
+        "mode": "chat",
+        "input_cost_per_token": 0.00000025,
+        "output_cost_per_token": 0.0000015
+      }
+    }
+    """
+
+    let rate = try AIUsageCostService.parseLiteLLMRate(
+      provider: .gemini,
+      model: "gemini-3.1-flash-lite",
+      data: Data(json.utf8)
+    )
+
+    XCTAssertEqual(rate?.provider, .gemini)
+    XCTAssertEqual(rate?.model, "gemini-3.1-flash-lite")
+    XCTAssertEqual(rate?.inputUSDPerMillion, 0.25)
+    XCTAssertEqual(rate?.outputUSDPerMillion, 1.5)
+    XCTAssertEqual(rate?.source, .litellm)
+  }
+
   func testCredentialAndSettingsRepositories() async throws {
     let repositories = try await makeRepositorySet()
     let now = Date()
