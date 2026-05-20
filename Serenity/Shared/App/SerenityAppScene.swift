@@ -2471,41 +2471,49 @@ private struct ActionHubSectionView: View {
         .buttonStyle(.plain)
           .hoverCursor(.pointingHand)
 
-        Text(task.title)
-          .font(SerenityType.scaledSystem(size: 20, weight: .medium))
-          .strikethrough(task.completed)
-          .lineLimit(2)
+        taskEditorButton(task, accessibilityLabel: "Edit task \(task.title)") {
+          HStack(spacing: 12) {
+            Text(task.title)
+              .font(SerenityType.scaledSystem(size: 20, weight: .medium))
+              .strikethrough(task.completed)
+              .lineLimit(2)
 
-        Spacer()
+            Spacer()
 
-        Text(task.priority.rawValue.capitalized)
-          .font(SerenityType.caption)
-          .padding(.horizontal, 10)
-          .padding(.vertical, 4)
-          .background(priorityColor(task.priority).opacity(0.18), in: Capsule())
+            Text(task.priority.rawValue.capitalized)
+              .font(SerenityType.caption)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 4)
+              .background(priorityColor(task.priority).opacity(0.18), in: Capsule())
+          }
+        }
       }
 
-      HStack(spacing: 8) {
-        chip("Created \(task.createdAt.formatted(date: .numeric, time: .omitted))")
-        if let dueDate = task.dueDate {
-          chip("Due \(dueDate.formatted(date: .numeric, time: .omitted))", tint: isOverdue(task) ? .red : SerenityPalette.accent)
-        }
-        if let projectName = projectName(for: task.projectId) {
-          chip(projectName, tint: SerenityPalette.accent)
+      taskEditorButton(task, accessibilityLabel: "Edit task \(task.title) details") {
+        HStack(spacing: 8) {
+          chip("Created \(task.createdAt.formatted(date: .numeric, time: .omitted))")
+          if let dueDate = task.dueDate {
+            chip("Due \(dueDate.formatted(date: .numeric, time: .omitted))", tint: isOverdue(task) ? .red : SerenityPalette.accent)
+          }
+          if let projectName = projectName(for: task.projectId) {
+            chip(projectName, tint: SerenityPalette.accent)
+          }
         }
       }
 
       if let description = task.description, !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        taskDescriptionPreview(taskID: task.id, description: description)
+        taskDescriptionPreview(task: task, description: description)
       }
 
       if !task.tags.isEmpty {
-        HStack(spacing: 6) {
-          ForEach(task.tags.prefix(4), id: \.self) { tag in
-            chip(tag)
-          }
-          if task.tags.count > 4 {
-            chip("+\(task.tags.count - 4)")
+        taskEditorButton(task, accessibilityLabel: "Edit task \(task.title) tags") {
+          HStack(spacing: 6) {
+            ForEach(task.tags.prefix(4), id: \.self) { tag in
+              chip(tag)
+            }
+            if task.tags.count > 4 {
+              chip("+\(task.tags.count - 4)")
+            }
           }
         }
       }
@@ -2547,7 +2555,7 @@ private struct ActionHubSectionView: View {
         Spacer()
 
         Button("Edit") {
-          editingTask = task
+          openTaskEditor(task)
         }
         .buttonStyle(SerenitySecondaryButtonStyle())
           .hoverCursor(.pointingHand)
@@ -2567,38 +2575,62 @@ private struct ActionHubSectionView: View {
     )
   }
 
-  private func taskDescriptionPreview(taskID: String, description: String) -> some View {
+  private func taskEditorButton<Content: View>(
+    _ task: TaskEntity,
+    accessibilityLabel: String,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    Button {
+      openTaskEditor(task)
+    } label: {
+      content()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+    .accessibilityLabel(accessibilityLabel)
+    .accessibilityAddTraits(.isButton)
+  }
+
+  private func openTaskEditor(_ task: TaskEntity) {
+    editingTask = task
+  }
+
+  private func taskDescriptionPreview(task: TaskEntity, description: String) -> some View {
     let shouldCollapse = TaskMarkdownParser.shouldCollapseInTaskList(description)
-    let isExpanded = expandedDescriptionTaskIDs.contains(taskID)
+    let isExpanded = expandedDescriptionTaskIDs.contains(task.id)
 
     return VStack(alignment: .leading, spacing: 6) {
-      GitHubFlavoredMarkdownView(markdown: description, compact: !isExpanded)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(maxHeight: shouldCollapse && !isExpanded ? 132 : nil, alignment: .top)
-        .clipped()
-        .mask(alignment: .bottom) {
-          if shouldCollapse && !isExpanded {
-            VStack(spacing: 0) {
+      taskEditorButton(task, accessibilityLabel: "Edit task \(task.title) description") {
+        GitHubFlavoredMarkdownView(markdown: description, compact: !isExpanded)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .frame(maxHeight: shouldCollapse && !isExpanded ? 132 : nil, alignment: .top)
+          .clipped()
+          .mask(alignment: .bottom) {
+            if shouldCollapse && !isExpanded {
+              VStack(spacing: 0) {
+                Rectangle()
+                LinearGradient(
+                  colors: [.black, .black.opacity(0)],
+                  startPoint: .top,
+                  endPoint: .bottom
+                )
+                .frame(height: 28)
+              }
+            } else {
               Rectangle()
-              LinearGradient(
-                colors: [.black, .black.opacity(0)],
-                startPoint: .top,
-                endPoint: .bottom
-              )
-              .frame(height: 28)
             }
-          } else {
-            Rectangle()
           }
-        }
+      }
 
       if shouldCollapse {
         Button {
           withAnimation(.easeInOut(duration: 0.18)) {
             if isExpanded {
-              expandedDescriptionTaskIDs.remove(taskID)
+              expandedDescriptionTaskIDs.remove(task.id)
             } else {
-              expandedDescriptionTaskIDs.insert(taskID)
+              expandedDescriptionTaskIDs.insert(task.id)
             }
           }
         } label: {
@@ -5512,14 +5544,14 @@ private struct CostCenterSectionView: View {
   private var rateForm: some View {
     ViewThatFits(in: .horizontal) {
       HStack(alignment: .bottom, spacing: 10) {
-        providerPicker.frame(width: 160)
+        providerPicker.frame(width: 190)
         rateTextField("Model", text: $rateModel).frame(minWidth: 300)
         rateNumberField("Input", value: $inputRate)
         rateNumberField("Output", value: $outputRate)
         saveRateButton
       }
       VStack(alignment: .leading, spacing: 10) {
-        providerPicker.frame(maxWidth: 220)
+        providerPicker.frame(maxWidth: 260)
         rateTextField("Model", text: $rateModel)
         HStack(spacing: 10) {
           rateNumberField("Input", value: $inputRate)
@@ -5540,37 +5572,25 @@ private struct CostCenterSectionView: View {
         .font(SerenityType.caption)
         .foregroundStyle(SerenityPalette.textSecondary)
 
-      Menu {
-        ForEach(AIUsageProvider.allCases, id: \.self) { provider in
-          Button(providerTitle(provider)) {
-            rateProvider = provider
-          }
-        }
-      } label: {
-        HStack(spacing: 8) {
-          Text(providerTitle(rateProvider))
-            .lineLimit(1)
-          Spacer(minLength: 4)
-          Image(systemName: "chevron.up.chevron.down")
-            .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
-            .foregroundStyle(SerenityPalette.textSecondary)
-        }
-        .font(SerenityType.body)
-        .foregroundStyle(SerenityPalette.textPrimary)
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, minHeight: rateFormControlHeight, maxHeight: rateFormControlHeight)
-        .background(SerenityPalette.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(SerenityPalette.thinBorder, lineWidth: 1)
-        )
-        .overlay(
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(SerenityPalette.highlightStroke, lineWidth: 1)
-        )
-      }
-      .menuStyle(.borderlessButton)
-      .hoverCursor(.pointingHand)
+      SerenityDropdownField(
+        placeholder: "Provider",
+        selection: $rateProvider,
+        options: rateProviderDropdownOptions,
+        maxMenuHeight: 180
+      )
+      .frame(maxWidth: .infinity, minHeight: rateFormControlHeight, maxHeight: rateFormControlHeight)
+    }
+  }
+
+  private var rateProviderDropdownOptions: [SerenityDropdownOption<AIUsageProvider>] {
+    AIUsageProvider.allCases.map { provider in
+      SerenityDropdownOption(
+        value: provider,
+        title: providerTitle(provider),
+        subtitle: rateProviderSubtitle(provider),
+        systemImage: providerIcon(provider),
+        tint: providerTint(provider)
+      )
     }
   }
 
@@ -5685,6 +5705,30 @@ private struct CostCenterSectionView: View {
     case .openai: return "OpenAI"
     case .gemini: return "Gemini"
     case .anthropic: return "Anthropic"
+    }
+  }
+
+  private func rateProviderSubtitle(_ provider: AIUsageProvider) -> String {
+    switch provider {
+    case .openai: return "OpenAI usage rates"
+    case .gemini: return "Google Gemini usage rates"
+    case .anthropic: return "Anthropic usage rates"
+    }
+  }
+
+  private func providerIcon(_ provider: AIUsageProvider) -> String {
+    switch provider {
+    case .openai: return "sparkles"
+    case .gemini: return "diamond.fill"
+    case .anthropic: return "brain.head.profile"
+    }
+  }
+
+  private func providerTint(_ provider: AIUsageProvider) -> Color {
+    switch provider {
+    case .openai: return SerenityPalette.accent
+    case .gemini: return .purple
+    case .anthropic: return .orange
     }
   }
 
