@@ -105,6 +105,20 @@
 		A000000000000000000000ED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000EF /* Assets.xcassets */; };
 		A00000000000000000000225 /* TodaySectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000224 /* TodaySectionView.swift */; };
 		A00000000000000000000226 /* TodaySectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000224 /* TodaySectionView.swift */; };
+		A00000000000000000000229 /* TasksSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000228 /* TasksSectionView.swift */; };
+		A0000000000000000000022A /* TasksSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000228 /* TasksSectionView.swift */; };
+		A0000000000000000000022C /* TaskEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000022B /* TaskEditorView.swift */; };
+		A0000000000000000000022D /* TaskEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000022B /* TaskEditorView.swift */; };
+		A0000000000000000000022F /* DueDateSelectionField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000022E /* DueDateSelectionField.swift */; };
+		A00000000000000000000230 /* DueDateSelectionField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000022E /* DueDateSelectionField.swift */; };
+		A00000000000000000000232 /* TaskMarkdownDescriptionField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000231 /* TaskMarkdownDescriptionField.swift */; };
+		A00000000000000000000233 /* TaskMarkdownDescriptionField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000231 /* TaskMarkdownDescriptionField.swift */; };
+		A00000000000000000000235 /* TasksSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000234 /* TasksSupport.swift */; };
+		A00000000000000000000236 /* TasksSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000234 /* TasksSupport.swift */; };
+		A00000000000000000000239 /* GitHubFlavoredMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000238 /* GitHubFlavoredMarkdownView.swift */; };
+		A0000000000000000000023A /* GitHubFlavoredMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000238 /* GitHubFlavoredMarkdownView.swift */; };
+		A0000000000000000000023C /* TaskMarkdownParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000023B /* TaskMarkdownParser.swift */; };
+		A0000000000000000000023D /* TaskMarkdownParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000023B /* TaskMarkdownParser.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -162,6 +176,13 @@
 		A000000000000000000000EF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C73A2CAF2FAA2C2200AB200C /* GoogleAuth.local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = GoogleAuth.local.xcconfig; sourceTree = "<group>"; };
 		A00000000000000000000224 /* TodaySectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodaySectionView.swift; sourceTree = "<group>"; };
+		A00000000000000000000228 /* TasksSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksSectionView.swift; sourceTree = "<group>"; };
+		A0000000000000000000022B /* TaskEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskEditorView.swift; sourceTree = "<group>"; };
+		A0000000000000000000022E /* DueDateSelectionField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DueDateSelectionField.swift; sourceTree = "<group>"; };
+		A00000000000000000000231 /* TaskMarkdownDescriptionField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskMarkdownDescriptionField.swift; sourceTree = "<group>"; };
+		A00000000000000000000234 /* TasksSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksSupport.swift; sourceTree = "<group>"; };
+		A00000000000000000000238 /* GitHubFlavoredMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubFlavoredMarkdownView.swift; sourceTree = "<group>"; };
+		A0000000000000000000023B /* TaskMarkdownParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskMarkdownParser.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -310,6 +331,7 @@
 		A0000000000000000000000C /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				A00000000000000000000237 /* Markdown */,
 				A00000000000000000000222 /* Sections */,
 				A00000000000000000000039 /* SerenityDesignSystem.swift */,
 				A00000000000000000000205 /* Components */,
@@ -318,12 +340,34 @@
 			path = UI;
 			sourceTree = "<group>";
 		};
+		A00000000000000000000237 /* Markdown */ = {
+			isa = PBXGroup;
+			children = (
+				A0000000000000000000023B /* TaskMarkdownParser.swift */,
+				A00000000000000000000238 /* GitHubFlavoredMarkdownView.swift */,
+			);
+			path = Markdown;
+			sourceTree = "<group>";
+		};
 		A00000000000000000000222 /* Sections */ = {
 			isa = PBXGroup;
 			children = (
+				A00000000000000000000227 /* Tasks */,
 				A00000000000000000000223 /* Today */,
 			);
 			path = Sections;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000227 /* Tasks */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000234 /* TasksSupport.swift */,
+				A00000000000000000000231 /* TaskMarkdownDescriptionField.swift */,
+				A0000000000000000000022E /* DueDateSelectionField.swift */,
+				A0000000000000000000022B /* TaskEditorView.swift */,
+				A00000000000000000000228 /* TasksSectionView.swift */,
+			);
+			path = Tasks;
 			sourceTree = "<group>";
 		};
 		A00000000000000000000223 /* Today */ = {
@@ -513,6 +557,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0000000000000000000023C /* TaskMarkdownParser.swift in Sources */,
+				A00000000000000000000239 /* GitHubFlavoredMarkdownView.swift in Sources */,
+				A00000000000000000000235 /* TasksSupport.swift in Sources */,
+				A00000000000000000000232 /* TaskMarkdownDescriptionField.swift in Sources */,
+				A0000000000000000000022F /* DueDateSelectionField.swift in Sources */,
+				A0000000000000000000022C /* TaskEditorView.swift in Sources */,
+				A00000000000000000000229 /* TasksSectionView.swift in Sources */,
 				A00000000000000000000225 /* TodaySectionView.swift in Sources */,
 				A00000000000000000000080 /* AppLogger.swift in Sources */,
 				A00000000000000000000081 /* AppSection.swift in Sources */,
@@ -565,6 +616,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0000000000000000000023D /* TaskMarkdownParser.swift in Sources */,
+				A0000000000000000000023A /* GitHubFlavoredMarkdownView.swift in Sources */,
+				A00000000000000000000236 /* TasksSupport.swift in Sources */,
+				A00000000000000000000233 /* TaskMarkdownDescriptionField.swift in Sources */,
+				A00000000000000000000230 /* DueDateSelectionField.swift in Sources */,
+				A0000000000000000000022D /* TaskEditorView.swift in Sources */,
+				A0000000000000000000022A /* TasksSectionView.swift in Sources */,
 				A00000000000000000000226 /* TodaySectionView.swift in Sources */,
 				A000000000000000000000A0 /* AppLogger.swift in Sources */,
 				A000000000000000000000A1 /* AppSection.swift in Sources */,
