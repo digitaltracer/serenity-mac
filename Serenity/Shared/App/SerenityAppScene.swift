@@ -740,9 +740,61 @@ private enum SerenityContentDensity {
 
 private struct SectionView: View {
   @EnvironmentObject private var appState: AppState
+#if os(iOS)
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+#endif
+
+  private enum PendingEditorAction {
+    case close
+    case open(TaskEntity)
+  }
+
   let section: AppSection
 
+  @State private var editorDraft: TaskEditorDraft?
+  @State private var pendingEditorAction: PendingEditorAction?
+  @State private var showUnsavedChangesConfirmation = false
+
   var body: some View {
+    presentedSectionContent
+      .confirmationDialog(
+        "Save changes before continuing?",
+        isPresented: $showUnsavedChangesConfirmation,
+        titleVisibility: .visible
+      ) {
+        Button("Save") {
+          let action = pendingEditorAction ?? .close
+          Task {
+            _ = await saveEditor(then: action)
+          }
+        }
+        Button("Discard Changes", role: .destructive) {
+          applyPendingEditorAction()
+        }
+        Button("Cancel", role: .cancel) {
+          pendingEditorAction = nil
+        }
+      } message: {
+        Text("This task has unsaved edits.")
+      }
+      .animation(.easeInOut(duration: 0.2), value: section)
+      .onAppear {
+        AppLogger.info("Rendered section: \(section.rawValue)")
+        if section == .insights || section == .aiSummaries || section == .costCenter {
+          Task {
+            await appState.refreshAIWorkflows()
+          }
+        }
+
+        if [.home, .actionHub, .today, .journal, .goals, .projects, .integrations, .costCenter, .database].contains(section) {
+          Task {
+            await appState.refreshCoreWorkflowData()
+          }
+        }
+      }
+  }
+
+  private var sectionContent: some View {
     GeometryReader { proxy in
       let density = SerenityContentDensity.from(width: proxy.size.width)
 
@@ -756,7 +808,7 @@ private struct SectionView: View {
           case .home:
             HomeSectionView(density: density, availableWidth: proxy.size.width)
           case .actionHub:
-            ActionHubSectionView()
+            ActionHubSectionView(onEditTask: openTaskEditor)
           case .today:
             TodaySectionView()
           case .journal:
@@ -786,20 +838,111 @@ private struct SectionView: View {
         .padding(.bottom, density.contentBottomPadding)
       }
     }
-    .animation(.easeInOut(duration: 0.2), value: section)
-    .onAppear {
-      AppLogger.info("Rendered section: \(section.rawValue)")
-      if section == .insights || section == .aiSummaries || section == .costCenter {
-        Task {
-          await appState.refreshAIWorkflows()
-        }
-      }
+  }
 
-      if [.home, .actionHub, .today, .journal, .goals, .projects, .integrations, .costCenter, .database].contains(section) {
-        Task {
-          await appState.refreshCoreWorkflowData()
+#if os(iOS)
+  @ViewBuilder
+  private var presentedSectionContent: some View {
+    if horizontalSizeClass == .regular {
+      sectionContent
+        .inspector(isPresented: editorIsPresented) {
+          taskEditorContent
+            .inspectorColumnWidth(min: 340, ideal: 400, max: 480)
+        }
+    } else {
+      sectionContent
+        .navigationDestination(isPresented: editorIsPresented) {
+          taskEditorContent
+        }
+    }
+  }
+#else
+  private var presentedSectionContent: some View {
+    sectionContent
+      .inspector(isPresented: editorIsPresented) {
+        taskEditorContent
+          .inspectorColumnWidth(min: 340, ideal: 400, max: 480)
+      }
+  }
+#endif
+
+  private var editorIsPresented: Binding<Bool> {
+    Binding(
+      get: { editorDraft != nil },
+      set: { presented in
+        if !presented {
+          requestCloseEditor()
         }
       }
+    )
+  }
+
+  @ViewBuilder
+  private var taskEditorContent: some View {
+    if let draft = Binding($editorDraft) {
+      TaskEditorView(
+        draft: draft,
+        availableProjects: appState.projects.filter { !$0.archived },
+        onCancel: requestCloseEditor,
+        onSave: {
+          await saveEditor(then: .close)
+        }
+      )
+    }
+  }
+
+  private func openTaskEditor(_ task: TaskEntity) {
+    guard editorDraft?.id != task.id else { return }
+    guard editorDraft?.isDirty == true else {
+      editorDraft = TaskEditorDraft(task: task)
+      return
+    }
+
+    pendingEditorAction = .open(task)
+    showUnsavedChangesConfirmation = true
+  }
+
+  private func requestCloseEditor() {
+    guard editorDraft?.isDirty == true else {
+      editorDraft = nil
+      return
+    }
+
+    pendingEditorAction = .close
+    showUnsavedChangesConfirmation = true
+  }
+
+  @MainActor
+  private func saveEditor(then action: PendingEditorAction) async -> Bool {
+    guard let draft = editorDraft else { return false }
+    let saved = await appState.updateTask(
+      id: draft.id,
+      title: draft.title,
+      description: draft.description,
+      priority: draft.priority,
+      dueDate: draft.hasDueDate ? draft.dueDate : nil,
+      projectID: draft.selectedProjectID,
+      tags: draft.savedTags,
+      subtasks: draft.savedSubtasks
+    )
+
+    if saved {
+      applyPendingEditorAction(action)
+    }
+    return saved
+  }
+
+  private func applyPendingEditorAction(_ action: PendingEditorAction? = nil) {
+    let action = action ?? pendingEditorAction
+    pendingEditorAction = nil
+
+    switch action {
+    case .close:
+      editorDraft = nil
+    case .open(let task):
+      editorDraft = TaskEditorDraft(task: task)
+    case nil:
+      break
     }
   }
 
@@ -2017,6 +2160,7 @@ private func tagsIncludingPendingInput(_ tags: [String], input: String) -> [Stri
 
 private struct ActionHubSectionView: View {
   @EnvironmentObject private var appState: AppState
+  let onEditTask: (TaskEntity) -> Void
 
   private enum HubTab: String, CaseIterable, Identifiable {
     case tasks
@@ -2061,8 +2205,8 @@ private struct ActionHubSectionView: View {
   @State private var calendarVisibleMonth = Calendar.current.startOfMonth(for: Date())
   @State private var selectedCalendarDate = Calendar.current.startOfDay(for: Date())
   @State private var subtaskDraftByTaskID: [String: String] = [:]
+  @State private var expandedTaskID: String?
   @State private var expandedDescriptionTaskIDs: Set<String> = []
-  @State private var editingTask: TaskEntity?
   @State private var showQuickProjectCreator = false
   @State private var quickProjectName = ""
   @State private var quickProjectDescription = ""
@@ -2103,7 +2247,9 @@ private struct ActionHubSectionView: View {
   }
 
   private var tasksView: some View {
-    VStack(alignment: .leading, spacing: 16) {
+    let tasks = displayedTasks
+
+    return VStack(alignment: .leading, spacing: 16) {
       if showQuickAddForm {
         VStack(spacing: 14) {
           progressPanel
@@ -2165,38 +2311,32 @@ private struct ActionHubSectionView: View {
         .disabled(appState.selectedTaskIDs.isEmpty)
       }
 
-      if displayedTasks.isEmpty {
+      if tasks.isEmpty {
         Text("No tasks match your current filters.")
           .foregroundStyle(SerenityPalette.textSecondary)
           .padding(.top, 4)
       } else {
-        ForEach(displayedTasks) { task in
-          taskRow(task)
+        LazyVStack(spacing: 0) {
+          ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
+            taskRow(task)
+              .overlay(alignment: .bottom) {
+                if index < tasks.count - 1 {
+                  Rectangle()
+                    .fill(SerenityPalette.thinBorder)
+                    .frame(height: 1)
+                }
+              }
+          }
         }
+        .background(SerenityPalette.panelBackground, in: taskListShape)
+        .overlay(taskListShape.stroke(SerenityPalette.border, lineWidth: 1))
+        .clipShape(taskListShape)
       }
     }
-    .sheet(item: $editingTask) { task in
-      TaskEditorView(task: task, availableProjects: assignableProjects) {
-        title,
-        description,
-        priority,
-        dueDate,
-        projectID,
-        tags in
-        Task {
-          await appState.updateTask(
-            id: task.id,
-            title: title,
-            description: description,
-            priority: priority,
-            dueDate: dueDate,
-            projectID: projectID,
-            tags: tags
-          )
-        }
-      }
-      .frame(minWidth: 500, minHeight: 430)
-    }
+  }
+
+  private var taskListShape: RoundedRectangle {
+    RoundedRectangle(cornerRadius: 14, style: .continuous)
   }
 
   private var progressPanel: some View {
@@ -2452,6 +2592,11 @@ private struct ActionHubSectionView: View {
 
   @ViewBuilder
   private func taskRow(_ task: TaskEntity) -> some View {
+    let isExpanded = expandedTaskID == task.id
+    let projectName = projectName(for: task.projectId)
+    let completedSubtasks = task.subtasks.filter(\.completed).count
+    let hasSummary = task.dueDate != nil || projectName != nil || !task.subtasks.isEmpty
+
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 12) {
         Button {
@@ -2473,107 +2618,135 @@ private struct ActionHubSectionView: View {
           .hoverCursor(.pointingHand)
 
         taskEditorButton(task, accessibilityLabel: "Edit task \(task.title)") {
-          HStack(spacing: 12) {
-            Text(task.title)
-              .font(SerenityType.scaledSystem(size: 20, weight: .medium))
-              .strikethrough(task.completed)
-              .lineLimit(2)
+          Text(task.title)
+            .font(SerenityType.scaledSystem(size: 16, weight: .medium))
+            .foregroundStyle(task.completed ? SerenityPalette.textSecondary : SerenityPalette.textPrimary)
+            .strikethrough(task.completed)
+            .lineLimit(1)
+        }
+
+        Text(task.priority.rawValue.capitalized)
+          .font(SerenityType.caption)
+          .padding(.horizontal, 9)
+          .padding(.vertical, 3)
+          .background(priorityColor(task.priority).opacity(0.18), in: Capsule())
+
+        Button {
+          withAnimation(.easeInOut(duration: 0.18)) {
+            expandedTaskID = isExpanded ? nil : task.id
+          }
+        } label: {
+          Image(systemName: "chevron.right")
+            .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverCursor(.pointingHand)
+        .accessibilityLabel(isExpanded ? "Collapse task details" : "Expand task details")
+        .accessibilityValue(task.title)
+      }
+
+      if hasSummary {
+        taskEditorButton(task, accessibilityLabel: "Edit task \(task.title) details") {
+          HStack(spacing: 14) {
+            if let dueDate = task.dueDate {
+              Label("Due \(dueDate.formatted(date: .numeric, time: .omitted))", systemImage: "calendar")
+                .foregroundStyle(isOverdue(task) ? Color.red : SerenityPalette.textSecondary)
+            }
+            if let projectName {
+              Label(projectName, systemImage: "folder")
+            }
+            if !task.subtasks.isEmpty {
+              Label("\(completedSubtasks)/\(task.subtasks.count) subtasks", systemImage: "checklist")
+            }
+          }
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(1)
+        }
+      }
+
+      if isExpanded {
+        VStack(alignment: .leading, spacing: 10) {
+          Label("Created \(task.createdAt.formatted(date: .numeric, time: .omitted))", systemImage: "clock")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+
+          if let description = task.description, !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            taskDescriptionPreview(task: task, description: description)
+          }
+
+          if !task.tags.isEmpty {
+            taskEditorButton(task, accessibilityLabel: "Edit task \(task.title) tags") {
+              HStack(spacing: 6) {
+                ForEach(task.tags.prefix(4), id: \.self) { tag in
+                  chip(tag)
+                }
+                if task.tags.count > 4 {
+                  chip("+\(task.tags.count - 4)")
+                }
+              }
+            }
+          }
+
+          if !task.subtasks.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+              ForEach(task.subtasks, id: \.id) { subtask in
+                Button {
+                  Task { await appState.toggleSubtask(taskID: task.id, subtaskID: subtask.id) }
+                } label: {
+                  HStack(spacing: 6) {
+                    Image(systemName: subtask.completed ? "checkmark.circle.fill" : "circle")
+                      .foregroundStyle(subtask.completed ? .green : SerenityPalette.textSecondary)
+                    Text(subtask.title)
+                      .font(SerenityType.caption)
+                      .strikethrough(subtask.completed)
+                    Spacer()
+                  }
+                }
+                .buttonStyle(.plain)
+                .hoverCursor(.pointingHand)
+              }
+            }
+          }
+
+          HStack {
+            TextField("Add subtask", text: subtaskBinding(for: task.id))
+              .textFieldStyle(.plain)
+              .serenityInputField()
+
+            Button("Add") {
+              let subtaskText = subtaskBinding(for: task.id).wrappedValue
+              Task { await appState.addSubtask(taskID: task.id, title: subtaskText) }
+              subtaskBinding(for: task.id).wrappedValue = ""
+            }
+            .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
 
             Spacer()
 
-            Text(task.priority.rawValue.capitalized)
-              .font(SerenityType.caption)
-              .padding(.horizontal, 10)
-              .padding(.vertical, 4)
-              .background(priorityColor(task.priority).opacity(0.18), in: Capsule())
-          }
-        }
-      }
-
-      taskEditorButton(task, accessibilityLabel: "Edit task \(task.title) details") {
-        HStack(spacing: 8) {
-          chip("Created \(task.createdAt.formatted(date: .numeric, time: .omitted))")
-          if let dueDate = task.dueDate {
-            chip("Due \(dueDate.formatted(date: .numeric, time: .omitted))", tint: isOverdue(task) ? .red : SerenityPalette.accent)
-          }
-          if let projectName = projectName(for: task.projectId) {
-            chip(projectName, tint: SerenityPalette.accent)
-          }
-        }
-      }
-
-      if let description = task.description, !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        taskDescriptionPreview(task: task, description: description)
-      }
-
-      if !task.tags.isEmpty {
-        taskEditorButton(task, accessibilityLabel: "Edit task \(task.title) tags") {
-          HStack(spacing: 6) {
-            ForEach(task.tags.prefix(4), id: \.self) { tag in
-              chip(tag)
+            Button("Edit") {
+              onEditTask(task)
             }
-            if task.tags.count > 4 {
-              chip("+\(task.tags.count - 4)")
+            .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
+
+            Button("Delete", role: .destructive) {
+              Task { await appState.deleteTask(id: task.id) }
             }
+            .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
           }
         }
-      }
-
-      if !task.subtasks.isEmpty {
-        VStack(alignment: .leading, spacing: 4) {
-          ForEach(task.subtasks, id: \.id) { subtask in
-            Button {
-              Task { await appState.toggleSubtask(taskID: task.id, subtaskID: subtask.id) }
-            } label: {
-              HStack(spacing: 6) {
-                Image(systemName: subtask.completed ? "checkmark.circle.fill" : "circle")
-                  .foregroundStyle(subtask.completed ? .green : SerenityPalette.textSecondary)
-                Text(subtask.title)
-                  .font(SerenityType.caption)
-                  .strikethrough(subtask.completed)
-                Spacer()
-              }
-            }
-            .buttonStyle(.plain)
-          .hoverCursor(.pointingHand)
-          }
-        }
-      }
-
-      HStack {
-        TextField("Add subtask", text: subtaskBinding(for: task.id))
-          .textFieldStyle(.plain)
-          .serenityInputField()
-
-        Button("Add") {
-          let subtaskText = subtaskBinding(for: task.id).wrappedValue
-          Task { await appState.addSubtask(taskID: task.id, title: subtaskText) }
-          subtaskBinding(for: task.id).wrappedValue = ""
-        }
-        .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-
-        Spacer()
-
-        Button("Edit") {
-          openTaskEditor(task)
-        }
-        .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-
-        Button("Delete", role: .destructive) {
-          Task { await appState.deleteTask(id: task.id) }
-        }
-        .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
+        .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
-    .padding(14)
-    .background(isOverdue(task) ? Color.red.opacity(0.14) : SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .stroke(isOverdue(task) ? Color.red.opacity(0.75) : SerenityPalette.border, lineWidth: 1)
-    )
+    .padding(.horizontal, 18)
+    .padding(.vertical, 18)
+    .background(isOverdue(task) ? Color.red.opacity(0.06) : Color.clear)
   }
 
   private func taskEditorButton<Content: View>(
@@ -2582,7 +2755,7 @@ private struct ActionHubSectionView: View {
     @ViewBuilder content: () -> Content
   ) -> some View {
     Button {
-      openTaskEditor(task)
+      onEditTask(task)
     } label: {
       content()
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2592,10 +2765,6 @@ private struct ActionHubSectionView: View {
     .hoverCursor(.pointingHand)
     .accessibilityLabel(accessibilityLabel)
     .accessibilityAddTraits(.isButton)
-  }
-
-  private func openTaskEditor(_ task: TaskEntity) {
-    editingTask = task
   }
 
   private func taskDescriptionPreview(task: TaskEntity, description: String) -> some View {
@@ -10593,99 +10762,249 @@ private extension Collection {
   }
 }
 
-private struct TaskEditorView: View {
-  let task: TaskEntity
-  let availableProjects: [ProjectEntity]
-  let onSave: (String, String, TaskPriority, Date?, String?, [String]) -> Void
+struct TaskEditorDraft: Equatable, Identifiable {
+  let original: TaskEntity
+  var title: String
+  var description: String
+  var priority: TaskPriority
+  var hasDueDate: Bool
+  var dueDate: Date
+  var selectedProjectID: String
+  var tags: [String]
+  var tagInputText = ""
+  var subtasks: [TaskSubtask]
+  var subtaskInputText = ""
 
-  @Environment(\.dismiss) private var dismiss
+  var id: String { original.id }
 
-  @State private var title: String
-  @State private var description: String
-  @State private var priority: TaskPriority
-  @State private var hasDueDate: Bool
-  @State private var dueDate: Date
-  @State private var selectedProjectID: String
-  @State private var tags: [String]
-  @State private var tagInputText = ""
-
-  init(
-    task: TaskEntity,
-    availableProjects: [ProjectEntity],
-    onSave: @escaping (String, String, TaskPriority, Date?, String?, [String]) -> Void
-  ) {
-    self.task = task
-    self.availableProjects = availableProjects
-    self.onSave = onSave
-    _title = State(initialValue: task.title)
-    _description = State(initialValue: task.description ?? "")
-    _priority = State(initialValue: task.priority)
-    _hasDueDate = State(initialValue: task.dueDate != nil)
-    _dueDate = State(initialValue: task.dueDate ?? Date())
-    _selectedProjectID = State(initialValue: task.projectId ?? "")
-    _tags = State(initialValue: task.tags)
+  init(task: TaskEntity) {
+    original = task
+    title = task.title
+    description = task.description ?? ""
+    priority = task.priority
+    hasDueDate = task.dueDate != nil
+    dueDate = task.dueDate ?? Date()
+    selectedProjectID = task.projectId ?? ""
+    tags = task.tags
+    subtasks = task.subtasks
   }
 
-  var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("Edit Task")
-        .font(SerenityType.bodyLarge.weight(.semibold))
+  var isDirty: Bool {
+    title != original.title
+      || description != (original.description ?? "")
+      || priority != original.priority
+      || (hasDueDate ? dueDate : nil) != original.dueDate
+      || selectedProjectID != (original.projectId ?? "")
+      || tags != original.tags
+      || !tagInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      || subtasks != original.subtasks
+      || !subtaskInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
 
-      TextField("Title", text: $title)
-        .textFieldStyle(.plain)
-        .serenityInputField()
+  var savedTags: [String] {
+    tagsIncludingPendingInput(tags, input: tagInputText)
+  }
 
-      TaskMarkdownDescriptionField(text: $description, minHeight: 150)
-
-      HStack(spacing: 12) {
-        SerenityDropdownField(
-          placeholder: "Priority",
-          selection: $priority,
-          options: priorityDropdownOptions
-        )
-        .frame(maxWidth: 180)
-
-        Toggle("Due date", isOn: $hasDueDate)
-          .toggleStyle(.switch)
-
-        if hasDueDate {
-          DueDateSelectionField(selection: $dueDate)
-            .frame(maxWidth: 280, alignment: .leading)
-        }
-      }
-
-      SerenityDropdownField(
-        placeholder: "No project",
-        selection: $selectedProjectID,
-        options: projectDropdownOptions
-      )
-      .frame(maxWidth: 260)
-
-      SerenityTagInputField(tags: $tags, inputText: $tagInputText)
-
-      HStack {
-        Spacer()
-        Button("Cancel") {
-          dismiss()
-        }
-        .hoverCursor(.pointingHand)
-
-        Button("Save") {
-          onSave(
-            title,
-            description,
-            priority,
-            hasDueDate ? dueDate : nil,
-            selectedProjectID.isEmpty ? nil : selectedProjectID,
-            tagsIncludingPendingInput(tags, input: tagInputText)
-          )
-          dismiss()
-        }
-        .buttonStyle(.borderedProminent)
-        .hoverCursor(.pointingHand)
-      }
+  var savedSubtasks: [TaskSubtask] {
+    var values = subtasks
+    let pending = subtaskInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !pending.isEmpty {
+      values.append(TaskSubtask(id: UUID().uuidString, title: pending, completed: false, order: values.count))
     }
-    .padding(20)
+
+    return values
+      .filter { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+      .enumerated()
+      .map { offset, subtask in
+        var normalized = subtask
+        normalized.title = subtask.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        normalized.order = offset
+        return normalized
+      }
+  }
+}
+
+private struct TaskEditorView: View {
+  @Binding var draft: TaskEditorDraft
+  let availableProjects: [ProjectEntity]
+  let onCancel: () -> Void
+  let onSave: () async -> Bool
+
+  @State private var isSaving = false
+
+  var body: some View {
+    VStack(spacing: 0) {
+      HStack(spacing: 12) {
+        Text("Edit Task")
+          .font(SerenityType.bodyLarge.weight(.semibold))
+        Spacer()
+        Button(action: onCancel) {
+          Image(systemName: "xmark")
+            .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .hoverCursor(.pointingHand)
+        .accessibilityLabel("Close task editor")
+      }
+      .padding(16)
+
+      Divider()
+        .overlay(SerenityPalette.thinBorder)
+
+      ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+          editorSection("Title") {
+            TextField("Title", text: $draft.title)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+          }
+
+          editorSection("Description") {
+            TaskMarkdownDescriptionField(text: $draft.description, minHeight: 150)
+          }
+
+          editorSection("Schedule") {
+            VStack(alignment: .leading, spacing: 10) {
+              HStack(spacing: 10) {
+                SerenityDropdownField(
+                  placeholder: "Priority",
+                  selection: $draft.priority,
+                  options: priorityDropdownOptions
+                )
+                .frame(maxWidth: .infinity)
+
+                Toggle("Due date", isOn: $draft.hasDueDate)
+                  .toggleStyle(.switch)
+              }
+
+              if draft.hasDueDate {
+                DueDateSelectionField(selection: $draft.dueDate)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+          }
+
+          editorSection("Project") {
+            SerenityDropdownField(
+              placeholder: "No project",
+              selection: $draft.selectedProjectID,
+              options: projectDropdownOptions
+            )
+            .frame(maxWidth: .infinity)
+          }
+
+          editorSection("Tags") {
+            SerenityTagInputField(tags: $draft.tags, inputText: $draft.tagInputText)
+          }
+
+          editorSection("Subtasks") {
+            VStack(alignment: .leading, spacing: 8) {
+              ForEach($draft.subtasks) { $subtask in
+                HStack(spacing: 8) {
+                  Button {
+                    subtask.completed.toggle()
+                  } label: {
+                    Image(systemName: subtask.completed ? "checkmark.circle.fill" : "circle")
+                      .foregroundStyle(subtask.completed ? .green : SerenityPalette.textSecondary)
+                  }
+                  .buttonStyle(.plain)
+                  .hoverCursor(.pointingHand)
+                  .accessibilityLabel(subtask.completed ? "Mark subtask incomplete" : "Mark subtask complete")
+
+                  TextField("Subtask", text: $subtask.title)
+                    .textFieldStyle(.plain)
+
+                  Button(role: .destructive) {
+                    draft.subtasks.removeAll { $0.id == subtask.id }
+                  } label: {
+                    Image(systemName: "trash")
+                      .foregroundStyle(Color.red.opacity(0.8))
+                  }
+                  .buttonStyle(.plain)
+                  .hoverCursor(.pointingHand)
+                  .accessibilityLabel("Delete subtask")
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(SerenityPalette.panelBackgroundRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                  RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+                )
+              }
+
+              HStack(spacing: 8) {
+                TextField("Add subtask", text: $draft.subtaskInputText)
+                  .textFieldStyle(.plain)
+                  .serenityInputField()
+                  .onSubmit(addPendingSubtask)
+
+                Button("Add", action: addPendingSubtask)
+                  .buttonStyle(SerenitySecondaryButtonStyle())
+                  .disabled(draft.subtaskInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                  .hoverCursor(.pointingHand)
+              }
+            }
+          }
+        }
+        .padding(16)
+      }
+
+      Divider()
+        .overlay(SerenityPalette.thinBorder)
+
+      HStack(spacing: 8) {
+        Spacer()
+        Button("Cancel", action: onCancel)
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+
+        Button {
+          Task {
+            isSaving = true
+            _ = await onSave()
+            isSaving = false
+          }
+        } label: {
+          if isSaving {
+            ProgressView()
+              .controlSize(.small)
+          } else {
+            Text("Save")
+          }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .disabled(isSaving || draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .hoverCursor(.pointingHand)
+      }
+      .padding(16)
+      .background(SerenityPalette.panelBackground)
+    }
+    .background(SerenityPalette.panelBackground)
+  }
+
+  private func editorSection<Content: View>(
+    _ title: String,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text(title)
+        .font(SerenityType.caption.weight(.semibold))
+        .foregroundStyle(SerenityPalette.textSecondary)
+      content()
+    }
+  }
+
+  private func addPendingSubtask() {
+    let title = draft.subtaskInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !title.isEmpty else { return }
+    draft.subtasks.append(
+      TaskSubtask(id: UUID().uuidString, title: title, completed: false, order: draft.subtasks.count)
+    )
+    draft.subtaskInputText = ""
   }
 
   private var projectDropdownOptions: [SerenityDropdownOption<String>] {

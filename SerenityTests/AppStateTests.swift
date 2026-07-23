@@ -2,6 +2,33 @@ import XCTest
 @testable import SerenityMac
 
 final class AppStateTests: XCTestCase {
+  func testTaskEditorDraftDetectsSubtaskEdits() {
+    let now = Date()
+    let task = TaskEntity(
+      id: "task",
+      title: "Title",
+      description: nil,
+      completed: false,
+      completedAt: nil,
+      priority: .medium,
+      dueDate: nil,
+      projectId: nil,
+      tags: [],
+      createdAt: now,
+      updatedAt: now,
+      subtasks: [TaskSubtask(id: "subtask", title: "Original", completed: false, order: 0)],
+      recurring: nil,
+      userId: nil
+    )
+    var draft = TaskEditorDraft(task: task)
+
+    XCTAssertFalse(draft.isDirty)
+
+    draft.subtasks[0].title = "Renamed"
+
+    XCTAssertTrue(draft.isDirty)
+  }
+
   func testBackendProfilesExposeExpectedOrder() {
     XCTAssertEqual(
       BackendProfile.allCases,

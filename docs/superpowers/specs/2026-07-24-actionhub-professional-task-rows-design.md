@@ -6,7 +6,7 @@ Make dark mode calmer and make the ActionHub task list easier to scan without re
 
 ## Dark-mode typography
 
-- Reduce the opacity of the shared dark `textPrimary` color to 86%.
+- Reduce the opacity of the shared dark `textPrimary` color to 72%.
 - Keep light mode, secondary text, semantic status colors, and filled-button foregrounds unchanged.
 - Preserve at least 4.5:1 contrast against the dark window and panel backgrounds.
 

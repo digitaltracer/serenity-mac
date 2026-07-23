@@ -131,6 +131,10 @@ final class FeatureParityRegressionTests: XCTestCase {
 
     if let task = state.tasks.first(where: { $0.title == "Parity Task" }),
        let project = state.projects.first {
+      let editedSubtasks = [
+        TaskSubtask(id: task.subtasks[0].id, title: "Renamed child", completed: true, order: 0),
+        TaskSubtask(id: "new-child", title: "New child", completed: false, order: 1),
+      ]
       await state.updateTask(
         id: task.id,
         title: "Parity Task Updated",
@@ -138,7 +142,8 @@ final class FeatureParityRegressionTests: XCTestCase {
         priority: .high,
         dueDate: Date(),
         projectID: project.id,
-        tags: ["parity", "updated"]
+        tags: ["parity", "updated"],
+        subtasks: editedSubtasks
       )
     } else {
       XCTFail("Expected parity task and project to exist for task update flow")
@@ -151,6 +156,11 @@ final class FeatureParityRegressionTests: XCTestCase {
     XCTAssertEqual(state.tasks.first(where: { $0.title == "Parity Task Updated" })?.priority, .high)
     XCTAssertEqual(state.tasks.first(where: { $0.title == "Parity Task Updated" })?.description, "Updated from parity regression")
     XCTAssertEqual(state.tasks.first(where: { $0.title == "Parity Task Updated" })?.tags, ["parity", "updated"])
+    XCTAssertEqual(
+      state.tasks.first(where: { $0.title == "Parity Task Updated" })?.subtasks.map(\.title),
+      ["Renamed child", "New child"]
+    )
+    XCTAssertEqual(state.tasks.first(where: { $0.title == "Parity Task Updated" })?.subtasks.first?.completed, true)
     XCTAssertNotNil(state.tasks.first(where: { $0.title == "Parity Task Updated" })?.projectId)
     XCTAssertFalse(state.todayTasks.isEmpty)
     XCTAssertFalse(state.journalEntries.isEmpty)

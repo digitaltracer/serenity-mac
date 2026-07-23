@@ -1772,6 +1772,7 @@ final class AppState: ObservableObject {
     }
   }
 
+  @discardableResult
   func updateTask(
     id: String,
     title: String,
@@ -1779,13 +1780,14 @@ final class AppState: ObservableObject {
     priority: TaskPriority,
     dueDate: Date?,
     projectID: String?,
-    tags: [String]
-  ) async {
-    guard let existing = tasks.first(where: { $0.id == id }) else { return }
+    tags: [String],
+    subtasks: [TaskSubtask]? = nil
+  ) async -> Bool {
+    guard let existing = tasks.first(where: { $0.id == id }) else { return false }
     let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedTitle.isEmpty else {
       showToast("Task title cannot be empty")
-      return
+      return false
     }
 
     let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1806,14 +1808,19 @@ final class AppState: ObservableObject {
     updated.tags = tags
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
+    if let subtasks {
+      updated.subtasks = subtasks
+    }
     updated.updatedAt = Date()
 
     do {
       try await saveTask(updated)
       showToast("Task updated")
       await refreshCoreWorkflowData()
+      return true
     } catch {
       showError(title: "Failed to update task", message: error.localizedDescription)
+      return false
     }
   }
 

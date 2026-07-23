@@ -6,7 +6,7 @@ public enum TaskPriority: String, Codable, CaseIterable, Sendable {
   case high
 }
 
-public struct TaskSubtask: Codable, Equatable, Sendable {
+public struct TaskSubtask: Codable, Equatable, Identifiable, Sendable {
   public var id: String
   public var title: String
   public var completed: Bool
