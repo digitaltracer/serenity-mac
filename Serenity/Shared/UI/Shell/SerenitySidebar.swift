@@ -4,8 +4,7 @@ import SwiftUI
 struct SerenitySidebar: View {
   @Binding var selectedSection: AppSection?
 
-  private let primarySections: [AppSection] = [.home, .actionHub, .today, .journal, .goals, .insights, .aiSummaries]
-  private let systemSections: [AppSection] = [.integrations, .costCenter, .database, .settings]
+  private let primarySections: [AppSection] = [.today, .tasks, .projects, .journal, .goals, .insights]
 
   var body: some View {
     List(selection: $selectedSection) {
@@ -16,12 +15,12 @@ struct SerenitySidebar: View {
         }
       }
 
-      Section("System") {
-        ForEach(systemSections) { section in
-          Label(section.title, systemImage: section.systemImage)
-            .tag(section)
-        }
+#if os(iOS)
+      Section {
+        Label(AppSection.settings.title, systemImage: AppSection.settings.systemImage)
+          .tag(AppSection.settings)
       }
+#endif
     }
     .listStyle(.sidebar)
   }

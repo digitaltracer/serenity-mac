@@ -558,28 +558,18 @@ private struct SectionView: View {
       SerenityThemedScrollView {
         VStack(alignment: .leading, spacing: density.sectionSpacing) {
           switch section {
-          case .home:
-            HomeSectionView(density: density, availableWidth: proxy.size.width)
-          case .actionHub:
-            ActionHubSectionView()
           case .today:
             TodaySectionView()
+          case .tasks:
+            TasksSectionView()
+          case .projects:
+            ProjectsSectionView()
           case .journal:
             JournalSectionView()
           case .goals:
             GoalsSectionView()
-          case .projects:
-            ProjectsSectionView()
-          case .integrations:
-            IntegrationsSectionView()
           case .insights:
             InsightsSectionView()
-          case .aiSummaries:
-            AISummariesSectionView()
-          case .costCenter:
-            CostCenterSectionView()
-          case .database:
-            DatabaseSectionView()
           case .settings:
             SettingsSectionView()
           }
@@ -594,13 +584,13 @@ private struct SectionView: View {
     .animation(.easeInOut(duration: 0.2), value: section)
     .onAppear {
       AppLogger.info("Rendered section: \(section.rawValue)")
-      if section == .insights || section == .aiSummaries || section == .costCenter {
+      if section == .insights {
         Task {
           await appState.refreshAIWorkflows()
         }
       }
 
-      if [.home, .actionHub, .today, .journal, .goals, .projects, .integrations, .costCenter, .database].contains(section) {
+      if [.today, .tasks, .projects, .journal, .goals, .insights].contains(section) {
         Task {
           await appState.refreshCoreWorkflowData()
         }
@@ -610,555 +600,7 @@ private struct SectionView: View {
 
 }
 
-private struct HomeSectionView: View {
-  let density: SerenityContentDensity
-  let availableWidth: CGFloat
-
-  @EnvironmentObject private var appState: AppState
-
-  @State private var quickCapture = ""
-  @State private var submitting = false
-  @State private var quickCaptureFocused = false
-  @State private var selectedQuickCaptureCredentialID = ""
-
-  private let nativeQuickCaptureProviderID = "native"
-  private static let quickCapturePreviewDateFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .medium
-    formatter.timeStyle = .short
-    return formatter
-  }()
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: density.sectionSpacing) {
-      hero
-      quickCaptureCard
-      if let preview = appState.pendingAIQuickCapturePreview {
-        aiQuickCapturePreview(preview)
-      }
-      featureGrid
-    }
-  }
-
-  private var hero: some View {
-    VStack(spacing: 14) {
-      ZStack {
-        Circle()
-          .fill(SerenityPalette.headerIconBackground)
-          .frame(width: density.heroAvatarSize, height: density.heroAvatarSize)
-          .shadow(color: SerenityPalette.accent.opacity(0.35), radius: 22)
-        Text("S")
-          .font(SerenityType.scaledSystem(size: density.heroLetterSize, weight: .medium))
-          .foregroundStyle(SerenityPalette.accent)
-      }
-
-      Text("Serenity Notes")
-        .font(SerenityType.scaledSystem(size: density.heroTitleSize, weight: density.heroTitleWeight))
-      Text("Boost your productivity and mindfulness with a powerful integrated task management and journaling experience.")
-        .font(density.sectionSubtitleFont)
-        .foregroundStyle(SerenityPalette.textSecondary)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: min(density.heroSubtitleMaxWidth, max(360, availableWidth - (density.contentPadding * 2))))
-    }
-    .frame(maxWidth: .infinity)
-    .padding(.top, 8)
-    .padding(.bottom, density.heroBottomPadding)
-  }
-
-  private var quickCaptureCard: some View {
-    VStack(spacing: 0) {
-      ZStack(alignment: .topLeading) {
-        RoundedRectangle(cornerRadius: 0)
-          .fill(
-            LinearGradient(
-              colors: [
-                SerenityPalette.panelBackgroundRaised.opacity(0.9),
-                SerenityPalette.quickCaptureTint,
-              ],
-              startPoint: .leading,
-              endPoint: .trailing
-            )
-          )
-
-        if quickCapture.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !quickCaptureFocused {
-          Text("Speak naturally. Example: \"Remind me to call mom tomorrow afternoon.\"")
-            .font(SerenityType.bodyLarge)
-            .foregroundStyle(SerenityPalette.textSecondary.opacity(0.72))
-            .padding(.horizontal, density.quickCapturePromptHorizontalPadding)
-            .padding(.vertical, density.quickCapturePromptVerticalPadding)
-            .allowsHitTesting(false)
-        }
-
-        QuickCaptureEditor(
-          text: $quickCapture,
-          isFocused: $quickCaptureFocused,
-          fontSize: density.quickCaptureEditorFontSize
-        )
-          .padding(density.quickCaptureEditorPadding)
-          .frame(height: density.quickCaptureEditorHeight)
-      }
-
-      ViewThatFits(in: .horizontal) {
-        HStack(spacing: 12) {
-          Text(quickCaptureHelperText)
-            .font(SerenityType.bodyLarge)
-            .foregroundStyle(SerenityPalette.textSecondary)
-
-          Spacer()
-
-          quickCaptureProviderDropdown
-          submitButton
-        }
-
-        VStack(alignment: .leading, spacing: 10) {
-          Text(quickCaptureHelperText)
-            .font(SerenityType.body)
-            .foregroundStyle(SerenityPalette.textSecondary)
-
-          HStack {
-            Spacer()
-            quickCaptureProviderDropdown
-            submitButton
-          }
-        }
-      }
-      .padding(.horizontal, 18)
-      .padding(.vertical, density.quickCaptureFooterPaddingVertical)
-      .background(
-        LinearGradient(
-          colors: [
-            SerenityPalette.panelBackgroundRaised.opacity(0.92),
-            SerenityPalette.quickCaptureTint.opacity(0.72),
-          ],
-          startPoint: .leading,
-          endPoint: .trailing
-        )
-      )
-    }
-    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .stroke(quickCaptureFocused ? SerenityPalette.accent.opacity(0.7) : SerenityPalette.border.opacity(0.95), lineWidth: 1)
-        .allowsHitTesting(false)
-    )
-    .shadow(color: quickCaptureFocused ? SerenityPalette.accent.opacity(0.42) : SerenityPalette.accent.opacity(0.28), radius: quickCaptureFocused ? 30 : 24)
-    .overlay {
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .stroke(SerenityPalette.highlightStroke, lineWidth: 1)
-        .blur(radius: 4)
-        .allowsHitTesting(false)
-    }
-    .animation(.easeInOut(duration: 0.18), value: quickCaptureFocused)
-  }
-
-  private var featureGrid: some View {
-    LazyVGrid(columns: density.featureColumns, spacing: density.featureGridSpacing) {
-      featureCard(title: "ActionHub", subtitle: "Efficiently manage tasks, projects, and priorities with a customizable workflow.", icon: "checklist", section: .actionHub)
-      featureCard(title: "Journal", subtitle: "Capture thoughts, ideas, and reflections with a private, secure journaling system.", icon: "book", section: .journal)
-      featureCard(title: "Projects", subtitle: "Organize related tasks into projects with visual progress tracking.", icon: "folder", section: .projects)
-      featureCard(title: "AI Summaries", subtitle: "Generate AI-powered summaries of your tasks and journal entries by date range.", icon: "sparkles", section: .aiSummaries)
-      featureCard(title: "Insights Hub", subtitle: "AI-powered insights, analytics, and personalized recommendations.", icon: "chart.bar.xaxis", section: .insights)
-    }
-  }
-
-  private var quickCaptureProviderDropdown: some View {
-    SerenityDropdownField(
-      placeholder: "Provider",
-      selection: Binding(
-        get: { quickCaptureSelectedCredentialID },
-        set: { credentialID in
-          selectedQuickCaptureCredentialID = credentialID
-          guard credentialID != nativeQuickCaptureProviderID else {
-            Task {
-              await appState.setAIActiveProvider(nil)
-            }
-            return
-          }
-          guard let credential = enabledQuickCaptureCredentials.first(where: { $0.id == credentialID }) else { return }
-          Task {
-            await appState.setAIActiveProvider(credential.provider)
-          }
-        }
-      ),
-      options: quickCaptureCredentialOptions
-    ) {
-      Button {
-        appState.setSection(.settings, settingsTab: .aiProvider)
-      } label: {
-        Label("Manage providers", systemImage: "key")
-          .font(SerenityType.caption)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, 10)
-          .padding(.vertical, 8)
-      }
-      .buttonStyle(.plain)
-      .foregroundStyle(SerenityPalette.accent)
-      .hoverCursor(.pointingHand)
-    }
-    .frame(width: 200, alignment: .leading)
-  }
-
-  private var submitButton: some View {
-    Button(submitting ? "Submitting..." : "Submit") {
-      Task {
-        await submitQuickCapture()
-      }
-    }
-    .disabled(submitting || quickCapture.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-    .buttonStyle(SerenityPrimaryButtonStyle())
-    .hoverCursor(.pointingHand)
-  }
-
-  private func featureCard(title: String, subtitle: String, icon: String, section: AppSection) -> some View {
-    Button {
-      appState.setSection(section)
-    } label: {
-      VStack(alignment: .leading, spacing: 12) {
-        ZStack {
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(SerenityPalette.headerIconBackground)
-            .frame(width: density.featureIconContainer, height: density.featureIconContainer)
-          Image(systemName: icon)
-            .font(SerenityType.scaledSystem(size: density.featureIconSize, weight: .semibold))
-            .foregroundStyle(SerenityPalette.accent)
-        }
-        Text(title)
-          .font(SerenityType.cardTitle)
-          .multilineTextAlignment(.leading)
-        Text(subtitle)
-          .font(SerenityType.pageSubtitle)
-          .foregroundStyle(SerenityPalette.textSecondary)
-          .multilineTextAlignment(.leading)
-      }
-      .padding(density.featureCardPadding)
-      .frame(maxWidth: .infinity, minHeight: density.featureCardMinHeight, alignment: .topLeading)
-      .background(
-        LinearGradient(
-          colors: [
-            SerenityPalette.panelBackgroundRaised,
-            SerenityPalette.innerCardBackground,
-          ],
-          startPoint: .topLeading,
-          endPoint: .bottomTrailing
-        ),
-        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .stroke(SerenityPalette.thinBorder, lineWidth: 1)
-      )
-    }
-    .buttonStyle(.plain)
-    .hoverCursor(.pointingHand)
-  }
-
-  private func submitQuickCapture() async {
-    let text = quickCapture.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !text.isEmpty else { return }
-
-    submitting = true
-    defer { submitting = false }
-
-    if let credential = selectedQuickCaptureCredential {
-      let saved = await appState.submitAIQuickCapture(input: text, credentialID: credential.id)
-      if saved {
-        quickCapture = ""
-      }
-      return
-    }
-
-    appState.discardPendingAIQuickCapturePreview()
-
-    if text.lowercased().hasPrefix("journal:") {
-      let content = text.replacingOccurrences(of: "journal:", with: "", options: [.caseInsensitive])
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      await appState.createJournalEntry(
-        title: "",
-        content: content.isEmpty ? text : content,
-        mood: nil,
-        tags: []
-      )
-    } else {
-      await appState.createTask(
-        title: text,
-        priority: .medium,
-        dueDate: nil,
-        tags: [],
-        subtaskTitles: []
-      )
-    }
-
-    quickCapture = ""
-    await appState.refreshCoreWorkflowData()
-  }
-
-  private func aiQuickCapturePreview(_ preview: AIQuickCapturePreview) -> some View {
-    VStack(alignment: .leading, spacing: 12) {
-      HStack(alignment: .firstTextBaseline) {
-        Label(previewTitle(for: preview.classification), systemImage: "sparkles")
-          .font(SerenityType.sectionTitle)
-          .foregroundStyle(SerenityPalette.textPrimary)
-
-        Spacer()
-
-        Text("\(Int(preview.classification.confidence * 100))%")
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
-      }
-
-      switch preview.classification.kind {
-      case .tasks:
-        VStack(alignment: .leading, spacing: 8) {
-          ForEach(preview.classification.tasks) { task in
-            aiQuickCaptureTaskPreviewRow(task)
-          }
-        }
-      case .journal:
-        if let journal = preview.classification.journal {
-          aiQuickCaptureJournalPreview(journal)
-        }
-      }
-
-      HStack {
-        Spacer()
-        Button("Cancel") {
-          appState.discardPendingAIQuickCapturePreview()
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle(SerenityPalette.textSecondary)
-        .hoverCursor(.pointingHand)
-
-        Button("Save") {
-          Task {
-            let saved = await appState.savePendingAIQuickCapturePreview()
-            if saved {
-              quickCapture = ""
-            }
-          }
-        }
-        .buttonStyle(SerenityPrimaryButtonStyle())
-        .hoverCursor(.pointingHand)
-      }
-    }
-    .padding(16)
-    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .stroke(SerenityPalette.border, lineWidth: 1)
-    )
-  }
-
-  private func aiQuickCaptureTaskPreviewRow(_ task: AIQuickCaptureTaskDraft) -> some View {
-    VStack(alignment: .leading, spacing: 5) {
-      HStack(spacing: 8) {
-        Image(systemName: "checkmark.circle")
-          .foregroundStyle(SerenityPalette.accent)
-        Text(task.title)
-          .font(SerenityType.bodyLarge)
-          .foregroundStyle(SerenityPalette.textPrimary)
-          .lineLimit(2)
-        Spacer()
-        Text(task.priority.rawValue.capitalized)
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
-      }
-
-      let metadata = taskPreviewMetadata(task)
-      if !metadata.isEmpty {
-        Text(metadata.joined(separator: " · "))
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
-          .lineLimit(2)
-      }
-    }
-    .padding(10)
-    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-  }
-
-  private func aiQuickCaptureJournalPreview(_ journal: AIQuickCaptureJournalDraft) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      if let title = journal.title, !title.isEmpty {
-        Text(title)
-          .font(SerenityType.bodyLarge)
-          .foregroundStyle(SerenityPalette.textPrimary)
-      }
-
-      Text(journal.content)
-        .font(SerenityType.body)
-        .foregroundStyle(SerenityPalette.textSecondary)
-        .lineLimit(5)
-
-      let metadata = journalPreviewMetadata(journal)
-      if !metadata.isEmpty {
-        Text(metadata.joined(separator: " · "))
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
-      }
-    }
-    .padding(10)
-    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-  }
-
-  private func previewTitle(for classification: AIQuickCaptureClassification) -> String {
-    switch classification.kind {
-    case .tasks:
-      return "Review \(classification.tasks.count) Task\(classification.tasks.count == 1 ? "" : "s")"
-    case .journal:
-      return "Review Journal Entry"
-    }
-  }
-
-  private func taskPreviewMetadata(_ task: AIQuickCaptureTaskDraft) -> [String] {
-    var metadata: [String] = []
-    if let dueDate = task.dueDate {
-      metadata.append(Self.quickCapturePreviewDateFormatter.string(from: dueDate))
-    }
-    if let projectName = projectName(for: task.projectId) {
-      metadata.append(projectName)
-    }
-    if !task.tags.isEmpty {
-      metadata.append(task.tags.map { "#\($0)" }.joined(separator: " "))
-    }
-    if !task.subtasks.isEmpty {
-      metadata.append("\(task.subtasks.count) subtask\(task.subtasks.count == 1 ? "" : "s")")
-    }
-    return metadata
-  }
-
-  private func journalPreviewMetadata(_ journal: AIQuickCaptureJournalDraft) -> [String] {
-    var metadata: [String] = []
-    if let mood = journal.mood {
-      metadata.append(mood.rawValue.capitalized)
-    }
-    if !journal.tags.isEmpty {
-      metadata.append(journal.tags.map { "#\($0)" }.joined(separator: " "))
-    }
-    return metadata
-  }
-
-  private func projectName(for projectID: String?) -> String? {
-    guard let projectID else { return nil }
-    return appState.projects.first { $0.id == projectID }?.name
-  }
-
-  private var quickCaptureHelperText: String {
-    if let credential = selectedQuickCaptureCredential {
-      return "Write naturally. \(providerTitle(credential.provider)) is selected for AI-assisted capture."
-    }
-
-    return "Write naturally. Prefix with journal: to create a journal entry; otherwise we create a task."
-  }
-
-  private var selectedQuickCaptureCredential: AICredentialEntity? {
-    enabledQuickCaptureCredentials.first { $0.id == quickCaptureSelectedCredentialID }
-  }
-
-  private var enabledQuickCaptureCredentials: [AICredentialEntity] {
-    appState.aiCredentials
-      .filter(\.enabled)
-      .sorted { lhs, rhs in
-        if lhs.priority == rhs.priority {
-          return lhs.createdAt < rhs.createdAt
-        }
-        return lhs.priority < rhs.priority
-      }
-  }
-
-  private var quickCaptureSelectedCredentialID: String {
-    if selectedQuickCaptureCredentialID == nativeQuickCaptureProviderID {
-      return nativeQuickCaptureProviderID
-    }
-
-    if enabledQuickCaptureCredentials.contains(where: { $0.id == selectedQuickCaptureCredentialID }) {
-      return selectedQuickCaptureCredentialID
-    }
-
-    if let activeProvider = appState.aiSettings.activeProvider,
-       let activeCredential = enabledQuickCaptureCredentials.first(where: { $0.provider == activeProvider }) {
-      return activeCredential.id
-    }
-
-    return enabledQuickCaptureCredentials.first?.id ?? nativeQuickCaptureProviderID
-  }
-
-  private var quickCaptureCredentialOptions: [SerenityDropdownOption<String>] {
-    [
-      SerenityDropdownOption(
-        value: nativeQuickCaptureProviderID,
-        title: "Native",
-        subtitle: "Create tasks and journal entries locally",
-        systemImage: "macwindow",
-        tint: SerenityPalette.accent
-      )
-    ] + enabledQuickCaptureCredentials.map { credential in
-      SerenityDropdownOption(
-        value: credential.id,
-        title: providerTitle(credential.provider),
-        subtitle: "\(credential.name) · \(effectiveModel(for: credential))",
-        systemImage: providerIcon(credential.provider),
-        tint: providerTint(credential.provider)
-      )
-    }
-  }
-
-  private func effectiveModel(for credential: AICredentialEntity) -> String {
-    if let modelPreference = credential.modelPreference?.trimmingCharacters(in: .whitespacesAndNewlines), !modelPreference.isEmpty {
-      return modelPreference
-    }
-
-    switch credential.provider {
-    case .openai:
-      if let preferred = appState.aiSettings.preferredModels?.openai, !preferred.isEmpty {
-        return preferred
-      }
-    case .gemini:
-      if let preferred = appState.aiSettings.preferredModels?.gemini, !preferred.isEmpty {
-        return preferred
-      }
-    case .anthropic:
-      if let preferred = appState.aiSettings.preferredModels?.anthropic, !preferred.isEmpty {
-        return preferred
-      }
-    }
-
-    return appState.aiModelCatalog[credential.provider]?.first ?? "Default model"
-  }
-
-  private func providerTitle(_ provider: AICredentialProvider) -> String {
-    switch provider {
-    case .openai:
-      return "OpenAI"
-    case .gemini:
-      return "Gemini"
-    case .anthropic:
-      return "Anthropic"
-    }
-  }
-
-  private func providerIcon(_ provider: AICredentialProvider) -> String {
-    switch provider {
-    case .openai:
-      return "sparkles"
-    case .gemini:
-      return "diamond.fill"
-    case .anthropic:
-      return "brain.head.profile"
-    }
-  }
-
-  private func providerTint(_ provider: AICredentialProvider) -> Color {
-    switch provider {
-    case .openai:
-      return SerenityPalette.accent
-    case .gemini:
-      return .purple
-    case .anthropic:
-      return .orange
-    }
-  }
-}
-
-struct IntegrationsSectionView: View {
+struct IntegrationsSettingsPane: View {
   @EnvironmentObject private var appState: AppState
 
   @State private var githubToken = ""
@@ -1622,7 +1064,7 @@ private func tagsIncludingPendingInput(_ tags: [String], input: String) -> [Stri
   return tags + [pendingTag]
 }
 
-private struct ActionHubSectionView: View {
+private struct TasksSectionView: View {
   @EnvironmentObject private var appState: AppState
 
   private enum HubTab: String, CaseIterable, Identifiable {
@@ -2831,7 +2273,7 @@ private struct TodaySectionView: View {
           .font(SerenityType.body)
           .foregroundStyle(SerenityPalette.textSecondary)
         Button("Add a Task") {
-          appState.setSection(.actionHub)
+          appState.setSection(.tasks)
         }
         .buttonStyle(SerenitySecondaryButtonStyle())
         .hoverCursor(.pointingHand)
@@ -4016,6 +3458,40 @@ struct AIProviderDropdownAvailability {
 }
 
 struct InsightsSectionView: View {
+  private enum InsightsTab: String, CaseIterable, Identifiable {
+    case insights = "Insights"
+    case summaries = "Summaries"
+    case usage = "Usage & Cost"
+
+    var id: String { rawValue }
+  }
+
+  @State private var tab: InsightsTab = .insights
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: SerenityUI.Spacing.md) {
+      Picker("View", selection: $tab) {
+        ForEach(InsightsTab.allCases) { tab in
+          Text(tab.rawValue).tag(tab)
+        }
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .frame(maxWidth: 380)
+
+      switch tab {
+      case .insights:
+        InsightsPanelsView()
+      case .summaries:
+        AISummariesSectionView()
+      case .usage:
+        CostCenterSectionView()
+      }
+    }
+  }
+}
+
+private struct InsightsPanelsView: View {
   @EnvironmentObject private var appState: AppState
 
   @State private var insightNoteDrafts: [String: String] = [:]
@@ -4107,32 +3583,7 @@ struct InsightsSectionView: View {
   }
 
   private var setupBanner: some View {
-    HStack(alignment: .top, spacing: 10) {
-      Image(systemName: "exclamationmark.triangle.fill")
-        .foregroundStyle(.orange)
-      VStack(alignment: .leading, spacing: 2) {
-        Text("AI Provider not configured")
-          .font(SerenityType.bodyMedium)
-        HStack(spacing: 4) {
-          Text("You need to configure an AI provider to use this feature.")
-            .font(SerenityType.body)
-            .foregroundStyle(SerenityPalette.textSecondary)
-          Button("Go to Settings") {
-            appState.setSection(.settings, settingsTab: .aiProvider)
-          }
-          .buttonStyle(.plain)
-          .foregroundStyle(SerenityPalette.accent)
-          .hoverCursor(.pointingHand)
-        }
-      }
-      Spacer()
-    }
-    .padding(12)
-    .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .stroke(Color.orange.opacity(0.35), lineWidth: 1)
-    )
+    SerenityAISetupBanner()
   }
 
   private var contentColumn: some View {
@@ -5564,32 +5015,7 @@ private struct AISummariesSectionView: View {
   }
 
   private var aiProviderBanner: some View {
-    HStack(alignment: .top, spacing: 10) {
-      Image(systemName: "exclamationmark.triangle.fill")
-        .foregroundStyle(.orange)
-      VStack(alignment: .leading, spacing: 2) {
-        Text("AI Provider not configured")
-          .font(SerenityType.bodyMedium)
-        HStack(spacing: 4) {
-          Text("You need to configure an AI provider to use this feature.")
-            .font(SerenityType.body)
-            .foregroundStyle(SerenityPalette.textSecondary)
-          Button("Go to Settings") {
-            appState.setSection(.settings, settingsTab: .aiProvider)
-          }
-          .buttonStyle(.plain)
-          .foregroundStyle(SerenityPalette.accent)
-          .hoverCursor(.pointingHand)
-        }
-      }
-      Spacer()
-    }
-    .padding(12)
-    .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .stroke(Color.orange.opacity(0.35), lineWidth: 1)
-    )
+    SerenityAISetupBanner()
   }
 
   private var summariesPanel: some View {
@@ -5944,7 +5370,7 @@ private struct AISummariesSectionView: View {
   }
 }
 
-private struct DatabaseSectionView: View {
+private struct DatabaseToolsPane: View {
   @EnvironmentObject private var appState: AppState
 
   var body: some View {
@@ -5978,8 +5404,6 @@ private struct DatabaseSectionView: View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
           .stroke(Color.green.opacity(0.45), lineWidth: 1)
       )
-
-      DatabaseBackendConfigurationPanel()
 
       HStack(alignment: .top, spacing: 16) {
         GroupBox("Database Statistics") {
@@ -6651,7 +6075,7 @@ struct SettingsSectionView: View {
   @State private var newCredentialAPIKey = ""
   @State private var newCredentialModel = ""
   @State private var keyVerification: KeyVerificationState = .idle
-  @State private var selectedTab: SettingsTab = .appearance
+  @State private var selectedTab: SettingsTab = .general
 
   private enum KeyVerificationState: Equatable {
     case idle
@@ -6663,11 +6087,23 @@ struct SettingsSectionView: View {
   private let postgresSSLModes = ["disable", "prefer", "require", "verify-ca", "verify-full"]
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      settingsTabBar
-      Divider().overlay(SerenityPalette.thinBorder)
-      selectedPanel
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+#if os(macOS)
+    TabView(selection: $selectedTab) {
+      settingsTabContent { generalPane }
+        .tabItem { Label(SettingsTab.general.title, systemImage: SettingsTab.general.systemImage) }
+        .tag(SettingsTab.general)
+
+      settingsTabContent { aiPane }
+        .tabItem { Label(SettingsTab.ai.title, systemImage: SettingsTab.ai.systemImage) }
+        .tag(SettingsTab.ai)
+
+      settingsTabContent { syncBackendPane }
+        .tabItem { Label(SettingsTab.syncBackend.title, systemImage: SettingsTab.syncBackend.systemImage) }
+        .tag(SettingsTab.syncBackend)
+
+      settingsTabContent { advancedPane }
+        .tabItem { Label(SettingsTab.advanced.title, systemImage: SettingsTab.advanced.systemImage) }
+        .tag(SettingsTab.advanced)
     }
     .onAppear {
       loadStoredSettingsValuesIfNeeded()
@@ -6676,100 +6112,55 @@ struct SettingsSectionView: View {
     .onChange(of: appState.pendingSettingsTab) { _, _ in
       consumePendingSettingsTab()
     }
+#else
+    VStack(alignment: .leading, spacing: 18) {
+      generalPane
+      aiPane
+      syncBackendPane
+      advancedPane
+    }
+    .onAppear {
+      loadStoredSettingsValuesIfNeeded()
+    }
+#endif
+  }
+
+  private func settingsTabContent<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    ScrollView {
+      content()
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
   }
 
   private func consumePendingSettingsTab() {
     if let tab = appState.pendingSettingsTab {
-      if SettingsTab.allCases.contains(tab) {
-        selectedTab = tab
-      } else {
-        appState.setSection(.database)
-      }
+      selectedTab = tab
       appState.pendingSettingsTab = nil
     }
   }
 
-  private var settingsTabBar: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 6) {
-        ForEach(SettingsTab.allCases) { tab in
-          Button {
-            selectedTab = tab
-          } label: {
-            VStack(spacing: 4) {
-              ZStack(alignment: .topTrailing) {
-                Image(systemName: tab.systemImage)
-                  .font(SerenityType.scaledSystem(size: 16, weight: .semibold))
-                  .frame(width: 28, height: 28)
-                if let dotColor = warningDot(for: tab) {
-                  Circle()
-                    .fill(dotColor)
-                    .frame(width: 7, height: 7)
-                    .overlay(Circle().stroke(SerenityPalette.panelBackground, lineWidth: 1))
-                    .offset(x: 3, y: -2)
-                }
-              }
-              Text(tab.title)
-                .font(SerenityType.caption)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(minWidth: 78)
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .background(
-              selectedTab == tab
-                ? SerenityPalette.accent.opacity(0.18)
-                : Color.clear,
-              in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-            )
-            .overlay(
-              RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(
-                  selectedTab == tab ? SerenityPalette.accent.opacity(0.35) : Color.clear,
-                  lineWidth: 1
-                )
-            )
-            .foregroundStyle(
-              selectedTab == tab ? SerenityPalette.accent : SerenityPalette.textSecondary
-            )
-          }
-          .buttonStyle(.plain)
-          .hoverCursor(.pointingHand)
-        }
-      }
-      .padding(.horizontal, 2)
-    }
-  }
-
-  private func warningDot(for tab: SettingsTab) -> Color? {
-    switch tab {
-    case .aiProvider:
-      return hasEnabledCredential ? nil : .orange
-    case .backend:
-      return backendValidation.isAvailable ? nil : .orange
-    default:
-      return nil
-    }
-  }
-
-  @ViewBuilder
-  private var selectedPanel: some View {
-    switch selectedTab {
-    case .appearance:
+  private var generalPane: some View {
+    VStack(alignment: .leading, spacing: 18) {
       appearancePanel
-    case .aiProvider:
-      aiProviderPanel
-    case .backend:
-      backendPanel
-    case .auth:
-      authPanel
-    case .appLock:
       appLockPanel
-    case .localDatabase:
-      localDatabasePanel
-    case .diagnostics:
-      diagnosticsPanel
     }
+  }
+
+  private var aiPane: some View {
+    aiProviderPanel
+  }
+
+  private var syncBackendPane: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      IntegrationsSettingsPane()
+      DatabaseBackendConfigurationPanel()
+      authPanel
+    }
+  }
+
+  private var advancedPane: some View {
+    DatabaseToolsPane()
   }
 
   private var backendProfileDropdownOptions: [SerenityDropdownOption<BackendProfile>] {
@@ -7280,60 +6671,6 @@ struct SettingsSectionView: View {
       .frame(width: 8, height: 8)
   }
 
-  private var backendPanel: some View {
-    settingsPanel(
-      title: "Backend Configuration",
-      subtitle: "Data residency and connectivity",
-      systemImage: "server.rack",
-      tint: backendValidation.isAvailable ? .green : .orange
-    ) {
-      VStack(alignment: .leading, spacing: 14) {
-        settingsField("Primary backend", help: "Controls the active storage adapter used by the app.") {
-          SerenityDropdownField(
-            placeholder: "Primary backend",
-            selection: $appState.settings.backendProfile,
-            options: backendProfileDropdownOptions
-          )
-          .frame(maxWidth: 300, alignment: .leading)
-        }
-
-        statusBanner(
-          backendValidation.message,
-          systemImage: backendValidation.isAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
-          tint: backendValidation.isAvailable ? .green : .orange
-        )
-
-        Divider()
-          .overlay(SerenityPalette.thinBorder)
-
-        settingsField("Edit configuration", help: "Select a backend profile, then update its connection details.") {
-          SerenityDropdownField(
-            placeholder: "Edit configuration",
-            selection: $backendConfigProfile,
-            options: backendProfileDropdownOptions
-          )
-          .frame(maxWidth: 300, alignment: .leading)
-        }
-
-        backendConfigurationEditor
-
-        HStack(spacing: 10) {
-          Button {
-            Task {
-              await appState.refreshActiveBackendValidation()
-            }
-          } label: {
-            Label("Validate active backend", systemImage: "checkmark.seal")
-          }
-          .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-
-          backendSwitchStatus
-        }
-      }
-    }
-  }
-
   private var authPanel: some View {
     settingsPanel(
       title: "Auth Session",
@@ -7591,69 +6928,6 @@ struct SettingsSectionView: View {
         }
 
         biometricStatus
-      }
-    }
-  }
-
-  private var localDatabasePanel: some View {
-    settingsPanel(
-      title: "Local Database",
-      subtitle: "Bootstrap and migrations",
-      systemImage: "externaldrive.connected.to.line.below",
-      tint: databaseOverviewTint
-    ) {
-      VStack(alignment: .leading, spacing: 12) {
-        databaseStatusContent
-
-        Button {
-          Task {
-            await appState.bootstrapLocalDatabase()
-          }
-        } label: {
-          Label("Run bootstrap", systemImage: "arrow.clockwise")
-        }
-        .buttonStyle(SerenitySecondaryButtonStyle())
-        .hoverCursor(.pointingHand)
-      }
-    }
-  }
-
-  private var diagnosticsPanel: some View {
-    settingsPanel(
-      title: "Backend Diagnostics",
-      subtitle: "\(appState.backendDiagnosticsLines.count) lines",
-      systemImage: "waveform.path.ecg.rectangle",
-      tint: SerenityPalette.accent
-    ) {
-      VStack(alignment: .leading, spacing: 12) {
-        if appState.backendDiagnosticsLines.isEmpty {
-          statusBanner(
-            "No diagnostics available yet.",
-            systemImage: "info.circle",
-            tint: SerenityPalette.textSecondary
-          )
-        } else {
-          VStack(alignment: .leading, spacing: 6) {
-            ForEach(appState.backendDiagnosticsLines, id: \.self) { line in
-              Text(line)
-                .font(SerenityType.caption)
-                .foregroundStyle(SerenityPalette.textSecondary)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-          }
-        }
-
-        Button {
-          Task {
-            await appState.refreshActiveBackendValidation()
-            await appState.refreshBackendDiagnostics()
-          }
-        } label: {
-          Label("Refresh diagnostics", systemImage: "arrow.clockwise")
-        }
-        .buttonStyle(SerenitySecondaryButtonStyle())
-        .hoverCursor(.pointingHand)
       }
     }
   }
@@ -8359,8 +7633,8 @@ private struct LocalLockOverlayView: View {
           }
 
           Button("Forgot your password?") {
-            appState.setSection(.settings)
-            appState.showToast("Open Settings to reset your local lock password.")
+            appState.requestSettings(tab: .general)
+            appState.showToast("After unlocking, open Settings to reset your local lock password.")
           }
           .buttonStyle(.plain)
           .font(SerenityType.scaledSystem(size: 14, weight: .medium, design: .rounded))
@@ -8846,6 +8120,9 @@ private struct HelpCenterFAQ: Identifiable {
 private struct HelpCenterSheet: View {
   @EnvironmentObject private var appState: AppState
   @State private var query = ""
+#if os(macOS)
+  @Environment(\.openSettings) private var openSettings
+#endif
 
   private let articles: [HelpCenterArticle] = [
     HelpCenterArticle(
@@ -8856,11 +8133,11 @@ private struct HelpCenterSheet: View {
       section: nil
     ),
     HelpCenterArticle(
-      title: "Manage tasks in ActionHub",
+      title: "Manage your tasks",
       summary: "Create, edit, complete, or bulk-update tasks and subtasks.",
-      keywords: ["actionhub", "tasks", "subtasks", "bulk"],
+      keywords: ["tasks", "subtasks", "bulk", "calendar"],
       shortcut: nil,
-      section: .actionHub
+      section: .tasks
     ),
     HelpCenterArticle(
       title: "Plan your day",
@@ -8885,28 +8162,21 @@ private struct HelpCenterSheet: View {
     ),
     HelpCenterArticle(
       title: "Configure integrations",
-      summary: "Connect Google and GitHub providers and inspect sync health.",
+      summary: "Connect Google and GitHub in Settings › Sync & Backend and inspect sync health.",
       keywords: ["integrations", "google", "github", "sync"],
       shortcut: nil,
-      section: .integrations
+      section: nil
     ),
     HelpCenterArticle(
-      title: "Review AI insights and summaries",
-      summary: "Explore generated insights, recaps, and summary exports.",
-      keywords: ["insights", "ai", "summary", "usage"],
+      title: "Review AI insights, summaries, and costs",
+      summary: "Explore generated insights, recaps, summary exports, and AI usage spend.",
+      keywords: ["insights", "ai", "summary", "usage", "cost", "tokens", "billing", "pricing"],
       shortcut: nil,
       section: .insights
     ),
     HelpCenterArticle(
-      title: "Monitor AI cost center",
-      summary: "Review token usage, estimated spend, model rates, and recent AI calls.",
-      keywords: ["cost", "tokens", "usage", "ai", "billing", "pricing"],
-      shortcut: nil,
-      section: .costCenter
-    ),
-    HelpCenterArticle(
       title: "Security and backend settings",
-      summary: "Manage auth, local lock, database diagnostics, and backend selection.",
+      summary: "Manage auth, local lock, database tools, and backend selection in Settings.",
       keywords: ["settings", "security", "database", "backend"],
       shortcut: nil,
       section: .settings
@@ -9009,25 +8279,19 @@ private struct HelpCenterSheet: View {
               .buttonStyle(SerenitySecondaryButtonStyle())
               .hoverCursor(.pointingHand)
 
-              Button("Go to ActionHub") {
-                appState.setSection(.actionHub)
+              Button("Go to Tasks") {
+                appState.setSection(.tasks)
                 appState.closeHelpCenter()
-              }
-              .buttonStyle(SerenitySecondaryButtonStyle())
-              .hoverCursor(.pointingHand)
-
-              Button("Quick Add Task") {
-                Task {
-                  await appState.quickAddTaskFromCommand()
-                  appState.closeHelpCenter()
-                }
               }
               .buttonStyle(SerenitySecondaryButtonStyle())
               .hoverCursor(.pointingHand)
 
               Button("Open Settings") {
-                appState.setSection(.settings)
                 appState.closeHelpCenter()
+                appState.requestSettings(tab: .general)
+#if os(macOS)
+                openSettings()
+#endif
               }
               .buttonStyle(SerenitySecondaryButtonStyle())
               .hoverCursor(.pointingHand)
@@ -9079,7 +8343,7 @@ private struct HelpCenterSheet: View {
             VStack(alignment: .leading, spacing: 8) {
               HelpShortcutRow(action: "Global Search", shortcut: "Cmd+K")
               HelpShortcutRow(action: "Help Center", shortcut: "Cmd+/")
-              HelpShortcutRow(action: "Quick Add Task", shortcut: "Cmd+Shift+N")
+              HelpShortcutRow(action: "Quick Capture", shortcut: "Cmd+Shift+N")
             }
             .padding(.top, 8)
           }
@@ -9107,8 +8371,15 @@ private struct HelpCenterSheet: View {
                 ForEach(filteredArticles) { article in
                   HelpArticleRow(article: article) {
                     guard let section = article.section else { return }
-                    appState.setSection(section)
                     appState.closeHelpCenter()
+#if os(macOS)
+                    if section == .settings {
+                      appState.requestSettings(tab: .general)
+                      openSettings()
+                      return
+                    }
+#endif
+                    appState.setSection(section)
                   }
                 }
               }

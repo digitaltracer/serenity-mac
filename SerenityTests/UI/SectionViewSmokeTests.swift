@@ -4,13 +4,13 @@ import XCTest
 
 @MainActor
 final class SectionViewSmokeTests: XCTestCase {
-  func testIntegrationsSectionViewCanBeConstructed() {
+  func testIntegrationsSettingsPaneCanBeConstructed() {
     let state = AppState(
       serenityCloudAdapter: nil,
       externalPostgresAdapter: nil
     )
 
-    let view = IntegrationsSectionView().environmentObject(state)
+    let view = IntegrationsSettingsPane().environmentObject(state)
     XCTAssertNotNil(view)
   }
 
@@ -21,6 +21,26 @@ final class SectionViewSmokeTests: XCTestCase {
     )
 
     let view = InsightsSectionView().environmentObject(state)
+    XCTAssertNotNil(view)
+  }
+
+  func testSettingsSectionViewCanBeConstructed() {
+    let state = AppState(
+      serenityCloudAdapter: nil,
+      externalPostgresAdapter: nil
+    )
+
+    let view = SettingsSectionView().environmentObject(state)
+    XCTAssertNotNil(view)
+  }
+
+  func testQuickCapturePanelViewCanBeConstructed() {
+    let state = AppState(
+      serenityCloudAdapter: nil,
+      externalPostgresAdapter: nil
+    )
+
+    let view = QuickCapturePanelView().environmentObject(state)
     XCTAssertNotNil(view)
   }
 }

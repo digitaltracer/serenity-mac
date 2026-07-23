@@ -1,45 +1,30 @@
 import Foundation
 
 public enum AppSection: String, CaseIterable, Identifiable {
-  case home
-  case actionHub
   case today
+  case tasks
+  case projects
   case journal
   case goals
-  case projects
-  case integrations
   case insights
-  case aiSummaries
-  case costCenter
-  case database
   case settings
 
   public var id: String { rawValue }
 
   var title: String {
     switch self {
-    case .home:
-      return "Home"
-    case .actionHub:
-      return "ActionHub"
     case .today:
       return "Today"
+    case .tasks:
+      return "Tasks"
+    case .projects:
+      return "Projects"
     case .journal:
       return "Journal"
     case .goals:
       return "Goals"
-    case .projects:
-      return "Projects"
-    case .integrations:
-      return "Integrations"
     case .insights:
       return "Insights"
-    case .aiSummaries:
-      return "AI Summaries"
-    case .costCenter:
-      return "Cost Center"
-    case .database:
-      return "Database"
     case .settings:
       return "Settings"
     }
@@ -47,28 +32,18 @@ public enum AppSection: String, CaseIterable, Identifiable {
 
   var systemImage: String {
     switch self {
-    case .home:
-      return "house"
-    case .actionHub:
-      return "checklist"
     case .today:
       return "calendar"
-    case .journal:
-      return "book"
-    case .goals:
-      return "target"
+    case .tasks:
+      return "checkmark.circle"
     case .projects:
       return "folder"
-    case .integrations:
-      return "globe"
+    case .journal:
+      return "book.closed"
+    case .goals:
+      return "target"
     case .insights:
-      return "chart.bar.xaxis"
-    case .aiSummaries:
       return "sparkles"
-    case .costCenter:
-      return "dollarsign.circle"
-    case .database:
-      return "internaldrive"
     case .settings:
       return "gearshape"
     }
@@ -76,55 +51,36 @@ public enum AppSection: String, CaseIterable, Identifiable {
 }
 
 public enum SettingsTab: String, CaseIterable, Identifiable, Equatable {
-  case appearance
-  case aiProvider
-  case backend
-  case auth
-  case appLock
-  case localDatabase
-  case diagnostics
-
-  public static var allCases: [SettingsTab] {
-    [.appearance, .aiProvider, .appLock]
-  }
+  case general
+  case ai
+  case syncBackend
+  case advanced
 
   public var id: String { rawValue }
 
   var title: String {
     switch self {
-    case .appearance:
-      return "Appearance"
-    case .aiProvider:
-      return "AI Provider"
-    case .backend:
-      return "Backend"
-    case .auth:
-      return "Auth"
-    case .appLock:
-      return "App Lock"
-    case .localDatabase:
-      return "Local Database"
-    case .diagnostics:
-      return "Diagnostics"
+    case .general:
+      return "General"
+    case .ai:
+      return "AI"
+    case .syncBackend:
+      return "Sync & Backend"
+    case .advanced:
+      return "Advanced"
     }
   }
 
   var systemImage: String {
     switch self {
-    case .appearance:
-      return "paintpalette"
-    case .aiProvider:
-      return "key.horizontal.fill"
-    case .backend:
-      return "server.rack"
-    case .auth:
-      return "person.crop.circle.badge.checkmark"
-    case .appLock:
-      return "lock.shield"
-    case .localDatabase:
-      return "cylinder.split.1x2"
-    case .diagnostics:
-      return "stethoscope"
+    case .general:
+      return "gearshape"
+    case .ai:
+      return "sparkles"
+    case .syncBackend:
+      return "arrow.triangle.2.circlepath"
+    case .advanced:
+      return "wrench.and.screwdriver"
     }
   }
 }

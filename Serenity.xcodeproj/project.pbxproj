@@ -37,6 +37,7 @@
 		A00000000000000000000097 /* RateGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000037 /* RateGuard.swift */; };
 		A00000000000000000000098 /* SecurityAuditRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000038 /* SecurityAuditRepository.swift */; };
 		A00000000000000000000099 /* SerenityDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000039 /* SerenityDesignSystem.swift */; };
+		A00000000000000000000220 /* SerenityAISetupBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000209 /* SerenityAISetupBanner.swift */; };
 		A0000000000000000000021A /* SerenitySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000206 /* SerenitySidebar.swift */; };
 		A0000000000000000000021B /* QuickCaptureEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000207 /* QuickCaptureEditor.swift */; };
 		A0000000000000000000021C /* QuickCapturePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000208 /* QuickCapturePanelView.swift */; };
@@ -73,6 +74,7 @@
 		A000000000000000000000B7 /* RateGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000037 /* RateGuard.swift */; };
 		A000000000000000000000B8 /* SecurityAuditRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000038 /* SecurityAuditRepository.swift */; };
 		A000000000000000000000B9 /* SerenityDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000039 /* SerenityDesignSystem.swift */; };
+		A00000000000000000000221 /* SerenityAISetupBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000209 /* SerenityAISetupBanner.swift */; };
 		A0000000000000000000021D /* SerenitySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000206 /* SerenitySidebar.swift */; };
 		A0000000000000000000021E /* QuickCaptureEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000207 /* QuickCaptureEditor.swift */; };
 		A0000000000000000000021F /* QuickCapturePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000208 /* QuickCapturePanelView.swift */; };
@@ -130,6 +132,7 @@
 		A00000000000000000000037 /* RateGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RateGuard.swift; sourceTree = "<group>"; };
 		A00000000000000000000038 /* SecurityAuditRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityAuditRepository.swift; sourceTree = "<group>"; };
 		A00000000000000000000039 /* SerenityDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityDesignSystem.swift; sourceTree = "<group>"; };
+		A00000000000000000000209 /* SerenityAISetupBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityAISetupBanner.swift; sourceTree = "<group>"; };
 		A00000000000000000000206 /* SerenitySidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenitySidebar.swift; sourceTree = "<group>"; };
 		A00000000000000000000207 /* QuickCaptureEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickCaptureEditor.swift; sourceTree = "<group>"; };
 		A00000000000000000000208 /* QuickCapturePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickCapturePanelView.swift; sourceTree = "<group>"; };
@@ -333,6 +336,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000200 /* SerenityCard.swift */,
+				A00000000000000000000209 /* SerenityAISetupBanner.swift */,
 				A00000000000000000000201 /* SerenityBadge.swift */,
 				A00000000000000000000202 /* SerenitySectionHeader.swift */,
 				A00000000000000000000203 /* SerenityEmptyState.swift */,
@@ -517,6 +521,7 @@
 				A00000000000000000000097 /* RateGuard.swift in Sources */,
 				A00000000000000000000098 /* SecurityAuditRepository.swift in Sources */,
 				A00000000000000000000099 /* SerenityDesignSystem.swift in Sources */,
+				A00000000000000000000220 /* SerenityAISetupBanner.swift in Sources */,
 				A0000000000000000000021A /* SerenitySidebar.swift in Sources */,
 				A0000000000000000000021B /* QuickCaptureEditor.swift in Sources */,
 				A0000000000000000000021C /* QuickCapturePanelView.swift in Sources */,
@@ -567,6 +572,7 @@
 				A000000000000000000000B7 /* RateGuard.swift in Sources */,
 				A000000000000000000000B8 /* SecurityAuditRepository.swift in Sources */,
 				A000000000000000000000B9 /* SerenityDesignSystem.swift in Sources */,
+				A00000000000000000000221 /* SerenityAISetupBanner.swift in Sources */,
 				A0000000000000000000021D /* SerenitySidebar.swift in Sources */,
 				A0000000000000000000021E /* QuickCaptureEditor.swift in Sources */,
 				A0000000000000000000021F /* QuickCapturePanelView.swift in Sources */,

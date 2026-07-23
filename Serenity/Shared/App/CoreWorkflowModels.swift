@@ -104,7 +104,7 @@ extension GlobalSearchResultType {
   var targetSection: AppSection {
     switch self {
     case .task:
-      return .actionHub
+      return .tasks
     case .project:
       return .projects
     case .journal:

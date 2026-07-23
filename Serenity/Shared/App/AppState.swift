@@ -126,7 +126,7 @@ final class AppState: ObservableObject {
   private let settingsSync: SettingsSyncCoordinator
   private var settingsSyncObserver: NSObjectProtocol?
 
-  @Published var selectedSection: AppSection? = .home
+  @Published var selectedSection: AppSection? = .today
   @Published var pendingSettingsTab: SettingsTab?
   @Published var settings = AppSettings()
   @Published var themePreference: AppThemePreference = .system
@@ -350,6 +350,16 @@ final class AppState: ObservableObject {
   func setSection(_ section: AppSection?, settingsTab tab: SettingsTab) {
     pendingSettingsTab = tab
     setSection(section)
+  }
+
+  /// Routes a deep link into Settings. On macOS the Settings scene reads
+  /// `pendingSettingsTab`; callers open it with the `openSettings` action.
+  /// On iOS Settings remains an app section.
+  func requestSettings(tab: SettingsTab) {
+    pendingSettingsTab = tab
+#if !os(macOS)
+    setSection(.settings)
+#endif
   }
 
   func openGlobalSearch(prefill query: String? = nil) {
@@ -1715,16 +1725,6 @@ final class AppState: ObservableObject {
       coreWorkflowState = .failed(message: message)
       showError(title: "Data load failed", message: message)
     }
-  }
-
-  func quickAddTaskFromCommand() async {
-    _ = await createTask(
-      title: "Quick task \(Self.commandDateFormatter.string(from: Date()))",
-      priority: .medium,
-      dueDate: Date(),
-      tags: ["quick-add"],
-      subtaskTitles: []
-    )
   }
 
   @discardableResult
