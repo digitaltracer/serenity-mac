@@ -9,6 +9,7 @@ import UIKit
 struct SerenityAppScene: View {
   @ObservedObject var appState: AppState
   @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
+  @Environment(\.openWindow) private var openWindow
 
   var body: some View {
     Group {
@@ -83,31 +84,37 @@ struct SerenityAppScene: View {
           set: { appState.setSection($0) }
         )
       )
-      .navigationSplitViewColumnWidth(min: 214, ideal: 228, max: 246)
+      .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
     } detail: {
-      ZStack {
-        SerenityDetailBackground()
-        detailContent
-      }
+      detailContent
     }
     .navigationSplitViewStyle(.balanced)
 #if os(macOS)
     .toolbar {
       ToolbarItemGroup(placement: .primaryAction) {
-        TopBarButton(symbol: "magnifyingglass", accessibilityLabel: "Search") {
+        Button {
+          openWindow(id: "quick-capture")
+        } label: {
+          Label("Quick Capture", systemImage: "square.and.pencil")
+        }
+        .help("Quick Capture (⇧⌘N)")
+        .disabled(appState.isLockOverlayVisible)
+
+        Button {
           appState.openGlobalSearch()
+        } label: {
+          Label("Search", systemImage: "magnifyingglass")
         }
-        TopBarButton(symbol: "questionmark.circle", accessibilityLabel: "Help") {
+        .help("Search (⌘K)")
+
+        Button {
           appState.openHelpCenter()
+        } label: {
+          Label("Help", systemImage: "questionmark.circle")
         }
-        TopBarButton(symbol: appState.themePreference.topBarSymbol, accessibilityLabel: "Theme") {
-          cycleThemePreference()
-        }
-        Spacer()
-          .frame(width: 8)
+        .help("Help (⌘/)")
       }
     }
-    .toolbarBackground(.hidden, for: .windowToolbar)
 #endif
   }
 
@@ -128,35 +135,15 @@ struct SerenityAppScene: View {
       if let selectedSection = appState.selectedSection {
         SectionView(section: selectedSection)
           .environmentObject(appState)
+          .navigationTitle(selectedSection.title)
       } else {
         ContentUnavailableView("Select a section", systemImage: "sidebar.left")
       }
     }
   }
-
-  private func cycleThemePreference() {
-    let all = AppThemePreference.allCases
-    guard let currentIndex = all.firstIndex(of: appState.themePreference) else {
-      appState.setThemePreference(.system)
-      return
-    }
-    let next = all[(currentIndex + 1) % all.count]
-    appState.setThemePreference(next)
-  }
 }
 
 private extension AppThemePreference {
-  var colorScheme: ColorScheme? {
-    switch self {
-    case .system:
-      return nil
-    case .light:
-      return .light
-    case .dark:
-      return .dark
-    }
-  }
-
   var topBarSymbol: String {
     switch self {
     case .system:
@@ -226,35 +213,6 @@ private extension SerenityCursor {
   }
 }
 #endif
-
-private struct SerenityDetailBackground: View {
-  var body: some View {
-    ZStack {
-      LinearGradient(
-        colors: [
-          SerenityPalette.windowBackground,
-          SerenityPalette.windowBackgroundDepth,
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-      )
-      .ignoresSafeArea()
-
-      Circle()
-        .fill(SerenityPalette.accent.opacity(0.07))
-        .frame(width: 520, height: 520)
-        .blur(radius: 80)
-        .offset(x: 220, y: -250)
-
-      Circle()
-        .fill(SerenityPalette.ambientGlow)
-        .frame(width: 560, height: 560)
-        .blur(radius: 100)
-        .offset(x: 0, y: 260)
-    }
-    .allowsHitTesting(false)
-  }
-}
 
 private struct SerenityPanelGroupBoxStyle: GroupBoxStyle {
   func makeBody(configuration: Configuration) -> some View {
@@ -365,154 +323,6 @@ private struct TopBarButton: View {
       }
       .buttonStyle(.plain)
       .hoverCursor(.pointingHand)
-  }
-}
-
-private struct SerenitySidebar: View {
-  @Binding var selectedSection: AppSection?
-  @State private var hoveredSection: AppSection?
-
-  private let primarySections: [AppSection] = [.home, .actionHub, .today, .journal, .goals, .insights, .aiSummaries]
-  private let systemSections: [AppSection] = [.integrations, .costCenter, .database, .settings]
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      sidebarHeader
-
-      VStack(alignment: .leading, spacing: 0) {
-        Text("NAVIGATION")
-          .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
-          .tracking(1.1)
-          .foregroundStyle(SerenityPalette.textSecondary)
-          .padding(.horizontal, 18)
-          .padding(.top, 16)
-
-        ScrollView {
-          VStack(alignment: .leading, spacing: 4) {
-            ForEach(primarySections) { section in
-              navRow(section)
-            }
-          }
-          .padding(.horizontal, 14)
-          .padding(.top, 10)
-        }
-
-        Spacer(minLength: 0)
-
-        Divider()
-          .overlay(SerenityPalette.thinBorder)
-          .padding(.top, 8)
-
-        VStack(alignment: .leading, spacing: 4) {
-          ForEach(systemSections) { section in
-            navRow(section)
-          }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-      }
-    }
-    .background(SerenityPalette.sidebarBackground)
-  }
-
-  private var sidebarHeader: some View {
-    HStack(spacing: 10) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(SerenityPalette.headerIconBackground)
-          .frame(width: SerenityChromeMetrics.sidebarHeaderIconSize, height: SerenityChromeMetrics.sidebarHeaderIconSize)
-        Image(systemName: "square.and.pencil")
-          .font(SerenityType.scaledSystem(size: 14, weight: .semibold))
-          .foregroundStyle(SerenityPalette.accent)
-      }
-
-      VStack(alignment: .leading, spacing: 1) {
-        Text("Serenity Notes")
-          .font(SerenityType.bodyLarge.weight(.semibold))
-      }
-      Spacer()
-    }
-    .padding(.horizontal, 18)
-    .padding(.top, SerenityChromeMetrics.sidebarHeaderTopPadding)
-    .padding(.bottom, SerenityChromeMetrics.sidebarHeaderBottomPadding)
-    .background(SerenityPalette.sidebarHeaderBackground)
-    .overlay(alignment: .bottom) {
-      Rectangle()
-        .fill(SerenityPalette.thinBorder)
-        .frame(height: 1)
-    }
-  }
-
-  private func navRow(_ section: AppSection) -> some View {
-    let selected = isSelected(section)
-    let hovered = hoveredSection == section
-
-    return Button {
-      selectedSection = section
-    } label: {
-      HStack(spacing: 10) {
-        Image(systemName: section.systemImage)
-          .frame(width: 18)
-          .font(SerenityType.scaledSystem(size: 14, weight: .semibold))
-
-        Text(section.title)
-          .font(SerenityType.bodyLarge.weight(.medium))
-
-        Spacer()
-      }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
-      .foregroundStyle(selected ? SerenityPalette.textOnInteractiveSurface : SerenityPalette.textSecondary)
-      .background(
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .fill(selected ? SerenityPalette.activeItemBackground : (hovered ? SerenityPalette.panelBackgroundRaised : .clear))
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .stroke(hovered && !selected ? SerenityPalette.thinBorder : .clear, lineWidth: 1)
-      )
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .hoverCursor(.pointingHand)
-    .onHover { hovering in
-      hoveredSection = hovering ? section : nil
-    }
-  }
-
-  private func isSelected(_ section: AppSection) -> Bool {
-    selectedSection == section
-  }
-}
-
-private extension AppSection {
-  var subtitle: String {
-    switch self {
-    case .home:
-      return "Boost productivity and mindfulness from one workspace"
-    case .actionHub:
-      return "Task and project control center"
-    case .today:
-      return "Focus on what matters most right now"
-    case .journal:
-      return "Capture notes, mood, and reflections"
-    case .goals:
-      return "Track progress against measurable targets"
-    case .projects:
-      return "Organize work across active initiatives"
-    case .integrations:
-      return "Manage external providers and sync health"
-    case .insights:
-      return "AI analysis, recaps, and usage intelligence"
-    case .aiSummaries:
-      return "Generate and view AI-powered summaries of your tasks and journal entries"
-    case .costCenter:
-      return "Track AI token usage, spend, and provider rates"
-    case .database:
-      return "Bootstrap, integrity checks, and export tooling"
-    case .settings:
-      return "Appearance, AI provider, auth, and app lock controls"
-    }
   }
 }
 
@@ -747,10 +557,6 @@ private struct SectionView: View {
 
       SerenityThemedScrollView {
         VStack(alignment: .leading, spacing: density.sectionSpacing) {
-          if section != .home && section != .today {
-            sectionHeader(density: density)
-          }
-
           switch section {
           case .home:
             HomeSectionView(density: density, availableWidth: proxy.size.width)
@@ -802,205 +608,7 @@ private struct SectionView: View {
     }
   }
 
-  private func sectionHeader(density: SerenityContentDensity) -> some View {
-    HStack(spacing: 12) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .fill(SerenityPalette.headerIconBackground)
-          .frame(width: density.sectionIconContainer, height: density.sectionIconContainer)
-        Image(systemName: section.systemImage)
-          .font(SerenityType.scaledSystem(size: density.sectionIconSize, weight: .semibold))
-          .foregroundStyle(SerenityPalette.accent)
-      }
-
-      VStack(alignment: .leading, spacing: 2) {
-        Text(section.title)
-          .font(density.sectionTitleFont)
-        Text(section.subtitle)
-          .font(density.sectionSubtitleFont)
-          .foregroundStyle(SerenityPalette.textSecondary)
-      }
-
-      Spacer()
-    }
-    .padding(.vertical, 4)
-  }
 }
-
-#if os(macOS)
-private final class QuickCaptureTextView: NSTextView {
-  var focusChanged: ((Bool) -> Void)?
-
-  override func becomeFirstResponder() -> Bool {
-    let accepted = super.becomeFirstResponder()
-    if accepted {
-      focusChanged?(true)
-    }
-    return accepted
-  }
-
-  override func resignFirstResponder() -> Bool {
-    let accepted = super.resignFirstResponder()
-    if accepted {
-      focusChanged?(false)
-    }
-    return accepted
-  }
-}
-
-private final class QuickCaptureContainerScrollView: NSScrollView {
-  override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-    true
-  }
-
-  override func resetCursorRects() {
-    super.resetCursorRects()
-    addCursorRect(bounds, cursor: .iBeam)
-  }
-
-  override func mouseDown(with event: NSEvent) {
-    NSApp.activate(ignoringOtherApps: true)
-    window?.makeKeyAndOrderFront(nil)
-
-    if let textView = documentView as? NSTextView {
-      window?.makeFirstResponder(textView)
-    }
-    super.mouseDown(with: event)
-  }
-}
-
-private struct QuickCaptureEditor: NSViewRepresentable {
-  @Binding var text: String
-  @Binding var isFocused: Bool
-  let fontSize: CGFloat
-
-  func makeCoordinator() -> Coordinator {
-    Coordinator(text: $text, isFocused: $isFocused)
-  }
-
-  func makeNSView(context: Context) -> NSScrollView {
-    let scrollView = QuickCaptureContainerScrollView()
-    scrollView.drawsBackground = false
-    scrollView.borderType = .noBorder
-    scrollView.hasVerticalScroller = false
-    scrollView.autohidesScrollers = true
-    scrollView.scrollerStyle = .overlay
-    scrollView.backgroundColor = .clear
-
-    let textView = QuickCaptureTextView()
-    textView.delegate = context.coordinator
-    textView.focusChanged = { focused in
-      if context.coordinator.isFocused != focused {
-        context.coordinator.isFocused = focused
-      }
-    }
-    textView.string = text
-    textView.drawsBackground = false
-    textView.isRichText = false
-    textView.importsGraphics = false
-    textView.usesFindBar = false
-    textView.isEditable = true
-    textView.isSelectable = true
-    textView.isVerticallyResizable = true
-    textView.isHorizontallyResizable = false
-    textView.minSize = NSSize(width: 0, height: 0)
-    textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-    textView.autoresizingMask = [.width]
-    textView.isContinuousSpellCheckingEnabled = true
-    textView.textContainerInset = NSSize(width: 0, height: 0)
-    textView.textContainer?.lineFragmentPadding = 0
-    textView.textContainer?.widthTracksTextView = true
-    textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-    textView.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
-    textView.font = .systemFont(ofSize: SerenityType.scaledSize(fontSize), weight: .regular)
-    textView.textColor = NSColor(SerenityPalette.textPrimary)
-    textView.insertionPointColor = NSColor(SerenityPalette.textPrimary)
-    textView.typingAttributes[.foregroundColor] = NSColor(SerenityPalette.textPrimary)
-
-    scrollView.documentView = textView
-    context.coordinator.textView = textView
-
-    return scrollView
-  }
-
-  func updateNSView(_ nsView: NSScrollView, context: Context) {
-    guard let textView = nsView.documentView as? QuickCaptureTextView else { return }
-
-    let contentSize = nsView.contentView.bounds.size
-    let targetHeight = max(contentSize.height, textView.frame.height)
-    if textView.frame.width != contentSize.width || textView.frame.height < contentSize.height {
-      textView.frame = NSRect(x: 0, y: 0, width: contentSize.width, height: targetHeight)
-    }
-    textView.textContainer?.containerSize = NSSize(width: contentSize.width, height: CGFloat.greatestFiniteMagnitude)
-
-    if textView.string != text {
-      textView.string = text
-    }
-
-    textView.font = .systemFont(ofSize: SerenityType.scaledSize(fontSize), weight: .regular)
-    textView.textColor = NSColor(SerenityPalette.textPrimary)
-    textView.insertionPointColor = NSColor(SerenityPalette.textPrimary)
-    textView.typingAttributes[.foregroundColor] = NSColor(SerenityPalette.textPrimary)
-
-    if isFocused {
-      if nsView.window?.firstResponder !== textView {
-        nsView.window?.makeFirstResponder(textView)
-      }
-    } else if nsView.window?.firstResponder === textView {
-      nsView.window?.makeFirstResponder(nil)
-    }
-  }
-
-  final class Coordinator: NSObject, NSTextViewDelegate {
-    @Binding var text: String
-    @Binding var isFocused: Bool
-    weak var textView: QuickCaptureTextView?
-
-    init(text: Binding<String>, isFocused: Binding<Bool>) {
-      _text = text
-      _isFocused = isFocused
-    }
-
-    func textDidChange(_ notification: Notification) {
-      guard let textView else { return }
-      text = textView.string
-    }
-
-    func textDidBeginEditing(_ notification: Notification) {
-      isFocused = true
-    }
-
-    func textDidEndEditing(_ notification: Notification) {
-      isFocused = false
-    }
-  }
-}
-#else
-private struct QuickCaptureEditor: View {
-  @Binding var text: String
-  @Binding var isFocused: Bool
-  let fontSize: CGFloat
-
-  @FocusState private var editorFocused: Bool
-
-  var body: some View {
-    TextEditor(text: $text)
-      .font(SerenityType.scaledSystem(size: fontSize, weight: .regular))
-      .foregroundStyle(SerenityPalette.textPrimary)
-      .scrollContentBackground(.hidden)
-      .focused($editorFocused)
-      .onAppear {
-        editorFocused = isFocused
-      }
-      .onChange(of: editorFocused) { _, newValue in
-        isFocused = newValue
-      }
-      .onChange(of: isFocused) { _, newValue in
-        editorFocused = newValue
-      }
-  }
-}
-#endif
 
 private struct HomeSectionView: View {
   let density: SerenityContentDensity
@@ -7017,7 +6625,7 @@ private struct DatabaseBackendConfigurationPanel: View {
   }
 }
 
-private struct SettingsSectionView: View {
+struct SettingsSectionView: View {
   @EnvironmentObject private var appState: AppState
   @State private var authorizationCode = ""
   @State private var oauthBaseURL = ""

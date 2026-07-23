@@ -7,6 +7,7 @@ import AppKit
 struct SerenityMacApp: App {
   @NSApplicationDelegateAdaptor(SerenityMacAppDelegate.self) private var appDelegate
   @StateObject private var appState: AppState
+  @Environment(\.openWindow) private var openWindow
 
   init() {
     DotEnv.loadIfPresent()
@@ -23,10 +24,17 @@ struct SerenityMacApp: App {
           NSApplication.shared.registerForRemoteNotifications()
         }
     }
-    .windowStyle(.hiddenTitleBar)
     .defaultSize(width: 1280, height: 820)
     .commands {
       CommandGroup(after: .newItem) {
+        Button("Quick Capture") {
+          openWindow(id: "quick-capture")
+        }
+        .keyboardShortcut("n", modifiers: [.command, .shift])
+        .disabled(appState.isLockOverlayVisible)
+
+        Divider()
+
         Button("Global Search") {
           appState.openGlobalSearch()
         }
@@ -36,16 +44,23 @@ struct SerenityMacApp: App {
           appState.openHelpCenter()
         }
         .keyboardShortcut("/", modifiers: [.command])
-
-        Divider()
-
-        Button("Quick Add Task") {
-          Task {
-            await appState.quickAddTaskFromCommand()
-          }
-        }
-        .keyboardShortcut("n", modifiers: [.command, .shift])
       }
+    }
+
+    Window("Quick Capture", id: "quick-capture") {
+      QuickCapturePanelView()
+        .environmentObject(appState)
+        .preferredColorScheme(appState.themePreference.colorScheme)
+    }
+    .windowStyle(.hiddenTitleBar)
+    .windowResizability(.contentSize)
+    .defaultPosition(.center)
+
+    Settings {
+      SettingsSectionView()
+        .environmentObject(appState)
+        .preferredColorScheme(appState.themePreference.colorScheme)
+        .frame(minWidth: 640, idealWidth: 680, minHeight: 520, idealHeight: 560)
     }
   }
 }
