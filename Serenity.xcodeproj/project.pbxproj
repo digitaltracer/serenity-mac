@@ -139,6 +139,12 @@
 		A0000000000000000000025C /* SummariesTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000025A /* SummariesTab.swift */; };
 		A0000000000000000000025E /* UsageCostTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000025D /* UsageCostTab.swift */; };
 		A0000000000000000000025F /* UsageCostTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000025D /* UsageCostTab.swift */; };
+		A00000000000000000000262 /* SettingsSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000261 /* SettingsSectionView.swift */; };
+		A00000000000000000000263 /* SettingsSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000261 /* SettingsSectionView.swift */; };
+		A00000000000000000000265 /* IntegrationsSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000264 /* IntegrationsSettingsPane.swift */; };
+		A00000000000000000000266 /* IntegrationsSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000264 /* IntegrationsSettingsPane.swift */; };
+		A00000000000000000000268 /* DatabasePanes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000267 /* DatabasePanes.swift */; };
+		A00000000000000000000269 /* DatabasePanes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000267 /* DatabasePanes.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -213,6 +219,9 @@
 		A00000000000000000000257 /* InsightsPanelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsPanelsView.swift; sourceTree = "<group>"; };
 		A0000000000000000000025A /* SummariesTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummariesTab.swift; sourceTree = "<group>"; };
 		A0000000000000000000025D /* UsageCostTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageCostTab.swift; sourceTree = "<group>"; };
+		A00000000000000000000261 /* SettingsSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSectionView.swift; sourceTree = "<group>"; };
+		A00000000000000000000264 /* IntegrationsSettingsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationsSettingsPane.swift; sourceTree = "<group>"; };
+		A00000000000000000000267 /* DatabasePanes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabasePanes.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -361,6 +370,7 @@
 		A0000000000000000000000C /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				A00000000000000000000260 /* Settings */,
 				A00000000000000000000237 /* Markdown */,
 				A00000000000000000000222 /* Sections */,
 				A00000000000000000000039 /* SerenityDesignSystem.swift */,
@@ -368,6 +378,16 @@
 				A0000000000000000000020A /* Shell */,
 			);
 			path = UI;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000260 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000267 /* DatabasePanes.swift */,
+				A00000000000000000000264 /* IntegrationsSettingsPane.swift */,
+				A00000000000000000000261 /* SettingsSectionView.swift */,
+			);
+			path = Settings;
 			sourceTree = "<group>";
 		};
 		A00000000000000000000237 /* Markdown */ = {
@@ -629,6 +649,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A00000000000000000000268 /* DatabasePanes.swift in Sources */,
+				A00000000000000000000265 /* IntegrationsSettingsPane.swift in Sources */,
+				A00000000000000000000262 /* SettingsSectionView.swift in Sources */,
 				A0000000000000000000025E /* UsageCostTab.swift in Sources */,
 				A0000000000000000000025B /* SummariesTab.swift in Sources */,
 				A00000000000000000000258 /* InsightsPanelsView.swift in Sources */,
@@ -698,6 +721,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A00000000000000000000269 /* DatabasePanes.swift in Sources */,
+				A00000000000000000000266 /* IntegrationsSettingsPane.swift in Sources */,
+				A00000000000000000000263 /* SettingsSectionView.swift in Sources */,
 				A0000000000000000000025F /* UsageCostTab.swift in Sources */,
 				A0000000000000000000025C /* SummariesTab.swift in Sources */,
 				A00000000000000000000259 /* InsightsPanelsView.swift in Sources */,
