@@ -131,6 +131,14 @@
 		A0000000000000000000024F /* ProjectsSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000024D /* ProjectsSectionView.swift */; };
 		A00000000000000000000251 /* ProjectEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000250 /* ProjectEditorView.swift */; };
 		A00000000000000000000252 /* ProjectEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000250 /* ProjectEditorView.swift */; };
+		A00000000000000000000255 /* InsightsSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000254 /* InsightsSectionView.swift */; };
+		A00000000000000000000256 /* InsightsSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000254 /* InsightsSectionView.swift */; };
+		A00000000000000000000258 /* InsightsPanelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000257 /* InsightsPanelsView.swift */; };
+		A00000000000000000000259 /* InsightsPanelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000257 /* InsightsPanelsView.swift */; };
+		A0000000000000000000025B /* SummariesTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000025A /* SummariesTab.swift */; };
+		A0000000000000000000025C /* SummariesTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000025A /* SummariesTab.swift */; };
+		A0000000000000000000025E /* UsageCostTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000025D /* UsageCostTab.swift */; };
+		A0000000000000000000025F /* UsageCostTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000025D /* UsageCostTab.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -201,6 +209,10 @@
 		A00000000000000000000249 /* GoalsSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalsSectionView.swift; sourceTree = "<group>"; };
 		A0000000000000000000024D /* ProjectsSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsSectionView.swift; sourceTree = "<group>"; };
 		A00000000000000000000250 /* ProjectEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectEditorView.swift; sourceTree = "<group>"; };
+		A00000000000000000000254 /* InsightsSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsSectionView.swift; sourceTree = "<group>"; };
+		A00000000000000000000257 /* InsightsPanelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsPanelsView.swift; sourceTree = "<group>"; };
+		A0000000000000000000025A /* SummariesTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummariesTab.swift; sourceTree = "<group>"; };
+		A0000000000000000000025D /* UsageCostTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageCostTab.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -370,6 +382,7 @@
 		A00000000000000000000222 /* Sections */ = {
 			isa = PBXGroup;
 			children = (
+				A00000000000000000000253 /* Insights */,
 				A0000000000000000000024C /* Projects */,
 				A00000000000000000000248 /* Goals */,
 				A0000000000000000000023E /* Journal */,
@@ -377,6 +390,17 @@
 				A00000000000000000000223 /* Today */,
 			);
 			path = Sections;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000253 /* Insights */ = {
+			isa = PBXGroup;
+			children = (
+				A0000000000000000000025D /* UsageCostTab.swift */,
+				A0000000000000000000025A /* SummariesTab.swift */,
+				A00000000000000000000257 /* InsightsPanelsView.swift */,
+				A00000000000000000000254 /* InsightsSectionView.swift */,
+			);
+			path = Insights;
 			sourceTree = "<group>";
 		};
 		A0000000000000000000024C /* Projects */ = {
@@ -605,6 +629,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0000000000000000000025E /* UsageCostTab.swift in Sources */,
+				A0000000000000000000025B /* SummariesTab.swift in Sources */,
+				A00000000000000000000258 /* InsightsPanelsView.swift in Sources */,
+				A00000000000000000000255 /* InsightsSectionView.swift in Sources */,
 				A00000000000000000000251 /* ProjectEditorView.swift in Sources */,
 				A0000000000000000000024E /* ProjectsSectionView.swift in Sources */,
 				A0000000000000000000024A /* GoalsSectionView.swift in Sources */,
@@ -670,6 +698,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0000000000000000000025F /* UsageCostTab.swift in Sources */,
+				A0000000000000000000025C /* SummariesTab.swift in Sources */,
+				A00000000000000000000259 /* InsightsPanelsView.swift in Sources */,
+				A00000000000000000000256 /* InsightsSectionView.swift in Sources */,
 				A00000000000000000000252 /* ProjectEditorView.swift in Sources */,
 				A0000000000000000000024F /* ProjectsSectionView.swift in Sources */,
 				A0000000000000000000024B /* GoalsSectionView.swift in Sources */,
