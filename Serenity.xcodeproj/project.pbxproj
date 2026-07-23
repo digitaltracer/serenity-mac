@@ -145,6 +145,14 @@
 		A00000000000000000000266 /* IntegrationsSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000264 /* IntegrationsSettingsPane.swift */; };
 		A00000000000000000000268 /* DatabasePanes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000267 /* DatabasePanes.swift */; };
 		A00000000000000000000269 /* DatabasePanes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000267 /* DatabasePanes.swift */; };
+		A0000000000000000000026B /* LockOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000026A /* LockOverlayView.swift */; };
+		A0000000000000000000026C /* LockOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000026A /* LockOverlayView.swift */; };
+		A0000000000000000000026E /* GlobalSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000026D /* GlobalSearchSheet.swift */; };
+		A0000000000000000000026F /* GlobalSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000026D /* GlobalSearchSheet.swift */; };
+		A00000000000000000000271 /* HelpCenterSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000270 /* HelpCenterSheet.swift */; };
+		A00000000000000000000272 /* HelpCenterSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000270 /* HelpCenterSheet.swift */; };
+		A00000000000000000000274 /* ToastBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000273 /* ToastBanner.swift */; };
+		A00000000000000000000275 /* ToastBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000273 /* ToastBanner.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -222,6 +230,10 @@
 		A00000000000000000000261 /* SettingsSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSectionView.swift; sourceTree = "<group>"; };
 		A00000000000000000000264 /* IntegrationsSettingsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationsSettingsPane.swift; sourceTree = "<group>"; };
 		A00000000000000000000267 /* DatabasePanes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabasePanes.swift; sourceTree = "<group>"; };
+		A0000000000000000000026A /* LockOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockOverlayView.swift; sourceTree = "<group>"; };
+		A0000000000000000000026D /* GlobalSearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchSheet.swift; sourceTree = "<group>"; };
+		A00000000000000000000270 /* HelpCenterSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpCenterSheet.swift; sourceTree = "<group>"; };
+		A00000000000000000000273 /* ToastBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastBanner.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -473,6 +485,10 @@
 		A0000000000000000000020A /* Shell */ = {
 			isa = PBXGroup;
 			children = (
+				A00000000000000000000273 /* ToastBanner.swift */,
+				A00000000000000000000270 /* HelpCenterSheet.swift */,
+				A0000000000000000000026D /* GlobalSearchSheet.swift */,
+				A0000000000000000000026A /* LockOverlayView.swift */,
 				A00000000000000000000206 /* SerenitySidebar.swift */,
 				A0000000000000000000020B /* QuickCapture */,
 			);
@@ -649,6 +665,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A00000000000000000000274 /* ToastBanner.swift in Sources */,
+				A00000000000000000000271 /* HelpCenterSheet.swift in Sources */,
+				A0000000000000000000026E /* GlobalSearchSheet.swift in Sources */,
+				A0000000000000000000026B /* LockOverlayView.swift in Sources */,
 				A00000000000000000000268 /* DatabasePanes.swift in Sources */,
 				A00000000000000000000265 /* IntegrationsSettingsPane.swift in Sources */,
 				A00000000000000000000262 /* SettingsSectionView.swift in Sources */,
@@ -721,6 +741,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A00000000000000000000275 /* ToastBanner.swift in Sources */,
+				A00000000000000000000272 /* HelpCenterSheet.swift in Sources */,
+				A0000000000000000000026F /* GlobalSearchSheet.swift in Sources */,
+				A0000000000000000000026C /* LockOverlayView.swift in Sources */,
 				A00000000000000000000269 /* DatabasePanes.swift in Sources */,
 				A00000000000000000000266 /* IntegrationsSettingsPane.swift in Sources */,
 				A00000000000000000000263 /* SettingsSectionView.swift in Sources */,

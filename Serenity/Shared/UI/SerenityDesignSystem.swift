@@ -28,20 +28,14 @@ enum SerenityUI {
     static let accent = Color.accentColor
     static let textPrimary = Color.primary
     static let textSecondary = Color.secondary
-    static let textOnInteractiveSurface = Color.primary
     static let thinBorder = border.opacity(0.5)
     static let activeItemBackground = accent.opacity(0.16)
     static let headerIconBackground = panelBackgroundRaised
-    static let inputBackgroundHover = inputBackground
 
-    // Legacy tokens from the gradient/glow identity, kept so call sites
-    // compile until they are removed; all resolve to flat/no-op values.
-    static let windowBackgroundDepth = windowBackground
+    // Legacy tokens from the gradient/glow identity; still referenced by the
+    // iOS top bar and resolve to no-op values.
     static let sidebarBackground = Color.clear
     static let sidebarHeaderBackground = Color.clear
-    static let ambientGlow = Color.clear
-    static let quickCaptureTint = Color.clear
-    static let highlightStroke = Color.clear
   }
 
   /// Native SF Pro text-style ramp; sizes resolve per platform.
@@ -211,87 +205,6 @@ private struct SerenityScrollMetrics: Equatable {
   var offset: CGFloat
   var content: CGFloat
   var viewport: CGFloat
-}
-
-struct SerenityThemedScrollView<Content: View>: View {
-  private let content: Content
-
-  @State private var contentHeight: CGFloat = 0
-  @State private var viewportHeight: CGFloat = 0
-  @State private var scrollOffset: CGFloat = 0
-  @State private var hovered = false
-
-  init(@ViewBuilder content: () -> Content) {
-    self.content = content()
-  }
-
-  private var shouldShowScrollbar: Bool {
-    viewportHeight > 0 && contentHeight > viewportHeight + 4
-  }
-
-  private var thumbHeight: CGFloat {
-    guard shouldShowScrollbar else { return 0 }
-    let trackHeight = max(viewportHeight - 24, 1)
-    return min(trackHeight, max(44, trackHeight * viewportHeight / contentHeight))
-  }
-
-  private var thumbOffset: CGFloat {
-    guard shouldShowScrollbar else { return 0 }
-    let trackHeight = max(viewportHeight - 24, 1)
-    let maxScrollOffset = max(contentHeight - viewportHeight, 1)
-    let maxThumbOffset = max(trackHeight - thumbHeight, 0)
-    return 12 + min(max(scrollOffset / maxScrollOffset, 0), 1) * maxThumbOffset
-  }
-
-  var body: some View {
-    if #available(macOS 15.0, iOS 18.0, *) {
-      ScrollView(.vertical, showsIndicators: false) {
-        content
-      }
-      .onScrollGeometryChange(for: SerenityScrollMetrics.self) { geometry in
-        SerenityScrollMetrics(
-          offset: max(0, geometry.contentOffset.y),
-          content: geometry.contentSize.height,
-          viewport: geometry.containerSize.height
-        )
-      } action: { _, metrics in
-        scrollOffset = metrics.offset
-        contentHeight = metrics.content
-        viewportHeight = metrics.viewport
-      }
-      .overlay(alignment: .topTrailing) {
-        if shouldShowScrollbar {
-          scrollbar
-            .opacity(hovered ? 1 : 0.72)
-            .animation(.easeOut(duration: 0.16), value: hovered)
-        }
-      }
-      .onHover { isHovering in
-        hovered = isHovering
-      }
-    } else {
-      ScrollView(.vertical) {
-        content
-      }
-      .scrollIndicators(.automatic)
-    }
-  }
-
-  private var scrollbar: some View {
-    ZStack(alignment: .top) {
-      Capsule()
-        .fill(SerenityPalette.thinBorder.opacity(0.55))
-        .frame(width: 5)
-
-      Capsule()
-        .fill(SerenityPalette.textSecondary.opacity(hovered ? 0.62 : 0.42))
-        .frame(width: 5, height: thumbHeight)
-        .offset(y: thumbOffset)
-    }
-    .frame(width: 12)
-    .padding(.trailing, 6)
-    .allowsHitTesting(false)
-  }
 }
 
 struct SerenityTagInputField: View {

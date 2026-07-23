@@ -2,7 +2,7 @@
 
 Serenity is a native SwiftUI app with shared code for macOS and iOS.
 
-The app combines personal planning, journaling, goals, integrations, AI-assisted insights, and database management in one codebase. The shared app currently ships these sections: Home, Action Hub, Today, Journal, Goals, Projects, Integrations, Insights, Database, and Settings.
+The app combines personal planning, journaling, goals, integrations, AI-assisted insights, and database management in one codebase. The shared app currently ships these sections: Today, Tasks, Projects, Journal, Goals, and Insights (with Summaries and Usage & Cost tabs). Integrations, backend, database tooling, and app-lock controls live in Settings (⌘, on macOS); Quick Capture opens as its own window (⇧⌘N).
 
 ## What The Codebase Includes
 

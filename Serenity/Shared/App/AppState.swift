@@ -2926,13 +2926,6 @@ final class AppState: ObservableObject {
     return formatter
   }()
 
-  private static let commandDateFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .none
-    formatter.timeStyle = .short
-    return formatter
-  }()
-
   private func assertRateLimit(for operation: SensitiveOperation, operationName: String) async -> Bool {
     let decision = await sensitiveOperationRateGuard.evaluate(operation)
     guard decision.allowed else {
