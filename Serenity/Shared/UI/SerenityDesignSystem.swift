@@ -10,27 +10,31 @@ typealias SerenityNativeColor = UIColor
 enum SerenityUI {
   private static func dynamicNativeColor(
     light: (CGFloat, CGFloat, CGFloat, CGFloat),
-    dark: (CGFloat, CGFloat, CGFloat, CGFloat)
+    dark: SerenityNativeColor
   ) -> SerenityNativeColor {
 #if os(macOS)
     NSColor(name: nil) { appearance in
       let bestMatch = appearance.bestMatch(from: [.darkAqua, .vibrantDark, .aqua, .vibrantLight])
-      let active = (bestMatch == .darkAqua || bestMatch == .vibrantDark) ? dark : light
+      if bestMatch == .darkAqua || bestMatch == .vibrantDark {
+        return dark
+      }
       return NSColor(
-        srgbRed: active.0,
-        green: active.1,
-        blue: active.2,
-        alpha: active.3
+        srgbRed: light.0,
+        green: light.1,
+        blue: light.2,
+        alpha: light.3
       )
     }
 #else
     SerenityNativeColor { traits in
-      let active = traits.userInterfaceStyle == .dark ? dark : light
+      if traits.userInterfaceStyle == .dark {
+        return dark
+      }
       return SerenityNativeColor(
-        red: active.0,
-        green: active.1,
-        blue: active.2,
-        alpha: active.3
+        red: light.0,
+        green: light.1,
+        blue: light.2,
+        alpha: light.3
       )
     }
 #endif
@@ -38,7 +42,7 @@ enum SerenityUI {
 
   private static func dynamicColor(
     light: (CGFloat, CGFloat, CGFloat, CGFloat),
-    dark: (CGFloat, CGFloat, CGFloat, CGFloat)
+    dark: SerenityNativeColor
   ) -> Color {
     let nativeColor = dynamicNativeColor(light: light, dark: dark)
 #if os(macOS)
@@ -49,82 +53,97 @@ enum SerenityUI {
   }
 
   enum Palette {
-    static let accent = Color(red: 0.27, green: 0.52, blue: 0.95)
+    static let accent = SerenityUI.dynamicColor(
+      light: (0.27, 0.52, 0.95, 1.0),
+      dark: SerenityDarkPalette.accent
+    )
+    static let primaryActionBackground = SerenityUI.dynamicColor(
+      light: (0.27, 0.52, 0.95, 1.0),
+      dark: SerenityDarkPalette.primaryActionBackground
+    )
+    static let detailAccentGlow = SerenityUI.dynamicColor(
+      light: (0.27, 0.52, 0.95, 0.07),
+      dark: .clear
+    )
+    static let controlGlow = SerenityUI.dynamicColor(
+      light: (0.27, 0.52, 0.95, 1.0),
+      dark: .clear
+    )
     static let windowBackground = SerenityUI.dynamicColor(
       light: (0.96, 0.97, 0.99, 1.0),
-      dark: (0.02, 0.07, 0.18, 1.0)
+      dark: SerenityDarkPalette.windowBackground
     )
     static let windowBackgroundDepth = SerenityUI.dynamicColor(
       light: (0.93, 0.94, 0.97, 1.0),
-      dark: (0.015, 0.055, 0.14, 1.0)
+      dark: SerenityDarkPalette.windowBackgroundDepth
     )
     static let ambientGlow = SerenityUI.dynamicColor(
       light: (0.45, 0.33, 0.92, 0.015),
-      dark: (0.45, 0.33, 0.92, 0.09)
+      dark: .clear
     )
     static let sidebarBackground = SerenityUI.dynamicColor(
       light: (0.93, 0.94, 0.97, 1.0),
-      dark: (0.015, 0.055, 0.14, 1.0)
+      dark: SerenityDarkPalette.sidebarBackground
     )
     static let sidebarHeaderBackground = SerenityUI.dynamicColor(
       light: (0.93, 0.94, 0.97, 1.0),
-      dark: (0.015, 0.055, 0.14, 1.0)
+      dark: SerenityDarkPalette.sidebarBackground
     )
     static let panelBackground = SerenityUI.dynamicColor(
       light: (0.97, 0.98, 0.99, 1.0),
-      dark: (0.04, 0.09, 0.20, 1.0)
+      dark: SerenityDarkPalette.panelBackground
     )
     static let panelBackgroundRaised = SerenityUI.dynamicColor(
       light: (0.95, 0.96, 0.98, 1.0),
-      dark: (0.07, 0.13, 0.25, 1.0)
+      dark: SerenityDarkPalette.panelBackgroundRaised
     )
     static let innerCardBackground = SerenityUI.dynamicColor(
       light: (0.93, 0.95, 0.97, 1.0),
-      dark: (0.08, 0.14, 0.25, 1.0)
+      dark: SerenityDarkPalette.panelBackgroundRaised
     )
     static let inputBackground = SerenityUI.dynamicColor(
       light: (0.98, 0.99, 1.00, 1.0),
-      dark: (0.08, 0.14, 0.25, 1.0)
+      dark: SerenityDarkPalette.panelBackgroundRaised
     )
     static let inputBackgroundHover = SerenityUI.dynamicColor(
       light: (0.97, 0.98, 1.00, 1.0),
-      dark: (0.10, 0.16, 0.27, 1.0)
+      dark: SerenityDarkPalette.hoverBackground
     )
     static let border = SerenityUI.dynamicColor(
       light: (0.60, 0.66, 0.76, 0.45),
-      dark: (0.24, 0.34, 0.50, 0.55)
+      dark: SerenityDarkPalette.border
     )
     static let thinBorder = SerenityUI.dynamicColor(
       light: (0.60, 0.66, 0.76, 0.24),
-      dark: (0.24, 0.34, 0.50, 0.32)
+      dark: SerenityDarkPalette.thinBorder
     )
     static let activeItemBackground = SerenityUI.dynamicColor(
       light: (0.79, 0.86, 0.97, 1.0),
-      dark: (0.17, 0.25, 0.38, 1.0)
+      dark: SerenityDarkPalette.activeItemBackground
     )
     static let headerIconBackground = SerenityUI.dynamicColor(
       light: (0.89, 0.92, 0.97, 1.0),
-      dark: (0.10, 0.17, 0.30, 1.0)
+      dark: SerenityDarkPalette.hoverBackground
     )
     static let textSecondary = SerenityUI.dynamicColor(
       light: (0.31, 0.39, 0.51, 1.0),
-      dark: (0.57, 0.65, 0.78, 1.0)
+      dark: SerenityDarkPalette.textSecondary
     )
     static let textPrimary = SerenityUI.dynamicColor(
       light: (0.14, 0.20, 0.31, 1.0),
-      dark: (0.90, 0.94, 0.99, 1.0)
+      dark: SerenityDarkPalette.textPrimary
     )
     static let textOnInteractiveSurface = SerenityUI.dynamicColor(
       light: (0.14, 0.20, 0.31, 1.0),
-      dark: (0.97, 0.98, 1.00, 1.0)
+      dark: SerenityDarkPalette.textOnInteractiveSurface
     )
     static let quickCaptureTint = SerenityUI.dynamicColor(
       light: (0.49, 0.58, 0.88, 0.10),
-      dark: (0.24, 0.17, 0.44, 0.55)
+      dark: SerenityDarkPalette.quickCaptureTint
     )
     static let highlightStroke = SerenityUI.dynamicColor(
       light: (1.00, 1.00, 1.00, 0.28),
-      dark: (1.00, 1.00, 1.00, 0.06)
+      dark: SerenityDarkPalette.highlightStroke
     )
   }
 
@@ -148,6 +167,44 @@ enum SerenityUI {
       size * fontScale
     }
   }
+}
+
+private enum SerenityDarkPalette {
+#if os(macOS)
+  static let accent = NSColor.secondaryLabelColor
+  static let primaryActionBackground = NSColor.unemphasizedSelectedContentBackgroundColor
+  static let windowBackground = NSColor.windowBackgroundColor
+  static let windowBackgroundDepth = NSColor.underPageBackgroundColor
+  static let sidebarBackground = NSColor.underPageBackgroundColor
+  static let panelBackground = NSColor.controlBackgroundColor
+  static let panelBackgroundRaised = NSColor.textBackgroundColor
+  static let hoverBackground = NSColor.unemphasizedSelectedContentBackgroundColor
+  static let border = NSColor.separatorColor.withAlphaComponent(0.28)
+  static let thinBorder = NSColor.separatorColor.withAlphaComponent(0.15)
+  static let activeItemBackground = NSColor.unemphasizedSelectedContentBackgroundColor
+  static let textSecondary = NSColor.secondaryLabelColor
+  static let textPrimary = NSColor.labelColor.withAlphaComponent(0.72)
+  static let textOnInteractiveSurface = NSColor.labelColor
+  static let quickCaptureTint = NSColor.quaternaryLabelColor
+  static let highlightStroke = NSColor.separatorColor.withAlphaComponent(0.08)
+#else
+  static let accent = UIColor.secondaryLabel
+  static let primaryActionBackground = UIColor.systemGray2
+  static let windowBackground = UIColor.systemBackground
+  static let windowBackgroundDepth = UIColor.secondarySystemBackground
+  static let sidebarBackground = UIColor.secondarySystemBackground
+  static let panelBackground = UIColor.secondarySystemBackground
+  static let panelBackgroundRaised = UIColor.tertiarySystemBackground
+  static let hoverBackground = UIColor.systemGray5
+  static let border = UIColor.separator.withAlphaComponent(0.28)
+  static let thinBorder = UIColor.separator.withAlphaComponent(0.15)
+  static let activeItemBackground = UIColor.systemGray4
+  static let textSecondary = UIColor.secondaryLabel
+  static let textPrimary = UIColor.label.withAlphaComponent(0.72)
+  static let textOnInteractiveSurface = UIColor.label
+  static let quickCaptureTint = UIColor.quaternaryLabel
+  static let highlightStroke = UIColor.separator.withAlphaComponent(0.08)
+#endif
 }
 
 enum SerenityScreenMetrics {
@@ -189,11 +246,11 @@ struct SerenityPrimaryButtonStyle: ButtonStyle {
       .foregroundStyle(Color.white)
       .background(
         RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .fill(SerenityPalette.accent.opacity(configuration.isPressed ? 0.78 : 1))
+          .fill(SerenityPalette.primaryActionBackground.opacity(configuration.isPressed ? 0.78 : 1))
       )
       .overlay(
         RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .stroke(SerenityPalette.accent.opacity(0.65), lineWidth: 1)
+          .stroke(SerenityPalette.primaryActionBackground.opacity(0.65), lineWidth: 1)
       )
       .scaleEffect(configuration.isPressed ? 0.99 : 1)
       .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
@@ -569,7 +626,7 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
           .stroke(SerenityPalette.highlightStroke, lineWidth: 1)
       )
-      .shadow(color: SerenityPalette.accent.opacity(hovered || showingPopover ? 0.12 : 0.06), radius: hovered || showingPopover ? 8 : 5, x: 0, y: 1)
+      .shadow(color: SerenityPalette.controlGlow.opacity(hovered || showingPopover ? 0.12 : 0.06), radius: hovered || showingPopover ? 8 : 5, x: 0, y: 1)
     }
     .buttonStyle(.plain)
     .disabled(options.isEmpty)
@@ -774,7 +831,7 @@ struct SerenityInputFieldModifier: ViewModifier {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
           .stroke(SerenityPalette.highlightStroke, lineWidth: 1)
       )
-      .shadow(color: SerenityPalette.accent.opacity(hovered ? 0.12 : 0.06), radius: hovered ? 8 : 5, x: 0, y: 1)
+      .shadow(color: SerenityPalette.controlGlow.opacity(hovered ? 0.12 : 0.06), radius: hovered ? 8 : 5, x: 0, y: 1)
       .animation(.easeOut(duration: 0.16), value: hovered)
       .onHover { isHovering in
         hovered = isHovering
@@ -804,7 +861,7 @@ struct SerenityTextAreaModifier: ViewModifier {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
           .stroke(SerenityPalette.highlightStroke, lineWidth: 1)
       )
-      .shadow(color: SerenityPalette.accent.opacity(hovered ? 0.12 : 0.06), radius: hovered ? 8 : 5, x: 0, y: 1)
+      .shadow(color: SerenityPalette.controlGlow.opacity(hovered ? 0.12 : 0.06), radius: hovered ? 8 : 5, x: 0, y: 1)
       .animation(.easeOut(duration: 0.16), value: hovered)
       .onHover { isHovering in
         hovered = isHovering

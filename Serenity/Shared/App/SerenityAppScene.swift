@@ -21,6 +21,7 @@ struct SerenityAppScene: View {
     .environmentObject(appState)
     .groupBoxStyle(SerenityPanelGroupBoxStyle())
     .tint(SerenityPalette.accent)
+    .foregroundStyle(SerenityPalette.textPrimary)
     .preferredColorScheme(appState.themePreference.colorScheme)
     .onOpenURL { url in
       GoogleCalendarConfiguration.handleSignInURL(url)
@@ -241,7 +242,7 @@ private struct SerenityDetailBackground: View {
       .ignoresSafeArea()
 
       Circle()
-        .fill(SerenityPalette.accent.opacity(0.07))
+        .fill(SerenityPalette.detailAccentGlow)
         .frame(width: 520, height: 520)
         .blur(radius: 80)
         .offset(x: 220, y: -250)
@@ -1038,7 +1039,7 @@ private struct HomeSectionView: View {
         Circle()
           .fill(SerenityPalette.headerIconBackground)
           .frame(width: density.heroAvatarSize, height: density.heroAvatarSize)
-          .shadow(color: SerenityPalette.accent.opacity(0.35), radius: 22)
+          .shadow(color: SerenityPalette.controlGlow.opacity(0.35), radius: 22)
         Text("S")
           .font(SerenityType.scaledSystem(size: density.heroLetterSize, weight: .medium))
           .foregroundStyle(SerenityPalette.accent)
@@ -3452,13 +3453,13 @@ private struct SerenityDateRangePicker: View {
   }
 
   private func dayBackground(isEndpoint: Bool, isInRange: Bool) -> Color {
-    if isEndpoint { return SerenityPalette.accent }
+    if isEndpoint { return SerenityPalette.primaryActionBackground }
     if isInRange { return SerenityPalette.accent.opacity(0.18) }
     return Color.clear
   }
 
   private func dayBorderColor(isEndpoint: Bool, isInRange: Bool, isToday: Bool) -> Color {
-    if isEndpoint { return SerenityPalette.accent }
+    if isEndpoint { return SerenityPalette.primaryActionBackground }
     if isToday { return SerenityPalette.accent.opacity(0.6) }
     if isInRange { return SerenityPalette.accent.opacity(0.25) }
     return SerenityPalette.thinBorder
@@ -8528,6 +8529,7 @@ private struct SettingsSectionView: View {
 
 private struct LocalLockOverlayView: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.colorScheme) private var colorScheme
   @State private var password = ""
   @State private var revealPassword = false
   @State private var isUnlockingWithPassword = false
@@ -8538,8 +8540,8 @@ private struct LocalLockOverlayView: View {
     ZStack {
       LinearGradient(
         colors: [
-          Color(red: 0.06, green: 0.12, blue: 0.24),
-          Color(red: 0.04, green: 0.10, blue: 0.20),
+          lockColor(Color(red: 0.06, green: 0.12, blue: 0.24), dark: SerenityPalette.windowBackground),
+          lockColor(Color(red: 0.04, green: 0.10, blue: 0.20), dark: SerenityPalette.windowBackgroundDepth),
         ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
@@ -8547,13 +8549,13 @@ private struct LocalLockOverlayView: View {
       .ignoresSafeArea()
 
       Circle()
-        .fill(Color(red: 0.30, green: 0.45, blue: 0.82).opacity(0.34))
+        .fill(lockColor(Color(red: 0.30, green: 0.45, blue: 0.82).opacity(0.34), dark: .clear))
         .frame(width: 680, height: 680)
         .blur(radius: 120)
         .offset(x: -220, y: -300)
 
       Circle()
-        .fill(Color(red: 0.18, green: 0.32, blue: 0.62).opacity(0.30))
+        .fill(lockColor(Color(red: 0.18, green: 0.32, blue: 0.62).opacity(0.30), dark: .clear))
         .frame(width: 780, height: 780)
         .blur(radius: 140)
         .offset(x: 260, y: -260)
@@ -8579,15 +8581,19 @@ private struct LocalLockOverlayView: View {
                 .fill(
                   LinearGradient(
                     colors: [
-                      Color(red: 0.37, green: 0.52, blue: 0.98),
-                      Color(red: 0.59, green: 0.29, blue: 0.96),
+                      lockColor(Color(red: 0.37, green: 0.52, blue: 0.98), dark: SerenityPalette.primaryActionBackground),
+                      lockColor(Color(red: 0.59, green: 0.29, blue: 0.96), dark: SerenityPalette.activeItemBackground),
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                   )
                 )
                 .frame(width: 62, height: 62)
-                .shadow(color: Color(red: 0.38, green: 0.47, blue: 0.97).opacity(0.28), radius: 14, y: 8)
+                .shadow(
+                  color: lockColor(Color(red: 0.38, green: 0.47, blue: 0.97).opacity(0.28), dark: .clear),
+                  radius: 14,
+                  y: 8
+                )
 
               Image(systemName: "lock")
                 .font(SerenityType.scaledSystem(size: 24, weight: .semibold))
@@ -8596,35 +8602,39 @@ private struct LocalLockOverlayView: View {
 
             Text("Serenity Notes")
               .font(SerenityType.scaledSystem(size: 32, weight: .semibold, design: .rounded))
-              .foregroundStyle(Color.white.opacity(0.97))
+              .foregroundStyle(lockColor(Color.white.opacity(0.97), dark: SerenityPalette.textPrimary))
 
             Text("Enter your master password to unlock")
               .font(SerenityType.scaledSystem(size: 15, weight: .regular, design: .rounded))
-              .foregroundStyle(Color(red: 0.66, green: 0.72, blue: 0.82))
+              .foregroundStyle(lockColor(Color(red: 0.66, green: 0.72, blue: 0.82), dark: SerenityPalette.textSecondary))
           }
           .frame(maxWidth: .infinity)
 
           VStack(alignment: .leading, spacing: 8) {
             Text("Master Password")
               .font(SerenityType.scaledSystem(size: 13, weight: .medium, design: .rounded))
-              .foregroundStyle(Color(red: 0.74, green: 0.79, blue: 0.88))
+              .foregroundStyle(lockColor(Color(red: 0.74, green: 0.79, blue: 0.88), dark: SerenityPalette.textSecondary))
 
             HStack(spacing: 10) {
               Image(systemName: "key")
                 .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
-                .foregroundStyle(Color(red: 0.61, green: 0.67, blue: 0.78))
+                .foregroundStyle(lockColor(Color(red: 0.61, green: 0.67, blue: 0.78), dark: SerenityPalette.accent))
 
               Group {
                 if revealPassword {
-                  TextField("", text: $password, prompt: Text("Enter master password").foregroundStyle(Color(red: 0.55, green: 0.62, blue: 0.73)))
+                  TextField("", text: $password, prompt: Text("Enter master password").foregroundStyle(
+                    lockColor(Color(red: 0.55, green: 0.62, blue: 0.73), dark: SerenityPalette.textSecondary)
+                  ))
                     .textFieldStyle(.plain)
                 } else {
-                  SecureField("", text: $password, prompt: Text("Enter master password").foregroundStyle(Color(red: 0.55, green: 0.62, blue: 0.73)))
+                  SecureField("", text: $password, prompt: Text("Enter master password").foregroundStyle(
+                    lockColor(Color(red: 0.55, green: 0.62, blue: 0.73), dark: SerenityPalette.textSecondary)
+                  ))
                     .textFieldStyle(.plain)
                 }
               }
               .font(SerenityType.scaledSystem(size: 15, weight: .medium, design: .rounded))
-              .foregroundStyle(Color(red: 0.84, green: 0.89, blue: 0.97))
+              .foregroundStyle(lockColor(Color(red: 0.84, green: 0.89, blue: 0.97), dark: SerenityPalette.textPrimary))
               .focused($passwordFieldFocused)
               .submitLabel(.go)
               .onSubmit {
@@ -8637,7 +8647,7 @@ private struct LocalLockOverlayView: View {
               } label: {
                 Image(systemName: revealPassword ? "eye.slash" : "eye")
                   .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
-                  .foregroundStyle(Color(red: 0.56, green: 0.63, blue: 0.75))
+                  .foregroundStyle(lockColor(Color(red: 0.56, green: 0.63, blue: 0.75), dark: SerenityPalette.textSecondary))
               }
               .buttonStyle(.plain)
               .hoverCursor(.pointingHand)
@@ -8647,11 +8657,11 @@ private struct LocalLockOverlayView: View {
             .padding(.vertical, 10)
             .background(
               RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(red: 0.03, green: 0.07, blue: 0.16).opacity(0.96))
+                .fill(lockColor(Color(red: 0.03, green: 0.07, blue: 0.16).opacity(0.96), dark: SerenityPalette.inputBackground))
             )
             .overlay(
               RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(red: 0.18, green: 0.35, blue: 0.60).opacity(0.82), lineWidth: 1.2)
+                .stroke(lockColor(Color(red: 0.18, green: 0.35, blue: 0.60).opacity(0.82), dark: SerenityPalette.border), lineWidth: 1.2)
             )
           }
 
@@ -8678,7 +8688,7 @@ private struct LocalLockOverlayView: View {
               if isUnlockingWithPassword {
                 ProgressView()
                   .controlSize(.small)
-                  .tint(Color(red: 0.10, green: 0.13, blue: 0.22))
+                  .tint(lockColor(Color(red: 0.10, green: 0.13, blue: 0.22), dark: SerenityPalette.textPrimary))
                 Text("Validating...")
               } else {
                 Text(isLockedOut ? "Locked" : "Unlock")
@@ -8688,7 +8698,7 @@ private struct LocalLockOverlayView: View {
             .contentShape(Rectangle())
           }
           .font(SerenityType.scaledSystem(size: 16, weight: .semibold, design: .rounded))
-          .foregroundStyle(unlockDisabled ? Color.white.opacity(0.62) : Color(red: 0.08, green: 0.11, blue: 0.20))
+          .foregroundStyle(unlockButtonForeground)
           .frame(maxWidth: .infinity)
           .padding(.vertical, 11)
           .background(
@@ -8697,7 +8707,13 @@ private struct LocalLockOverlayView: View {
           )
           .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-              .stroke(Color.white.opacity(unlockDisabled ? 0.05 : 0.14), lineWidth: 1)
+              .stroke(
+                lockColor(
+                  Color.white.opacity(unlockDisabled ? 0.05 : 0.14),
+                  dark: SerenityPalette.border
+                ),
+                lineWidth: 1
+              )
           )
           .hoverCursor(.pointingHand)
           .buttonStyle(.plain)
@@ -8720,16 +8736,16 @@ private struct LocalLockOverlayView: View {
               .contentShape(Rectangle())
             }
             .font(SerenityType.scaledSystem(size: 16, weight: .semibold, design: .rounded))
-            .foregroundStyle(Color(red: 0.82, green: 0.88, blue: 0.97))
+            .foregroundStyle(lockColor(Color(red: 0.82, green: 0.88, blue: 0.97), dark: SerenityPalette.textPrimary))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
             .background(
               RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(red: 0.11, green: 0.18, blue: 0.29))
+                .fill(lockColor(Color(red: 0.11, green: 0.18, blue: 0.29), dark: SerenityPalette.panelBackgroundRaised))
             )
             .overlay(
               RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(red: 0.26, green: 0.40, blue: 0.63).opacity(0.62), lineWidth: 1)
+                .stroke(lockColor(Color(red: 0.26, green: 0.40, blue: 0.63).opacity(0.62), dark: SerenityPalette.border), lineWidth: 1)
             )
             .hoverCursor(.pointingHand)
             .buttonStyle(.plain)
@@ -8739,13 +8755,13 @@ private struct LocalLockOverlayView: View {
           if isBiometricAvailable {
             HStack(spacing: 10) {
               Rectangle()
-                .fill(Color(red: 0.30, green: 0.37, blue: 0.49))
+                .fill(lockColor(Color(red: 0.30, green: 0.37, blue: 0.49), dark: SerenityPalette.thinBorder))
                 .frame(height: 1)
               Text("or")
                 .font(SerenityType.scaledSystem(size: 14, weight: .regular, design: .rounded))
-                .foregroundStyle(Color(red: 0.56, green: 0.62, blue: 0.73))
+                .foregroundStyle(lockColor(Color(red: 0.56, green: 0.62, blue: 0.73), dark: SerenityPalette.textSecondary))
               Rectangle()
-                .fill(Color(red: 0.30, green: 0.37, blue: 0.49))
+                .fill(lockColor(Color(red: 0.30, green: 0.37, blue: 0.49), dark: SerenityPalette.thinBorder))
                 .frame(height: 1)
             }
           }
@@ -8756,17 +8772,17 @@ private struct LocalLockOverlayView: View {
           }
           .buttonStyle(.plain)
           .font(SerenityType.scaledSystem(size: 14, weight: .medium, design: .rounded))
-          .foregroundStyle(Color(red: 0.43, green: 0.67, blue: 0.98))
+          .foregroundStyle(lockColor(Color(red: 0.43, green: 0.67, blue: 0.98), dark: SerenityPalette.accent))
           .frame(maxWidth: .infinity, alignment: .center)
           .hoverCursor(.pointingHand)
 
           VStack(alignment: .leading, spacing: 6) {
             Label("Your data is protected", systemImage: "shield")
               .font(SerenityType.scaledSystem(size: 14, weight: .semibold, design: .rounded))
-              .foregroundStyle(Color(red: 0.71, green: 0.83, blue: 1.0))
+              .foregroundStyle(lockColor(Color(red: 0.71, green: 0.83, blue: 1.0), dark: SerenityPalette.textPrimary))
             Text("All sensitive information is encrypted with your master password.")
               .font(SerenityType.scaledSystem(size: 13, weight: .regular, design: .rounded))
-              .foregroundStyle(Color(red: 0.74, green: 0.82, blue: 0.95))
+              .foregroundStyle(lockColor(Color(red: 0.74, green: 0.82, blue: 0.95), dark: SerenityPalette.textSecondary))
               .fixedSize(horizontal: false, vertical: true)
           }
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -8774,11 +8790,11 @@ private struct LocalLockOverlayView: View {
           .padding(.vertical, 10)
           .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-              .fill(Color(red: 0.10, green: 0.16, blue: 0.30).opacity(0.9))
+              .fill(lockColor(Color(red: 0.10, green: 0.16, blue: 0.30).opacity(0.9), dark: SerenityPalette.panelBackgroundRaised))
           )
           .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-              .stroke(Color(red: 0.20, green: 0.42, blue: 0.84).opacity(0.78), lineWidth: 1)
+              .stroke(lockColor(Color(red: 0.20, green: 0.42, blue: 0.84).opacity(0.78), dark: SerenityPalette.border), lineWidth: 1)
           )
         }
         .padding(.horizontal, 22)
@@ -8789,8 +8805,8 @@ private struct LocalLockOverlayView: View {
             .fill(
               LinearGradient(
                 colors: [
-                  Color(red: 0.06, green: 0.12, blue: 0.24).opacity(0.96),
-                  Color(red: 0.05, green: 0.10, blue: 0.21).opacity(0.98),
+                  lockColor(Color(red: 0.06, green: 0.12, blue: 0.24).opacity(0.96), dark: SerenityPalette.panelBackground),
+                  lockColor(Color(red: 0.05, green: 0.10, blue: 0.21).opacity(0.98), dark: SerenityPalette.panelBackgroundRaised),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -8799,13 +8815,13 @@ private struct LocalLockOverlayView: View {
         )
         .overlay(
           RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .stroke(Color(red: 0.17, green: 0.31, blue: 0.50).opacity(0.7), lineWidth: 1)
+            .stroke(lockColor(Color(red: 0.17, green: 0.31, blue: 0.50).opacity(0.7), dark: SerenityPalette.border), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.42), radius: 16, x: 0, y: 10)
 
         Text("Serenity Notes v2.0 • Privacy-First Productivity")
           .font(SerenityType.scaledSystem(size: 11, weight: .regular, design: .rounded))
-          .foregroundStyle(Color(red: 0.53, green: 0.59, blue: 0.69))
+          .foregroundStyle(lockColor(Color(red: 0.53, green: 0.59, blue: 0.69), dark: SerenityPalette.textSecondary))
       }
       .padding(.horizontal, 20)
       .padding(.vertical, 16)
@@ -8817,6 +8833,17 @@ private struct LocalLockOverlayView: View {
 
   private var unlockDisabled: Bool {
     password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLockedOut || isUnlockingWithPassword || isUnlockingWithBiometrics
+  }
+
+  private func lockColor(_ light: Color, dark: Color) -> Color {
+    colorScheme == .dark ? dark : light
+  }
+
+  private var unlockButtonForeground: Color {
+    if colorScheme == .dark {
+      return unlockDisabled ? SerenityPalette.textSecondary : Color.white
+    }
+    return unlockDisabled ? Color.white.opacity(0.62) : Color(red: 0.08, green: 0.11, blue: 0.20)
   }
 
   private var isLockedOut: Bool {
@@ -8834,6 +8861,17 @@ private struct LocalLockOverlayView: View {
   }
 
   private var unlockButtonFill: LinearGradient {
+    if colorScheme == .dark {
+      let fill = unlockDisabled
+        ? SerenityPalette.activeItemBackground
+        : SerenityPalette.primaryActionBackground
+      return LinearGradient(
+        colors: [fill, fill],
+        startPoint: .leading,
+        endPoint: .trailing
+      )
+    }
+
     if unlockDisabled {
       return LinearGradient(
         colors: [
