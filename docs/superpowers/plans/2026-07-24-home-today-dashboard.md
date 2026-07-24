@@ -272,3 +272,85 @@ Use the `SerenityIOS` simulator target and the macOS app to confirm:
 git add docs/superpowers/plans/2026-07-24-home-today-dashboard.md Serenity/Shared/App/SerenityAppScene.swift SerenityTests/UI/SectionViewSmokeTests.swift
 git commit -m "fix(home): align dashboard layout"
 ```
+
+### Task 3: Align the Home header and Quick Capture footer
+
+**Files:**
+- Modify: `Serenity/Shared/App/SerenityAppScene.swift`
+- Test: `SerenityTests/UI/SectionViewSmokeTests.swift`
+
+**Interfaces:**
+- Consumes: `HomeSectionView.header`, `HomeSectionView.quickCaptureCard`, `SerenityType.body`, `SerenityType.caption`
+- Produces: a vertically centered Home header and a compact horizontal Quick Capture footer at the reported Mac width
+
+- [x] **Step 1: Update the layout regression check**
+
+Slice the Home header and Quick Capture card inside `testHomeDashboardUsesPolishedLayout`, then assert the approved typography and alignment:
+
+```swift
+let header = try XCTUnwrap(String(home).slice(from: "private var header", to: "private var quickCaptureCard"))
+let quickCaptureCard = try XCTUnwrap(String(home).slice(from: "private var quickCaptureCard", to: "private var quickCaptureProviderDropdown"))
+
+XCTAssertTrue(header.contains("HStack(alignment: .center, spacing: 12)"))
+XCTAssertTrue(header.contains("Text(\"Focus on what matters most right now\")\n          .font(SerenityType.body)"))
+XCTAssertTrue(header.contains("Text(Self.dateFormatter.string(from: Date()))\n          .font(SerenityType.caption)"))
+XCTAssertTrue(quickCaptureCard.contains("HStack(alignment: .center, spacing: 12)"))
+XCTAssertTrue(quickCaptureCard.contains("Text(quickCaptureHelperText)\n            .font(SerenityType.body)"))
+```
+
+- [x] **Step 2: Run the focused test and verify it fails**
+
+Run:
+
+```bash
+swift test --filter SectionViewSmokeTests.testHomeDashboardUsesPolishedLayout
+```
+
+Expected: the test fails because the header is top-aligned, the supporting text uses larger typography, and the horizontal Quick Capture instruction uses `bodyLarge`.
+
+- [x] **Step 3: Implement the minimal SwiftUI adjustment**
+
+Center the header and reduce its supporting typography:
+
+```swift
+HStack(alignment: .center, spacing: 12) {
+  // existing icon and text
+}
+
+Text("Focus on what matters most right now")
+  .font(SerenityType.body)
+
+Text(Self.dateFormatter.string(from: Date()))
+  .font(SerenityType.caption)
+```
+
+Make the preferred Quick Capture footer explicit and compact enough for the reported Mac width:
+
+```swift
+HStack(alignment: .center, spacing: 12) {
+  Text(quickCaptureHelperText)
+    .font(SerenityType.body)
+  // existing spacer, provider dropdown, and submit button
+}
+```
+
+Keep the existing stacked fallback for genuinely narrow layouts.
+
+- [x] **Step 4: Run focused and full verification**
+
+Run:
+
+```bash
+swift test --filter SectionViewSmokeTests.testHomeDashboardUsesPolishedLayout
+swift test
+swift build
+```
+
+Expected: the focused test, all 97 tests, and the macOS build pass.
+
+- [x] **Step 5: Commit the implementation**
+
+```bash
+git add docs/superpowers/plans/2026-07-24-home-today-dashboard.md Serenity/Shared/App/SerenityAppScene.swift SerenityTests/UI/SectionViewSmokeTests.swift
+git commit -m "fix(home): refine header and capture alignment"
+```

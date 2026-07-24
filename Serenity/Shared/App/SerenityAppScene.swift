@@ -1080,7 +1080,7 @@ private struct HomeSectionView: View {
   }
 
   private var header: some View {
-    HStack(alignment: .top, spacing: 12) {
+    HStack(alignment: .center, spacing: 12) {
       Image(systemName: "house")
         .font(SerenityType.scaledSystem(size: 22, weight: .semibold))
         .foregroundStyle(SerenityPalette.accent)
@@ -1090,10 +1090,10 @@ private struct HomeSectionView: View {
         Text("Home")
           .font(SerenityType.pageTitle)
         Text("Focus on what matters most right now")
-          .font(SerenityType.pageSubtitle)
+          .font(SerenityType.body)
           .foregroundStyle(SerenityPalette.textSecondary)
         Text(Self.dateFormatter.string(from: Date()))
-          .font(SerenityType.body)
+          .font(SerenityType.caption)
           .foregroundStyle(SerenityPalette.textSecondary.opacity(0.8))
       }
 
@@ -1135,9 +1135,9 @@ private struct HomeSectionView: View {
       }
 
       ViewThatFits(in: .horizontal) {
-        HStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
           Text(quickCaptureHelperText)
-            .font(SerenityType.bodyLarge)
+            .font(SerenityType.body)
             .foregroundStyle(SerenityPalette.textSecondary)
 
           Spacer()
