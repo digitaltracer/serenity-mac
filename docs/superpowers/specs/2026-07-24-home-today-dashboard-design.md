@@ -48,7 +48,10 @@ No new abstraction, dependency, persisted state, or data migration is required.
 
 ## Home visual polish
 
-- Top-align the Home icon with the Home title instead of centering it against the entire three-line heading.
+- Vertically center the Home icon against the complete heading text block.
+- Reduce the supporting hierarchy: use body typography for “Focus on what matters most right now” and caption typography for the date.
 - Add a dedicated gap between the heading and Quick Capture without changing spacing between the remaining dashboard sections.
-- Place Today's Progress and Today's Focus in one native grid row so both containers receive the same height from the row's tallest content.
-- Keep the existing vertical fallback for narrow layouts.
+- Keep the Quick Capture instruction, provider selector, and Submit button vertically centered in the horizontal footer. Use body typography for the instruction so the horizontal layout fits at the reported Mac width.
+- Retain the existing stacked Quick Capture footer only for genuinely narrow layouts.
+- Let Today's Progress and Today's Focus fill the tallest intrinsic card height in their horizontal row.
+- Keep the existing vertical summary-card fallback for narrow layouts.
