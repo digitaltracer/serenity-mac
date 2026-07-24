@@ -171,3 +171,104 @@ Expected: the full test suite and macOS build exit successfully. The source sear
 git add docs/superpowers/plans/2026-07-24-home-today-dashboard.md Serenity/Shared/App/AppSection.swift Serenity/Shared/App/SerenityAppScene.swift SerenityTests/AppSectionTests.swift SerenityTests/UI/SectionViewSmokeTests.swift
 git commit -m "feat(home): merge Today dashboard into Home"
 ```
+
+### Task 2: Polish Home dashboard alignment
+
+**Files:**
+- Modify: `Serenity/Shared/App/SerenityAppScene.swift`
+- Test: `SerenityTests/UI/SectionViewSmokeTests.swift`
+
+**Interfaces:**
+- Consumes: `HomeSectionView.header`, `SerenityContentDensity.sectionSpacing`, `TodayOverviewView.progressCard`, `TodayOverviewView.focusCard`
+- Produces: a top-aligned Home heading, a dedicated responsive heading gap, and an equal-height summary-card row
+
+- [x] **Step 1: Write the failing layout regression check**
+
+Add this test to `SectionViewSmokeTests`:
+
+```swift
+func testHomeDashboardUsesPolishedLayout() throws {
+  let source = try appSceneSource()
+  let home = try XCTUnwrap(source.slice(from: "private struct HomeSectionView", to: "private struct ActionHubSectionView"))
+  let overview = try XCTUnwrap(source.slice(from: "private struct TodayOverviewView", to: "private struct SerenityDateRangePicker"))
+  let progressCard = try XCTUnwrap(String(overview).slice(from: "private var progressCard", to: "private var focusCard"))
+  let focusCard = try XCTUnwrap(String(overview).slice(from: "private var focusCard", to: "private func focusRow"))
+
+  XCTAssertTrue(home.contains("header\\n        .padding(.bottom, density.sectionSpacing)"))
+  XCTAssertTrue(home.contains("HStack(alignment: .top, spacing: 12)"))
+  XCTAssertTrue(overview.contains("HStack(alignment: .top, spacing: 16)"))
+  XCTAssertTrue(overview.contains(".fixedSize(horizontal: false, vertical: true)"))
+  XCTAssertFalse(overview.contains("GridRow"))
+  XCTAssertTrue(progressCard.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)"))
+  XCTAssertTrue(focusCard.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)"))
+}
+```
+
+- [x] **Step 2: Run the focused test and verify it fails**
+
+Run:
+
+```bash
+swift test --filter SectionViewSmokeTests.testHomeDashboardUsesPolishedLayout
+```
+
+Expected: the assertions fail because the header is center-aligned, has no dedicated bottom padding, and the summary cards do not use the cross-platform equal-height stack structure.
+
+- [x] **Step 3: Implement the minimal native SwiftUI layout fix**
+
+In `HomeSectionView`, add responsive space beneath the heading and top-align the icon/title row:
+
+```swift
+header
+  .padding(.bottom, density.sectionSpacing)
+
+HStack(alignment: .top, spacing: 12) {
+  // existing header content
+}
+```
+
+In the horizontal `ViewThatFits` candidate, use an `HStack` that resolves its ideal height before both cards fill that height:
+
+```swift
+HStack(alignment: .top, spacing: 16) {
+  progressCard
+  focusCard
+}
+.fixedSize(horizontal: false, vertical: true)
+```
+
+Inside both card definitions, apply the fill frame before padding, background, and border:
+
+```swift
+.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+```
+
+Keep the existing vertical `VStack` fallback unchanged.
+
+- [x] **Step 4: Run focused and full verification**
+
+Run:
+
+```bash
+swift test --filter SectionViewSmokeTests
+swift test
+swift build
+```
+
+Expected: all commands pass with zero test failures or compiler errors.
+
+- [x] **Step 5: Build, launch, and visually inspect the Home dashboard**
+
+Use the `SerenityIOS` simulator target and the macOS app to confirm:
+
+- the icon aligns with the Home title;
+- the heading has a clear gap before Quick Capture;
+- both summary cards have identical height in the horizontal layout; and
+- the existing vertical fallback remains usable.
+
+- [x] **Step 6: Commit the layout fix**
+
+```bash
+git add docs/superpowers/plans/2026-07-24-home-today-dashboard.md Serenity/Shared/App/SerenityAppScene.swift SerenityTests/UI/SectionViewSmokeTests.swift
+git commit -m "fix(home): align dashboard layout"
+```

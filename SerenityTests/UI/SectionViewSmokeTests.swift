@@ -55,6 +55,22 @@ final class SectionViewSmokeTests: XCTestCase {
     XCTAssertFalse(source.contains("section: .today"))
   }
 
+  func testHomeDashboardUsesPolishedLayout() throws {
+    let source = try appSceneSource()
+    let home = try XCTUnwrap(source.slice(from: "private struct HomeSectionView", to: "private struct ActionHubSectionView"))
+    let overview = try XCTUnwrap(source.slice(from: "private struct TodayOverviewView", to: "private struct SerenityDateRangePicker"))
+    let progressCard = try XCTUnwrap(String(overview).slice(from: "private var progressCard", to: "private var focusCard"))
+    let focusCard = try XCTUnwrap(String(overview).slice(from: "private var focusCard", to: "private func focusRow"))
+
+    XCTAssertTrue(home.contains("header\n        .padding(.bottom, density.sectionSpacing)"))
+    XCTAssertTrue(home.contains("HStack(alignment: .top, spacing: 12)"))
+    XCTAssertTrue(overview.contains("HStack(alignment: .top, spacing: 16)"))
+    XCTAssertTrue(overview.contains(".fixedSize(horizontal: false, vertical: true)"))
+    XCTAssertFalse(overview.contains("GridRow"))
+    XCTAssertTrue(progressCard.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)"))
+    XCTAssertTrue(focusCard.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)"))
+  }
+
   private func appSceneSource() throws -> String {
     let sourceURL = URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent()

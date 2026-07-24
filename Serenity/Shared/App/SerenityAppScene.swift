@@ -1070,6 +1070,7 @@ private struct HomeSectionView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: density.sectionSpacing) {
       header
+        .padding(.bottom, density.sectionSpacing)
       quickCaptureCard
       if let preview = appState.pendingAIQuickCapturePreview {
         aiQuickCapturePreview(preview)
@@ -1079,7 +1080,7 @@ private struct HomeSectionView: View {
   }
 
   private var header: some View {
-    HStack(alignment: .center, spacing: 12) {
+    HStack(alignment: .top, spacing: 12) {
       Image(systemName: "house")
         .font(SerenityType.scaledSystem(size: 22, weight: .semibold))
         .foregroundStyle(SerenityPalette.accent)
@@ -3127,6 +3128,7 @@ private struct TodayOverviewView: View {
           progressCard
           focusCard
         }
+        .fixedSize(horizontal: false, vertical: true)
         VStack(spacing: 16) {
           progressCard
           focusCard
@@ -3158,7 +3160,7 @@ private struct TodayOverviewView: View {
         .font(SerenityType.body)
         .foregroundStyle(SerenityPalette.textSecondary)
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .padding(20)
     .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     .overlay(
@@ -3175,7 +3177,7 @@ private struct TodayOverviewView: View {
       focusRow(dotColor: SerenityPalette.textSecondary.opacity(0.6), label: "Planned for today", value: totalTodayCount)
       focusRow(dotColor: .green, label: "Completed today", value: completedTodayCount)
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .padding(20)
     .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     .overlay(
