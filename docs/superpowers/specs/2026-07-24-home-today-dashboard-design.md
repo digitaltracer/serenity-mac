@@ -45,3 +45,10 @@ No new abstraction, dependency, persisted state, or data migration is required.
   - the progress cards collapse vertically when needed;
   - task completion and the empty-state action still work;
   - Today is absent from the sidebar, Help destinations, and all routes.
+
+## Home visual polish
+
+- Top-align the Home icon with the Home title instead of centering it against the entire three-line heading.
+- Add a dedicated gap between the heading and Quick Capture without changing spacing between the remaining dashboard sections.
+- Place Today's Progress and Today's Focus in one native grid row so both containers receive the same height from the row's tallest content.
+- Keep the existing vertical fallback for narrow layouts.
