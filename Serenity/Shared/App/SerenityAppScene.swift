@@ -373,7 +373,7 @@ private struct SerenitySidebar: View {
   @Binding var selectedSection: AppSection?
   @State private var hoveredSection: AppSection?
 
-  private let primarySections: [AppSection] = [.home, .actionHub, .today, .journal, .goals, .insights, .aiSummaries]
+  private let primarySections: [AppSection] = [.home, .actionHub, .journal, .goals, .insights, .aiSummaries]
   private let systemSections: [AppSection] = [.integrations, .costCenter, .database, .settings]
 
   var body: some View {
@@ -493,8 +493,6 @@ private extension AppSection {
       return "Boost productivity and mindfulness from one workspace"
     case .actionHub:
       return "Task and project control center"
-    case .today:
-      return "Focus on what matters most right now"
     case .journal:
       return "Capture notes, mood, and reflections"
     case .goals:
@@ -590,46 +588,6 @@ private enum SerenityContentDensity {
     }
   }
 
-  var heroAvatarSize: CGFloat {
-    switch self {
-    case .regular: return 88
-    case .compact: return 76
-    case .tight: return 64
-    }
-  }
-
-  var heroLetterSize: CGFloat {
-    switch self {
-    case .regular: return 36
-    case .compact: return 32
-    case .tight: return 27
-    }
-  }
-
-  var heroTitleSize: CGFloat {
-    switch self {
-    case .regular: return 48
-    case .compact: return 40
-    case .tight: return 34
-    }
-  }
-
-  var heroSubtitleMaxWidth: CGFloat {
-    switch self {
-    case .regular: return 700
-    case .compact: return 560
-    case .tight: return 460
-    }
-  }
-
-  var heroBottomPadding: CGFloat {
-    switch self {
-    case .regular: return 28
-    case .compact: return 24
-    case .tight: return 20
-    }
-  }
-
   var quickCapturePromptHorizontalPadding: CGFloat {
     switch self {
     case .regular: return 24
@@ -678,64 +636,6 @@ private enum SerenityContentDensity {
     }
   }
 
-  var featureGridSpacing: CGFloat {
-    switch self {
-    case .regular: return 16
-    case .compact: return 14
-    case .tight: return 12
-    }
-  }
-
-  var featureCardPadding: CGFloat {
-    switch self {
-    case .regular: return 20
-    case .compact: return 16
-    case .tight: return 14
-    }
-  }
-
-  var featureCardMinHeight: CGFloat {
-    switch self {
-    case .regular: return 168
-    case .compact: return 150
-    case .tight: return 136
-    }
-  }
-
-  var featureIconContainer: CGFloat {
-    switch self {
-    case .regular: return 54
-    case .compact: return 46
-    case .tight: return 42
-    }
-  }
-
-  var featureIconSize: CGFloat {
-    switch self {
-    case .regular: return 24
-    case .compact: return 20
-    case .tight: return 18
-    }
-  }
-
-  var heroTitleWeight: Font.Weight {
-    switch self {
-    case .regular, .compact: return .semibold
-    case .tight: return .medium
-    }
-  }
-
-  var featureColumns: [GridItem] {
-    switch self {
-    case .tight:
-      return [GridItem(.flexible(), spacing: featureGridSpacing)]
-    case .regular, .compact:
-      return [
-        GridItem(.flexible(), spacing: featureGridSpacing),
-        GridItem(.flexible(), spacing: featureGridSpacing),
-      ]
-    }
-  }
 }
 
 private struct SectionView: View {
@@ -786,7 +686,7 @@ private struct SectionView: View {
           }
         }
 
-        if [.home, .actionHub, .today, .journal, .goals, .projects, .integrations, .costCenter, .database].contains(section) {
+        if [.home, .actionHub, .journal, .goals, .projects, .integrations, .costCenter, .database].contains(section) {
           Task {
             await appState.refreshCoreWorkflowData()
           }
@@ -800,17 +700,15 @@ private struct SectionView: View {
 
       SerenityThemedScrollView {
         VStack(alignment: .leading, spacing: density.sectionSpacing) {
-          if section != .home && section != .today {
+          if section != .home {
             sectionHeader(density: density)
           }
 
           switch section {
           case .home:
-            HomeSectionView(density: density, availableWidth: proxy.size.width)
+            HomeSectionView(density: density)
           case .actionHub:
             ActionHubSectionView(onEditTask: openTaskEditor)
-          case .today:
-            TodaySectionView()
           case .journal:
             JournalSectionView()
           case .goals:
@@ -1148,7 +1046,6 @@ private struct QuickCaptureEditor: View {
 
 private struct HomeSectionView: View {
   let density: SerenityContentDensity
-  let availableWidth: CGFloat
 
   @EnvironmentObject private var appState: AppState
 
@@ -1158,6 +1055,11 @@ private struct HomeSectionView: View {
   @State private var selectedQuickCaptureCredentialID = ""
 
   private let nativeQuickCaptureProviderID = "native"
+  private static let dateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "EEEE, MMMM d, yyyy"
+    return formatter
+  }()
   private static let quickCapturePreviewDateFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.dateStyle = .medium
@@ -1167,38 +1069,35 @@ private struct HomeSectionView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: density.sectionSpacing) {
-      hero
+      header
       quickCaptureCard
       if let preview = appState.pendingAIQuickCapturePreview {
         aiQuickCapturePreview(preview)
       }
-      featureGrid
+      TodayOverviewView()
     }
   }
 
-  private var hero: some View {
-    VStack(spacing: 14) {
-      ZStack {
-        Circle()
-          .fill(SerenityPalette.headerIconBackground)
-          .frame(width: density.heroAvatarSize, height: density.heroAvatarSize)
-          .shadow(color: SerenityPalette.controlGlow.opacity(0.35), radius: 22)
-        Text("S")
-          .font(SerenityType.scaledSystem(size: density.heroLetterSize, weight: .medium))
-          .foregroundStyle(SerenityPalette.accent)
+  private var header: some View {
+    HStack(alignment: .center, spacing: 12) {
+      Image(systemName: "house")
+        .font(SerenityType.scaledSystem(size: 22, weight: .semibold))
+        .foregroundStyle(SerenityPalette.accent)
+        .accessibilityHidden(true)
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Home")
+          .font(SerenityType.pageTitle)
+        Text("Focus on what matters most right now")
+          .font(SerenityType.pageSubtitle)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Text(Self.dateFormatter.string(from: Date()))
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary.opacity(0.8))
       }
 
-      Text("Serenity Notes")
-        .font(SerenityType.scaledSystem(size: density.heroTitleSize, weight: density.heroTitleWeight))
-      Text("Boost your productivity and mindfulness with a powerful integrated task management and journaling experience.")
-        .font(density.sectionSubtitleFont)
-        .foregroundStyle(SerenityPalette.textSecondary)
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: min(density.heroSubtitleMaxWidth, max(360, availableWidth - (density.contentPadding * 2))))
+      Spacer()
     }
-    .frame(maxWidth: .infinity)
-    .padding(.top, 8)
-    .padding(.bottom, density.heroBottomPadding)
   }
 
   private var quickCaptureCard: some View {
@@ -1287,16 +1186,6 @@ private struct HomeSectionView: View {
     .animation(.easeInOut(duration: 0.18), value: quickCaptureFocused)
   }
 
-  private var featureGrid: some View {
-    LazyVGrid(columns: density.featureColumns, spacing: density.featureGridSpacing) {
-      featureCard(title: "ActionHub", subtitle: "Efficiently manage tasks, projects, and priorities with a customizable workflow.", icon: "checklist", section: .actionHub)
-      featureCard(title: "Journal", subtitle: "Capture thoughts, ideas, and reflections with a private, secure journaling system.", icon: "book", section: .journal)
-      featureCard(title: "Projects", subtitle: "Organize related tasks into projects with visual progress tracking.", icon: "folder", section: .projects)
-      featureCard(title: "AI Summaries", subtitle: "Generate AI-powered summaries of your tasks and journal entries by date range.", icon: "sparkles", section: .aiSummaries)
-      featureCard(title: "Insights Hub", subtitle: "AI-powered insights, analytics, and personalized recommendations.", icon: "chart.bar.xaxis", section: .insights)
-    }
-  }
-
   private var quickCaptureProviderDropdown: some View {
     SerenityDropdownField(
       placeholder: "Provider",
@@ -1342,49 +1231,6 @@ private struct HomeSectionView: View {
     }
     .disabled(submitting || quickCapture.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     .buttonStyle(SerenityPrimaryButtonStyle())
-    .hoverCursor(.pointingHand)
-  }
-
-  private func featureCard(title: String, subtitle: String, icon: String, section: AppSection) -> some View {
-    Button {
-      appState.setSection(section)
-    } label: {
-      VStack(alignment: .leading, spacing: 12) {
-        ZStack {
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(SerenityPalette.headerIconBackground)
-            .frame(width: density.featureIconContainer, height: density.featureIconContainer)
-          Image(systemName: icon)
-            .font(SerenityType.scaledSystem(size: density.featureIconSize, weight: .semibold))
-            .foregroundStyle(SerenityPalette.accent)
-        }
-        Text(title)
-          .font(SerenityType.cardTitle)
-          .multilineTextAlignment(.leading)
-        Text(subtitle)
-          .font(SerenityType.pageSubtitle)
-          .foregroundStyle(SerenityPalette.textSecondary)
-          .multilineTextAlignment(.leading)
-      }
-      .padding(density.featureCardPadding)
-      .frame(maxWidth: .infinity, minHeight: density.featureCardMinHeight, alignment: .topLeading)
-      .background(
-        LinearGradient(
-          colors: [
-            SerenityPalette.panelBackgroundRaised,
-            SerenityPalette.innerCardBackground,
-          ],
-          startPoint: .topLeading,
-          endPoint: .bottomTrailing
-        ),
-        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .stroke(SerenityPalette.thinBorder, lineWidth: 1)
-      )
-    }
-    .buttonStyle(.plain)
     .hoverCursor(.pointingHand)
   }
 
@@ -3271,19 +3117,11 @@ private struct ActionHubSectionView: View {
 
 }
 
-private struct TodaySectionView: View {
+private struct TodayOverviewView: View {
   @EnvironmentObject private var appState: AppState
-
-  private static let dateFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "EEEE, MMMM d, yyyy"
-    return formatter
-  }()
 
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
-      header
-
       ViewThatFits(in: .horizontal) {
         HStack(alignment: .top, spacing: 16) {
           progressCard
@@ -3301,27 +3139,6 @@ private struct TodaySectionView: View {
 
         tasksPanel
       }
-    }
-  }
-
-  private var header: some View {
-    HStack(alignment: .center, spacing: 12) {
-      Image(systemName: "calendar")
-        .font(SerenityType.scaledSystem(size: 22, weight: .semibold))
-        .foregroundStyle(SerenityPalette.accent)
-
-      VStack(alignment: .leading, spacing: 2) {
-        Text("Today")
-          .font(SerenityType.pageTitle)
-        Text("Focus on what matters most right now")
-          .font(SerenityType.pageSubtitle)
-          .foregroundStyle(SerenityPalette.textSecondary)
-        Text(Self.dateFormatter.string(from: Date()))
-          .font(SerenityType.body)
-          .foregroundStyle(SerenityPalette.textSecondary.opacity(0.8))
-      }
-
-      Spacer()
     }
   }
 
@@ -9463,10 +9280,10 @@ private struct HelpCenterSheet: View {
     ),
     HelpCenterArticle(
       title: "Plan your day",
-      summary: "Review due and overdue work in Today view.",
-      keywords: ["today", "due", "overdue"],
+      summary: "Review today's work from Home.",
+      keywords: ["home", "today", "due", "overdue"],
       shortcut: nil,
-      section: .today
+      section: .home
     ),
     HelpCenterArticle(
       title: "Capture journal entries",

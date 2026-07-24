@@ -3,7 +3,6 @@ import Foundation
 public enum AppSection: String, CaseIterable, Identifiable {
   case home
   case actionHub
-  case today
   case journal
   case goals
   case projects
@@ -22,8 +21,6 @@ public enum AppSection: String, CaseIterable, Identifiable {
       return "Home"
     case .actionHub:
       return "ActionHub"
-    case .today:
-      return "Today"
     case .journal:
       return "Journal"
     case .goals:
@@ -51,8 +48,6 @@ public enum AppSection: String, CaseIterable, Identifiable {
       return "house"
     case .actionHub:
       return "checklist"
-    case .today:
-      return "calendar"
     case .journal:
       return "book"
     case .goals:

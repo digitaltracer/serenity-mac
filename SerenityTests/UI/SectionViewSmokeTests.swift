@@ -28,7 +28,7 @@ final class SectionViewSmokeTests: XCTestCase {
   func testTaskInspectorIsHostedOutsideActionHubScrollContent() throws {
     let source = try appSceneSource()
     let sectionView = try XCTUnwrap(source.slice(from: "private struct SectionView", to: "private struct HomeSectionView"))
-    let actionHub = try XCTUnwrap(source.slice(from: "private struct ActionHubSectionView", to: "private struct TodaySectionView"))
+    let actionHub = try XCTUnwrap(source.slice(from: "private struct ActionHubSectionView", to: "private struct TodayOverviewView"))
 
     XCTAssertTrue(sectionView.contains(".inspector(isPresented: editorIsPresented)"))
     XCTAssertFalse(actionHub.contains(".inspector(isPresented:"))
@@ -36,13 +36,23 @@ final class SectionViewSmokeTests: XCTestCase {
 
   func testActionHubUsesSingleTaskListContainer() throws {
     let source = try appSceneSource()
-    let actionHub = try XCTUnwrap(source.slice(from: "private struct ActionHubSectionView", to: "private struct TodaySectionView"))
+    let actionHub = try XCTUnwrap(source.slice(from: "private struct ActionHubSectionView", to: "private struct TodayOverviewView"))
     let taskRow = try XCTUnwrap(String(actionHub).slice(from: "private func taskRow", to: "private func taskEditorButton"))
 
     XCTAssertTrue(actionHub.contains("LazyVStack(spacing: 0)"))
     XCTAssertTrue(actionHub.contains("taskListShape"))
     XCTAssertFalse(actionHub.contains(".padding(.leading, 58)"))
     XCTAssertFalse(taskRow.contains("RoundedRectangle(cornerRadius: 14"))
+  }
+
+  func testHomeOwnsDailyOverviewAndTodayHasNoRoute() throws {
+    let source = try appSceneSource()
+    let home = try XCTUnwrap(source.slice(from: "private struct HomeSectionView", to: "private struct ActionHubSectionView"))
+
+    XCTAssertTrue(home.contains("TodayOverviewView()"))
+    XCTAssertFalse(home.contains("featureGrid"))
+    XCTAssertFalse(source.contains("case .today"))
+    XCTAssertFalse(source.contains("section: .today"))
   }
 
   private func appSceneSource() throws -> String {
