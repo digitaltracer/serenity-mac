@@ -418,14 +418,11 @@ private struct SerenitySidebar: View {
 
   private var sidebarHeader: some View {
     HStack(spacing: 10) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(SerenityPalette.headerIconBackground)
-          .frame(width: SerenityChromeMetrics.sidebarHeaderIconSize, height: SerenityChromeMetrics.sidebarHeaderIconSize)
-        Image(systemName: "square.and.pencil")
-          .font(SerenityType.scaledSystem(size: 14, weight: .semibold))
-          .foregroundStyle(SerenityPalette.accent)
-      }
+      Image("SerenityAppMark")
+        .resizable()
+        .aspectRatio(contentMode: .fit)
+        .frame(width: SerenityChromeMetrics.sidebarHeaderIconSize, height: SerenityChromeMetrics.sidebarHeaderIconSize)
+        .accessibilityHidden(true)
 
       VStack(alignment: .leading, spacing: 1) {
         Text("Serenity Notes")
@@ -8564,29 +8561,12 @@ private struct LocalLockOverlayView: View {
       VStack(spacing: 10) {
         VStack(alignment: .leading, spacing: 18) {
           VStack(spacing: 8) {
-            ZStack {
-              Circle()
-                .fill(
-                  LinearGradient(
-                    colors: [
-                      lockColor(Color(red: 0.37, green: 0.52, blue: 0.98), dark: SerenityPalette.primaryActionBackground),
-                      lockColor(Color(red: 0.59, green: 0.29, blue: 0.96), dark: SerenityPalette.activeItemBackground),
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                  )
-                )
-                .frame(width: 62, height: 62)
-                .shadow(
-                  color: lockColor(Color(red: 0.38, green: 0.47, blue: 0.97).opacity(0.28), dark: .clear),
-                  radius: 14,
-                  y: 8
-                )
-
-              Image(systemName: "lock")
-                .font(SerenityType.scaledSystem(size: 24, weight: .semibold))
-                .foregroundStyle(Color.white)
-            }
+            Image("SerenityAppMark")
+              .resizable()
+              .aspectRatio(contentMode: .fit)
+              .frame(width: 76, height: 76)
+              .shadow(color: Color.black.opacity(0.28), radius: 14, y: 8)
+              .accessibilityHidden(true)
 
             Text("Serenity Notes")
               .font(SerenityType.scaledSystem(size: 32, weight: .semibold, design: .rounded))
