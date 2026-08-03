@@ -123,7 +123,7 @@ enum SerenityUI {
     )
     static let headerIconBackground = SerenityUI.dynamicColor(
       light: (0.89, 0.92, 0.97, 1.0),
-      dark: SerenityDarkPalette.hoverBackground
+      dark: SerenityDarkPalette.headerIconBackground
     )
     static let textSecondary = SerenityUI.dynamicColor(
       light: (0.31, 0.39, 0.51, 1.0),
@@ -170,41 +170,51 @@ enum SerenityUI {
 }
 
 private enum SerenityDarkPalette {
+  private static func srgb(
+    _ red: CGFloat,
+    _ green: CGFloat,
+    _ blue: CGFloat,
+    _ alpha: CGFloat = 1
+  ) -> SerenityNativeColor {
 #if os(macOS)
-  static let accent = NSColor.secondaryLabelColor
-  static let primaryActionBackground = NSColor.unemphasizedSelectedContentBackgroundColor
-  static let windowBackground = NSColor.windowBackgroundColor
-  static let windowBackgroundDepth = NSColor.underPageBackgroundColor
-  static let sidebarBackground = NSColor.underPageBackgroundColor
-  static let panelBackground = NSColor.controlBackgroundColor
-  static let panelBackgroundRaised = NSColor.textBackgroundColor
-  static let hoverBackground = NSColor.unemphasizedSelectedContentBackgroundColor
-  static let border = NSColor.separatorColor.withAlphaComponent(0.28)
-  static let thinBorder = NSColor.separatorColor.withAlphaComponent(0.15)
-  static let activeItemBackground = NSColor.unemphasizedSelectedContentBackgroundColor
-  static let textSecondary = NSColor.secondaryLabelColor
-  static let textPrimary = NSColor.labelColor.withAlphaComponent(0.72)
-  static let textOnInteractiveSurface = NSColor.labelColor
-  static let quickCaptureTint = NSColor.quaternaryLabelColor
-  static let highlightStroke = NSColor.separatorColor.withAlphaComponent(0.08)
+    NSColor(srgbRed: red / 255, green: green / 255, blue: blue / 255, alpha: alpha)
 #else
-  static let accent = UIColor.secondaryLabel
-  static let primaryActionBackground = UIColor.systemGray2
-  static let windowBackground = UIColor.systemBackground
-  static let windowBackgroundDepth = UIColor.secondarySystemBackground
-  static let sidebarBackground = UIColor.secondarySystemBackground
-  static let panelBackground = UIColor.secondarySystemBackground
-  static let panelBackgroundRaised = UIColor.tertiarySystemBackground
-  static let hoverBackground = UIColor.systemGray5
-  static let border = UIColor.separator.withAlphaComponent(0.28)
-  static let thinBorder = UIColor.separator.withAlphaComponent(0.15)
-  static let activeItemBackground = UIColor.systemGray4
-  static let textSecondary = UIColor.secondaryLabel
-  static let textPrimary = UIColor.label.withAlphaComponent(0.72)
-  static let textOnInteractiveSurface = UIColor.label
-  static let quickCaptureTint = UIColor.quaternaryLabel
-  static let highlightStroke = UIColor.separator.withAlphaComponent(0.08)
+    UIColor(red: red / 255, green: green / 255, blue: blue / 255, alpha: alpha)
 #endif
+  }
+
+  private static func white(_ alpha: CGFloat) -> SerenityNativeColor {
+    srgb(255, 255, 255, alpha)
+  }
+
+  private static func accentTint(_ alpha: CGFloat) -> SerenityNativeColor {
+    srgb(76, 141, 255, alpha)
+  }
+
+  // Elevation ramp, ~3 L* per step: surfaces separate by fill, not by outline.
+  static let sidebarBackground = srgb(20, 20, 23)
+  static let windowBackgroundDepth = srgb(20, 20, 23)
+  static let windowBackground = srgb(27, 27, 30)
+  static let panelBackground = srgb(33, 33, 37)
+  static let panelBackgroundRaised = srgb(38, 38, 43)
+  static let hoverBackground = srgb(44, 44, 50)
+
+  // Hairlines only confirm an edge the fill step has already established.
+  static let border = white(0.08)
+  static let thinBorder = white(0.055)
+  static let highlightStroke = white(0.03)
+
+  // Selected/emphasised surfaces read as a brand tint instead of a grey slab.
+  static let accent = srgb(76, 141, 255)
+  static let primaryActionBackground = srgb(37, 99, 235)
+  static let activeItemBackground = accentTint(0.16)
+  static let headerIconBackground = accentTint(0.10)
+  // Spans half the capture card as a gradient stop, so it has to stay near-invisible.
+  static let quickCaptureTint = accentTint(0.035)
+
+  static let textPrimary = white(0.92)
+  static let textSecondary = white(0.60)
+  static let textOnInteractiveSurface = white(0.95)
 }
 
 enum SerenityScreenMetrics {

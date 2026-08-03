@@ -9,8 +9,6 @@ public enum AppSection: String, CaseIterable, Identifiable {
   case integrations
   case insights
   case aiSummaries
-  case costCenter
-  case database
   case settings
 
   public var id: String { rawValue }
@@ -33,10 +31,6 @@ public enum AppSection: String, CaseIterable, Identifiable {
       return "Insights"
     case .aiSummaries:
       return "AI Summaries"
-    case .costCenter:
-      return "Cost Center"
-    case .database:
-      return "Database"
     case .settings:
       return "Settings"
     }
@@ -60,10 +54,6 @@ public enum AppSection: String, CaseIterable, Identifiable {
       return "chart.bar.xaxis"
     case .aiSummaries:
       return "sparkles"
-    case .costCenter:
-      return "dollarsign.circle"
-    case .database:
-      return "internaldrive"
     case .settings:
       return "gearshape"
     }
@@ -73,14 +63,15 @@ public enum AppSection: String, CaseIterable, Identifiable {
 public enum SettingsTab: String, CaseIterable, Identifiable, Equatable {
   case appearance
   case aiProvider
+  case costCenter
   case backend
   case auth
   case appLock
-  case localDatabase
+  case database
   case diagnostics
 
   public static var allCases: [SettingsTab] {
-    [.appearance, .aiProvider, .appLock]
+    [.appearance, .aiProvider, .costCenter, .appLock, .database]
   }
 
   public var id: String { rawValue }
@@ -91,14 +82,16 @@ public enum SettingsTab: String, CaseIterable, Identifiable, Equatable {
       return "Appearance"
     case .aiProvider:
       return "AI Provider"
+    case .costCenter:
+      return "Cost Center"
     case .backend:
       return "Backend"
     case .auth:
       return "Auth"
     case .appLock:
       return "App Lock"
-    case .localDatabase:
-      return "Local Database"
+    case .database:
+      return "Database"
     case .diagnostics:
       return "Diagnostics"
     }
@@ -110,14 +103,16 @@ public enum SettingsTab: String, CaseIterable, Identifiable, Equatable {
       return "paintpalette"
     case .aiProvider:
       return "key.horizontal.fill"
+    case .costCenter:
+      return "dollarsign.circle"
     case .backend:
       return "server.rack"
     case .auth:
       return "person.crop.circle.badge.checkmark"
     case .appLock:
       return "lock.shield"
-    case .localDatabase:
-      return "cylinder.split.1x2"
+    case .database:
+      return "internaldrive"
     case .diagnostics:
       return "stethoscope"
     }

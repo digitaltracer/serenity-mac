@@ -374,7 +374,7 @@ private struct SerenitySidebar: View {
   @State private var hoveredSection: AppSection?
 
   private let primarySections: [AppSection] = [.home, .actionHub, .journal, .goals, .insights, .aiSummaries]
-  private let systemSections: [AppSection] = [.integrations, .costCenter, .database, .settings]
+  private let systemSections: [AppSection] = [.integrations, .settings]
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -502,12 +502,8 @@ private extension AppSection {
       return "AI analysis, recaps, and usage intelligence"
     case .aiSummaries:
       return "Generate and view AI-powered summaries of your tasks and journal entries"
-    case .costCenter:
-      return "Track AI token usage, spend, and provider rates"
-    case .database:
-      return "Bootstrap, integrity checks, and export tooling"
     case .settings:
-      return "Appearance, AI provider, auth, and app lock controls"
+      return "Appearance, AI provider, spend, app lock, and database controls"
     }
   }
 }
@@ -677,13 +673,13 @@ private struct SectionView: View {
       .animation(.easeInOut(duration: 0.2), value: section)
       .onAppear {
         AppLogger.info("Rendered section: \(section.rawValue)")
-        if section == .insights || section == .aiSummaries || section == .costCenter {
+        if section == .insights || section == .aiSummaries || section == .settings {
           Task {
             await appState.refreshAIWorkflows()
           }
         }
 
-        if [.home, .actionHub, .journal, .goals, .projects, .integrations, .costCenter, .database].contains(section) {
+        if [.home, .actionHub, .journal, .goals, .projects, .integrations, .settings].contains(section) {
           Task {
             await appState.refreshCoreWorkflowData()
           }
@@ -718,10 +714,6 @@ private struct SectionView: View {
             InsightsSectionView()
           case .aiSummaries:
             AISummariesSectionView()
-          case .costCenter:
-            CostCenterSectionView()
-          case .database:
-            DatabaseSectionView()
           case .settings:
             SettingsSectionView()
           }
@@ -7057,14 +7049,11 @@ private struct SettingsSectionView: View {
   }
 
   private func consumePendingSettingsTab() {
-    if let tab = appState.pendingSettingsTab {
-      if SettingsTab.allCases.contains(tab) {
-        selectedTab = tab
-      } else {
-        appState.setSection(.database)
-      }
-      appState.pendingSettingsTab = nil
+    guard let tab = appState.pendingSettingsTab else { return }
+    if SettingsTab.allCases.contains(tab) {
+      selectedTab = tab
     }
+    appState.pendingSettingsTab = nil
   }
 
   private var settingsTabBar: some View {
@@ -7137,14 +7126,16 @@ private struct SettingsSectionView: View {
       appearancePanel
     case .aiProvider:
       aiProviderPanel
+    case .costCenter:
+      CostCenterSectionView()
     case .backend:
       backendPanel
     case .auth:
       authPanel
     case .appLock:
       appLockPanel
-    case .localDatabase:
-      localDatabasePanel
+    case .database:
+      DatabaseSectionView()
     case .diagnostics:
       diagnosticsPanel
     }
@@ -7973,29 +7964,6 @@ private struct SettingsSectionView: View {
     }
   }
 
-  private var localDatabasePanel: some View {
-    settingsPanel(
-      title: "Local Database",
-      subtitle: "Bootstrap and migrations",
-      systemImage: "externaldrive.connected.to.line.below",
-      tint: databaseOverviewTint
-    ) {
-      VStack(alignment: .leading, spacing: 12) {
-        databaseStatusContent
-
-        Button {
-          Task {
-            await appState.bootstrapLocalDatabase()
-          }
-        } label: {
-          Label("Run bootstrap", systemImage: "arrow.clockwise")
-        }
-        .buttonStyle(SerenitySecondaryButtonStyle())
-        .hoverCursor(.pointingHand)
-      }
-    }
-  }
-
   private var diagnosticsPanel: some View {
     settingsPanel(
       title: "Backend Diagnostics",
@@ -8186,19 +8154,6 @@ private struct SettingsSectionView: View {
       return SerenityPalette.accent
     case .unauthenticated:
       return isOAuthConfigured ? SerenityPalette.textSecondary : .orange
-    }
-  }
-
-  private var databaseOverviewTint: Color {
-    switch appState.databaseBootstrapState {
-    case .ready:
-      return .green
-    case .bootstrapping:
-      return SerenityPalette.accent
-    case .failed:
-      return .red
-    case .idle:
-      return SerenityPalette.textSecondary
     }
   }
 
@@ -8434,31 +8389,6 @@ private struct SettingsSectionView: View {
       Text("Biometric authentication unavailable: \(reason)")
         .font(SerenityType.caption)
         .foregroundStyle(SerenityPalette.textSecondary)
-    }
-  }
-
-  @ViewBuilder
-  private var databaseStatusContent: some View {
-    switch appState.databaseBootstrapState {
-    case .idle:
-      Text("Local database bootstrap has not started yet.")
-        .foregroundStyle(SerenityPalette.textSecondary)
-    case .bootstrapping:
-      Label("Applying migrations...", systemImage: "arrow.triangle.2.circlepath")
-    case .ready(let path, let appliedCount):
-      VStack(alignment: .leading, spacing: 4) {
-        Text("Database ready")
-        Text(path)
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
-          .textSelection(.enabled)
-        Text("Migrations applied this run: \(appliedCount)")
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
-      }
-    case .failed(let message):
-      Text("Bootstrap failed: \(message)")
-        .foregroundStyle(.red)
     }
   }
 
@@ -9300,7 +9230,7 @@ private struct HelpCenterSheet: View {
       summary: "Review token usage, estimated spend, model rates, and recent AI calls.",
       keywords: ["cost", "tokens", "usage", "ai", "billing", "pricing"],
       shortcut: nil,
-      section: .costCenter
+      section: .settings
     ),
     HelpCenterArticle(
       title: "Security and backend settings",
