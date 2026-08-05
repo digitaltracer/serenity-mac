@@ -16,6 +16,9 @@ GoogleAuth.xcconfig
 # Claude Code session state
 .claude/
 
+# Brainstorm server state (pids, ports, tokens, scratch renders)
+.superpowers/
+
 # Xcode per-user state (always per-developer)
 xcuserdata/
 
