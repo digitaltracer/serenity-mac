@@ -1195,7 +1195,8 @@ private struct HomeSectionView: View {
           }
         }
       ),
-      options: quickCaptureCredentialOptions
+      options: quickCaptureCredentialOptions,
+      style: .inline
     ) {
       Button {
         appState.setSection(.settings, settingsTab: .aiProvider)
@@ -1210,18 +1211,46 @@ private struct HomeSectionView: View {
       .foregroundStyle(SerenityPalette.accent)
       .hoverCursor(.pointingHand)
     }
-    .frame(width: 200, alignment: .leading)
+    .fixedSize(horizontal: true, vertical: false)
+  }
+
+  private var canSubmitQuickCapture: Bool {
+    !submitting && !quickCapture.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   private var submitButton: some View {
-    Button(submitting ? "Submitting..." : "Submit") {
+    Button {
       Task {
         await submitQuickCapture()
       }
+    } label: {
+      ZStack {
+        Circle()
+          .fill(canSubmitQuickCapture ? SerenityPalette.primaryActionBackground : SerenityPalette.panelBackgroundRaised)
+          .overlay(
+            Circle()
+              .stroke(canSubmitQuickCapture ? Color.clear : SerenityPalette.thinBorder, lineWidth: 1)
+          )
+
+        if submitting {
+          ProgressView()
+            .controlSize(.small)
+            .scaleEffect(0.55)
+        } else {
+          Image(systemName: "arrow.up")
+            .font(SerenityType.scaledSystem(size: 12, weight: .bold))
+            .foregroundStyle(canSubmitQuickCapture ? Color.white : SerenityPalette.textSecondary)
+        }
+      }
+      .frame(width: 28, height: 28)
     }
-    .disabled(submitting || quickCapture.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-    .buttonStyle(SerenityPrimaryButtonStyle())
+    .buttonStyle(.plain)
+    .disabled(!canSubmitQuickCapture)
+    .keyboardShortcut(.return, modifiers: .command)
+    .help("Capture (Cmd-Return)")
+    .accessibilityLabel(submitting ? "Submitting capture" : "Submit capture")
     .hoverCursor(.pointingHand)
+    .animation(.easeOut(duration: 0.16), value: canSubmitQuickCapture)
   }
 
   private func submitQuickCapture() async {
@@ -1414,11 +1443,11 @@ private struct HomeSectionView: View {
   }
 
   private var quickCaptureHelperText: String {
-    if let credential = selectedQuickCaptureCredential {
-      return "Write naturally. \(providerTitle(credential.provider)) is selected for AI-assisted capture."
+    if selectedQuickCaptureCredential != nil {
+      return "Write naturally — Cmd-Return to capture."
     }
 
-    return "Write naturally. Prefix with journal: to create a journal entry; otherwise we create a task."
+    return "Prefix with journal: for a journal entry — Cmd-Return to capture."
   }
 
   private var selectedQuickCaptureCredential: AICredentialEntity? {

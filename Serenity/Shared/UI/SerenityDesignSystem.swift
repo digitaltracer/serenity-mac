@@ -567,11 +567,19 @@ struct SerenityTagInputField: View {
   }
 }
 
+/// `field` is a standalone form control; `inline` is a quiet toolbar control that
+/// borrows the surface it sits on and only reveals chrome on hover.
+enum SerenityDropdownStyle {
+  case field
+  case inline
+}
+
 struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
   let placeholder: String
   let options: [SerenityDropdownOption<Value>]
   let maxMenuHeight: CGFloat
   let footerDismissesOnTap: Bool
+  let style: SerenityDropdownStyle
   let footer: Footer
 
   @Binding var selection: Value
@@ -584,6 +592,41 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
 
   private var selectedOption: SerenityDropdownOption<Value>? {
     options.first { $0.value == selection }
+  }
+
+  private var isInline: Bool { style == .inline }
+
+  private var isActive: Bool { hovered || showingPopover }
+
+  private var triggerShape: RoundedRectangle {
+    RoundedRectangle(cornerRadius: isInline ? 8 : 12, style: .continuous)
+  }
+
+  private var triggerLabelColor: Color {
+    guard selectedOption != nil else { return SerenityPalette.textSecondary }
+    guard isInline else { return SerenityPalette.textPrimary }
+    return isActive ? SerenityPalette.textPrimary : SerenityPalette.textSecondary
+  }
+
+  @ViewBuilder
+  private var triggerBackground: some View {
+    if isInline {
+      triggerShape.fill(isActive ? SerenityPalette.inputBackgroundHover : Color.clear)
+    } else {
+      triggerShape.fill(isActive ? SerenityPalette.inputBackgroundHover : SerenityPalette.inputBackground)
+    }
+  }
+
+  @ViewBuilder
+  private var triggerBorder: some View {
+    if isInline {
+      triggerShape.stroke(isActive ? SerenityPalette.thinBorder : Color.clear, lineWidth: 1)
+    } else {
+      ZStack {
+        triggerShape.stroke(isActive ? SerenityPalette.border : SerenityPalette.thinBorder, lineWidth: 1)
+        triggerShape.stroke(SerenityPalette.highlightStroke, lineWidth: 1)
+      }
+    }
   }
 
   private var shouldShowMenuScrollbar: Bool {
@@ -608,45 +651,46 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
     Button {
       showingPopover.toggle()
     } label: {
-      HStack(spacing: 9) {
+      HStack(spacing: isInline ? 6 : 9) {
         if let selectedOption, let systemImage = selectedOption.systemImage {
           Image(systemName: systemImage)
-            .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+            .font(SerenityType.scaledSystem(size: isInline ? 11 : 12, weight: .semibold))
             .foregroundStyle(selectedOption.tint ?? SerenityPalette.accent)
         } else if let selectedOption, let tint = selectedOption.tint {
           Circle()
             .fill(tint)
-            .frame(width: 9, height: 9)
+            .frame(width: isInline ? 8 : 9, height: isInline ? 8 : 9)
         }
 
         Text(selectedOption?.title ?? placeholder)
-          .font(SerenityType.body)
-          .foregroundStyle(selectedOption == nil ? SerenityPalette.textSecondary : SerenityPalette.textPrimary)
+          .font(isInline ? SerenityType.bodyMedium : SerenityType.body)
+          .foregroundStyle(triggerLabelColor)
           .lineLimit(1)
 
-        Spacer(minLength: 0)
+        if !isInline {
+          Spacer(minLength: 0)
+        }
 
         Image(systemName: "chevron.down")
-          .font(SerenityType.scaledSystem(size: 10, weight: .semibold))
+          .font(SerenityType.scaledSystem(size: isInline ? 9 : 10, weight: .semibold))
           .foregroundStyle(SerenityPalette.textSecondary)
           .rotationEffect(.degrees(showingPopover ? 180 : 0))
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 9)
-      .frame(minWidth: 160, minHeight: 40, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .fill(hovered || showingPopover ? SerenityPalette.inputBackgroundHover : SerenityPalette.inputBackground)
+      .padding(.horizontal, isInline ? 8 : 12)
+      .padding(.vertical, isInline ? 4 : 9)
+      .frame(
+        minWidth: isInline ? nil : 160,
+        minHeight: isInline ? 26 : 40,
+        alignment: .leading
       )
-      .overlay(
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .stroke(hovered || showingPopover ? SerenityPalette.border : SerenityPalette.thinBorder, lineWidth: 1)
+      .background(triggerBackground)
+      .overlay(triggerBorder)
+      .shadow(
+        color: isInline ? .clear : SerenityPalette.controlGlow.opacity(isActive ? 0.12 : 0.06),
+        radius: isActive ? 8 : 5,
+        x: 0,
+        y: 1
       )
-      .overlay(
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .stroke(SerenityPalette.highlightStroke, lineWidth: 1)
-      )
-      .shadow(color: SerenityPalette.controlGlow.opacity(hovered || showingPopover ? 0.12 : 0.06), radius: hovered || showingPopover ? 8 : 5, x: 0, y: 1)
     }
     .buttonStyle(.plain)
     .disabled(options.isEmpty)
@@ -802,13 +846,15 @@ extension SerenityDropdownField where Footer == EmptyView {
     placeholder: String,
     selection: Binding<Value>,
     options: [SerenityDropdownOption<Value>],
-    maxMenuHeight: CGFloat = 240
+    maxMenuHeight: CGFloat = 240,
+    style: SerenityDropdownStyle = .field
   ) {
     self.placeholder = placeholder
     self._selection = selection
     self.options = options
     self.maxMenuHeight = maxMenuHeight
     self.footerDismissesOnTap = false
+    self.style = style
     self.footer = EmptyView()
   }
 }
@@ -820,6 +866,7 @@ extension SerenityDropdownField {
     options: [SerenityDropdownOption<Value>],
     maxMenuHeight: CGFloat = 240,
     footerDismissesOnTap: Bool = true,
+    style: SerenityDropdownStyle = .field,
     @ViewBuilder footer: () -> Footer
   ) {
     self.placeholder = placeholder
@@ -827,6 +874,7 @@ extension SerenityDropdownField {
     self.options = options
     self.maxMenuHeight = maxMenuHeight
     self.footerDismissesOnTap = footerDismissesOnTap
+    self.style = style
     self.footer = footer()
   }
 }
