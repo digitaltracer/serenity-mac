@@ -5,8 +5,20 @@ final class AppSectionTests: XCTestCase {
   func testAllSectionsArePresentInNavigationOrder() {
     XCTAssertEqual(
       AppSection.allCases,
-      [.home, .actionHub, .journal, .goals, .projects, .integrations, .insights, .aiSummaries, .costCenter, .database, .settings],
+      [.home, .actionHub, .journal, .goals, .projects, .integrations, .insights, .aiSummaries, .settings],
     )
+  }
+
+  func testDatabaseAndCostCenterAreSettingsTabsRatherThanSections() {
+    for rawValue in ["database", "costCenter"] {
+      XCTAssertFalse(
+        AppSection.allCases.contains { $0.rawValue == rawValue },
+        "\(rawValue) should no longer be a top-level section"
+      )
+    }
+
+    XCTAssertTrue(SettingsTab.allCases.contains(.database))
+    XCTAssertTrue(SettingsTab.allCases.contains(.costCenter))
   }
 
   func testGlobalSearchResultTypesMapToTargetSections() {
