@@ -248,21 +248,31 @@ typealias SerenityPalette = SerenityUI.Palette
 typealias SerenityType = SerenityUI.Typography
 
 struct SerenityPrimaryButtonStyle: ButtonStyle {
+  @Environment(\.isEnabled) private var isEnabled
+
+  private var fillOpacity: CGFloat {
+    guard isEnabled else { return 0.35 }
+    return 1
+  }
+
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(SerenityType.bodyMedium)
       .padding(.horizontal, 12)
       .padding(.vertical, 7)
-      .foregroundStyle(Color.white)
+      .foregroundStyle(Color.white.opacity(isEnabled ? 1 : 0.5))
       .background(
         RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .fill(SerenityPalette.primaryActionBackground.opacity(configuration.isPressed ? 0.78 : 1))
+          .fill(
+            SerenityPalette.primaryActionBackground
+              .opacity(configuration.isPressed && isEnabled ? 0.78 : fillOpacity)
+          )
       )
       .overlay(
         RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .stroke(SerenityPalette.primaryActionBackground.opacity(0.65), lineWidth: 1)
+          .stroke(SerenityPalette.primaryActionBackground.opacity(isEnabled ? 0.65 : 0.25), lineWidth: 1)
       )
-      .scaleEffect(configuration.isPressed ? 0.99 : 1)
+      .scaleEffect(configuration.isPressed && isEnabled ? 0.99 : 1)
       .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
   }
 }
