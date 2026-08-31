@@ -51,30 +51,42 @@ final class SectionViewSmokeTests: XCTestCase {
 
     XCTAssertTrue(home.contains("TodayOverviewView()"))
     XCTAssertFalse(home.contains("featureGrid"))
-    XCTAssertFalse(source.contains("case .today"))
+    // Asserted against the enum rather than the source text: "case .today" also
+    // appears in TodayOverviewView's band kind, which is not a route.
+    XCTAssertNil(AppSection(rawValue: "today"))
     XCTAssertFalse(source.contains("section: .today"))
   }
 
-  func testHomeDashboardUsesPolishedLayout() throws {
+  func testDailyOverviewIsBandedAndCarriesNoZeroValueCards() throws {
+    let source = try appSceneSource()
+    let overview = try XCTUnwrap(source.slice(from: "private struct TodayOverviewView", to: "private struct SerenityDateRangePicker"))
+
+    // The three bands read straight off AppState, so nothing captured can be
+    // absent from Home.
+    XCTAssertTrue(overview.contains("appState.overdueTasks"))
+    XCTAssertTrue(overview.contains("appState.todayTasks"))
+    XCTAssertTrue(overview.contains("appState.upcomingTasks"))
+    XCTAssertTrue(overview.contains("appState.inboxTasks"))
+
+    // Empty bands are dropped rather than rendered as zeroes.
+    XCTAssertTrue(overview.contains("filter { !$0.tasks.isEmpty }"))
+
+    // The percentage ring and the Planned/Completed tallies are gone; they
+    // reported four zeros while real tasks existed elsewhere in the app.
+    XCTAssertFalse(overview.contains("progressCard"))
+    XCTAssertFalse(overview.contains("focusCard"))
+    XCTAssertFalse(overview.contains("completionPercent"))
+  }
+
+  func testHomeHeaderAndCaptureCardSurvive() throws {
     let source = try appSceneSource()
     let home = try XCTUnwrap(source.slice(from: "private struct HomeSectionView", to: "private struct ActionHubSectionView"))
     let header = try XCTUnwrap(String(home).slice(from: "private var header", to: "private var quickCaptureCard"))
     let quickCaptureCard = try XCTUnwrap(String(home).slice(from: "private var quickCaptureCard", to: "private var quickCaptureProviderDropdown"))
-    let overview = try XCTUnwrap(source.slice(from: "private struct TodayOverviewView", to: "private struct SerenityDateRangePicker"))
-    let progressCard = try XCTUnwrap(String(overview).slice(from: "private var progressCard", to: "private var focusCard"))
-    let focusCard = try XCTUnwrap(String(overview).slice(from: "private var focusCard", to: "private func focusRow"))
 
     XCTAssertTrue(home.contains("header\n        .padding(.bottom, density.sectionSpacing)"))
     XCTAssertTrue(header.contains("HStack(alignment: .center, spacing: 12)"))
-    XCTAssertTrue(header.contains("Text(\"Focus on what matters most right now\")\n          .font(SerenityType.body)"))
-    XCTAssertTrue(header.contains("Text(Self.dateFormatter.string(from: Date()))\n          .font(SerenityType.caption)"))
-    XCTAssertTrue(quickCaptureCard.contains("HStack(alignment: .center, spacing: 12)"))
     XCTAssertTrue(quickCaptureCard.contains("Text(quickCaptureHelperText)\n            .font(SerenityType.body)"))
-    XCTAssertTrue(overview.contains("HStack(alignment: .top, spacing: 16)"))
-    XCTAssertTrue(overview.contains(".fixedSize(horizontal: false, vertical: true)"))
-    XCTAssertFalse(overview.contains("GridRow"))
-    XCTAssertTrue(progressCard.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)"))
-    XCTAssertTrue(focusCard.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)"))
   }
 
   private func appSceneSource() throws -> String {

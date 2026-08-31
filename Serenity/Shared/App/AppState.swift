@@ -336,6 +336,35 @@ final class AppState: ObservableObject {
       }
   }
 
+  /// Dated beyond today but close enough to matter. Without this band a task
+  /// captured as "tomorrow" would belong to no band at all and vanish from Home
+  /// the moment it was saved.
+  var upcomingTasks: [TaskEntity] {
+    let calendar = Calendar.current
+    let startOfTomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))
+    guard
+      let startOfTomorrow,
+      let horizon = calendar.date(byAdding: .day, value: 7, to: startOfTomorrow)
+    else {
+      return []
+    }
+
+    return tasks
+      .filter { task in
+        guard !task.completed, let dueDate = task.dueDate else { return false }
+        return dueDate >= startOfTomorrow && dueDate < horizon
+      }
+      .sorted { ($0.dueDate ?? $0.createdAt) < ($1.dueDate ?? $1.createdAt) }
+  }
+
+  /// Captured but not yet scheduled. Quick capture lands here, so Home has to
+  /// show it — otherwise anything typed without a date disappears on send.
+  var inboxTasks: [TaskEntity] {
+    tasks
+      .filter { !$0.completed && $0.dueDate == nil }
+      .sorted { $0.createdAt > $1.createdAt }
+  }
+
   var filteredJournalEntries: [JournalEntryEntity] {
     guard journalDateRangeEnabled else {
       return journalEntries

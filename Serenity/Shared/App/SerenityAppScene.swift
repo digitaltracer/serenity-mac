@@ -3151,165 +3151,156 @@ private struct ActionHubSectionView: View {
 
 }
 
+/// Home's daily surface. Three bands — what slipped, what is due, what has not
+/// been scheduled — so nothing captured can fall out of view. Empty bands are
+/// omitted entirely rather than reporting zero.
 private struct TodayOverviewView: View {
   @EnvironmentObject private var appState: AppState
 
+  private var bands: [Band] {
+    [
+      Band(kind: .overdue, tasks: appState.overdueTasks),
+      Band(kind: .today, tasks: appState.todayTasks),
+      Band(kind: .upcoming, tasks: appState.upcomingTasks),
+      Band(kind: .inbox, tasks: appState.inboxTasks),
+    ]
+    .filter { !$0.tasks.isEmpty }
+  }
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      ViewThatFits(in: .horizontal) {
-        HStack(alignment: .top, spacing: 16) {
-          progressCard
-          focusCard
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        VStack(spacing: 16) {
-          progressCard
-          focusCard
-        }
-      }
-
-      VStack(alignment: .leading, spacing: 12) {
-        Text("Today's Tasks")
-          .font(SerenityType.sectionTitle)
-
-        tasksPanel
-      }
-    }
-  }
-
-  private var progressCard: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      Text("Today's Progress")
-        .font(SerenityType.sectionTitle)
-
-      Text("\(Int(completionPercent * 100))%")
-        .font(SerenityType.scaledSystem(size: 38, weight: .semibold))
-
-      ProgressView(value: completionPercent)
-        .progressViewStyle(.linear)
-        .tint(SerenityPalette.accent)
-
-      Text("\(completedTodayCount) of \(totalTodayCount) tasks completed")
-        .font(SerenityType.body)
-        .foregroundStyle(SerenityPalette.textSecondary)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .padding(20)
-    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .stroke(SerenityPalette.border, lineWidth: 1)
-    )
-  }
-
-  private var focusCard: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      Text("Today's Focus")
-        .font(SerenityType.sectionTitle)
-
-      focusRow(dotColor: SerenityPalette.textSecondary.opacity(0.6), label: "Planned for today", value: totalTodayCount)
-      focusRow(dotColor: .green, label: "Completed today", value: completedTodayCount)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .padding(20)
-    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .stroke(SerenityPalette.border, lineWidth: 1)
-    )
-  }
-
-  private func focusRow(dotColor: Color, label: String, value: Int) -> some View {
-    HStack {
-      Circle()
-        .fill(dotColor)
-        .frame(width: 8, height: 8)
-      Text(label)
-        .font(SerenityType.body)
-      Spacer()
-      Text("\(value)")
-        .font(SerenityType.bodyLarge.weight(.semibold))
-    }
-  }
-
-  @ViewBuilder
-  private var tasksPanel: some View {
-    if appState.todayTasks.isEmpty {
-      VStack(spacing: 10) {
-        Image(systemName: "calendar")
-          .font(SerenityType.scaledSystem(size: 32, weight: .regular))
-          .foregroundStyle(SerenityPalette.textSecondary.opacity(0.7))
-        Text("No tasks scheduled for today")
-          .font(SerenityType.bodyLarge.weight(.medium))
-        Text("You're clear for today. Add a task to plan something.")
-          .font(SerenityType.body)
-          .foregroundStyle(SerenityPalette.textSecondary)
-        Button("Add a Task") {
-          appState.setSection(.actionHub)
-        }
-        .buttonStyle(SerenitySecondaryButtonStyle())
-        .hoverCursor(.pointingHand)
-        .padding(.top, 4)
-      }
-      .frame(maxWidth: .infinity)
-      .padding(.vertical, 40)
-      .padding(.horizontal, 20)
-      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(SerenityPalette.border, lineWidth: 1)
-      )
-    } else {
-      VStack(alignment: .leading, spacing: 8) {
-        ForEach(appState.todayTasks) { task in
-          HStack {
-            Button {
-              Task { await appState.toggleTaskCompletion(id: task.id) }
-            } label: {
-              Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
-                .font(SerenityType.scaledSystem(size: 18, weight: .regular))
-                .foregroundStyle(task.completed ? Color.green : SerenityPalette.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .hoverCursor(.pointingHand)
-
-            Text(task.title)
-              .strikethrough(task.completed, color: SerenityPalette.textSecondary)
-              .foregroundStyle(task.completed ? SerenityPalette.textSecondary : SerenityPalette.textPrimary)
-
-            Spacer()
-
-            if let dueDate = task.dueDate {
-              Text(dueDate, style: .time)
-                .font(SerenityType.caption)
-                .foregroundStyle(SerenityPalette.textSecondary)
-            }
+    VStack(alignment: .leading, spacing: 16) {
+      if bands.isEmpty {
+        SerenityEmptyState(
+          icon: "checkmark.circle",
+          title: "Nothing waiting",
+          message: "Capture something above, or open ActionHub to plan ahead."
+        ) {
+          Button("Open ActionHub") {
+            appState.setSection(.actionHub)
           }
-          .padding(.horizontal, 14)
-          .padding(.vertical, 12)
-          .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        }
+      } else {
+        ForEach(bands) { band in
+          bandPanel(band)
         }
       }
-      .padding(16)
-      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(SerenityPalette.border, lineWidth: 1)
-      )
     }
   }
 
-  private var totalTodayCount: Int {
-    appState.todayTasks.count
+  private func bandPanel(_ band: Band) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 8) {
+        Image(systemName: band.kind.systemImage)
+          .font(SerenityType.scaledSystem(size: 13, weight: .semibold))
+          .foregroundStyle(band.kind.tint)
+        Text(band.kind.title)
+          .font(SerenityType.sectionTitle)
+        Text("\(band.tasks.count)")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .padding(.horizontal, 7)
+          .padding(.vertical, 2)
+          .background(SerenityPalette.panelBackgroundRaised, in: Capsule())
+        Spacer()
+      }
+
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(band.tasks) { task in
+          taskRow(task, in: band.kind)
+        }
+      }
+    }
+    .padding(16)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
   }
 
-  private var completedTodayCount: Int {
-    appState.todayTasks.filter { $0.completed }.count
+  private func taskRow(_ task: TaskEntity, in kind: Band.Kind) -> some View {
+    HStack(spacing: 10) {
+      Button {
+        Task { await appState.toggleTaskCompletion(id: task.id) }
+      } label: {
+        Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
+          .font(SerenityType.scaledSystem(size: 18, weight: .regular))
+          .foregroundStyle(task.completed ? Color.green : SerenityPalette.textSecondary)
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+      .accessibilityLabel(task.completed ? "Mark \(task.title) incomplete" : "Mark \(task.title) complete")
+
+      Text(task.title)
+        .strikethrough(task.completed, color: SerenityPalette.textSecondary)
+        .foregroundStyle(task.completed ? SerenityPalette.textSecondary : SerenityPalette.textPrimary)
+        .lineLimit(1)
+
+      Spacer(minLength: 8)
+
+      if let dueDate = task.dueDate {
+        Text(SerenityDateText.dueWithTime(dueDate))
+          .font(SerenityType.caption)
+          .foregroundStyle(kind == .overdue ? Color.red.opacity(0.9) : SerenityPalette.textSecondary)
+      }
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 12)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
   }
 
-  private var completionPercent: Double {
-    guard totalTodayCount > 0 else { return 0 }
-    return Double(completedTodayCount) / Double(totalTodayCount)
+  struct Band: Identifiable {
+    enum Kind {
+      case overdue
+      case today
+      case upcoming
+      case inbox
+
+      var title: String {
+        switch self {
+        case .overdue:
+          return "Overdue"
+        case .today:
+          return "Today"
+        case .upcoming:
+          return "Next 7 days"
+        case .inbox:
+          return "Inbox"
+        }
+      }
+
+      var systemImage: String {
+        switch self {
+        case .overdue:
+          return "exclamationmark.triangle.fill"
+        case .today:
+          return "sun.max.fill"
+        case .upcoming:
+          return "calendar"
+        case .inbox:
+          return "tray"
+        }
+      }
+
+      var tint: Color {
+        switch self {
+        case .overdue:
+          return .red
+        case .today:
+          return SerenityPalette.accent
+        case .upcoming, .inbox:
+          return SerenityPalette.textSecondary
+        }
+      }
+    }
+
+    let kind: Kind
+    let tasks: [TaskEntity]
+
+    var id: String { kind.title }
   }
 }
 
