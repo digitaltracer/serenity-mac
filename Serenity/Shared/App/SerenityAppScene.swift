@@ -4552,7 +4552,7 @@ struct InsightsSectionView: View {
   private var insightsPanel: some View {
     sectionPanel(title: "Latest Insights", subtitle: "\(appState.aiInsights.count) generated") {
       if appState.aiInsights.isEmpty {
-        emptyState(
+        SerenityEmptyState(
           icon: "chart.bar.xaxis",
           title: "No insights yet",
           message: "Generate insights to surface recommendations from your tasks, journal, goals, and projects."
@@ -4570,7 +4570,7 @@ struct InsightsSectionView: View {
   private var recapsPanel: some View {
     sectionPanel(title: "Recaps", subtitle: "\(appState.aiRecaps.count) saved") {
       if appState.aiRecaps.isEmpty {
-        emptyState(
+        SerenityEmptyState(
           icon: "calendar.badge.clock",
           title: "No recaps yet",
           message: "Weekly and monthly recaps will appear here after generation."
@@ -4588,7 +4588,7 @@ struct InsightsSectionView: View {
   private var summariesPanel: some View {
     sectionPanel(title: "Summaries", subtitle: "\(appState.aiSummaries.count) generated") {
       if appState.aiSummaries.isEmpty {
-        emptyState(
+        SerenityEmptyState(
           icon: "sparkles",
           title: "No summaries yet",
           message: "Task, journal, and combined summaries will be listed here."
@@ -4689,7 +4689,7 @@ struct InsightsSectionView: View {
   private var usagePanel: some View {
     sectionPanel(title: "Recent Usage", subtitle: "\(appState.aiUsageEntries.count) records") {
       if appState.aiUsageEntries.isEmpty {
-        emptyState(icon: "bolt.horizontal", title: "No usage records", message: "Token usage will appear after AI actions run.")
+        SerenityEmptyState(icon: "bolt.horizontal", title: "No usage records", message: "Token usage will appear after AI actions run.")
           .padding(.vertical, 2)
       } else {
         VStack(alignment: .leading, spacing: 8) {
@@ -4969,25 +4969,6 @@ struct InsightsSectionView: View {
         .foregroundStyle(SerenityPalette.textSecondary)
       content()
     }
-  }
-
-  private func emptyState(icon: String, title: String, message: String) -> some View {
-    VStack(spacing: 8) {
-      Image(systemName: icon)
-        .font(SerenityType.scaledSystem(size: 26, weight: .regular))
-        .foregroundStyle(SerenityPalette.textSecondary.opacity(0.7))
-      Text(title)
-        .font(SerenityType.bodyLarge.weight(.medium))
-      Text(message)
-        .font(SerenityType.body)
-        .foregroundStyle(SerenityPalette.textSecondary)
-        .multilineTextAlignment(.center)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, 28)
-    .padding(.horizontal, 18)
-    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
   }
 
   private func pill(_ text: String) -> some View {
@@ -6097,20 +6078,11 @@ private struct AISummariesSectionView: View {
   }
 
   private var emptyState: some View {
-    VStack(spacing: 10) {
-      Image(systemName: "sparkles")
-        .font(SerenityType.scaledSystem(size: 30, weight: .regular))
-        .foregroundStyle(SerenityPalette.textSecondary.opacity(0.7))
-      Text("No summaries yet")
-        .font(SerenityType.bodyLarge.weight(.medium))
-      Text("Generate your first summary using the controls above.")
-        .font(SerenityType.body)
-        .foregroundStyle(SerenityPalette.textSecondary)
-    }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, 42)
-    .padding(.horizontal, 20)
-    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    SerenityEmptyState(
+      icon: "sparkles",
+      title: "No summaries yet",
+      message: "Generate your first summary using the controls above."
+    )
   }
 
   private func summaryRow(_ summary: SummaryEntity) -> some View {

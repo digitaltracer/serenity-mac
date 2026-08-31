@@ -319,6 +319,90 @@ struct SerenityPillButtonStyle: ButtonStyle {
   }
 }
 
+/// The app's single empty-state treatment. Before this existed each section
+/// rolled its own, and the task list got a bare `Text` with nothing around it.
+struct SerenityEmptyState<Action: View>: View {
+  let icon: String
+  let title: String
+  let message: String
+  let action: Action
+
+  init(icon: String, title: String, message: String, @ViewBuilder action: () -> Action) {
+    self.icon = icon
+    self.title = title
+    self.message = message
+    self.action = action()
+  }
+
+  var body: some View {
+    VStack(spacing: 8) {
+      Image(systemName: icon)
+        .font(SerenityType.scaledSystem(size: 26, weight: .regular))
+        .foregroundStyle(SerenityPalette.textSecondary.opacity(0.7))
+      Text(title)
+        .font(SerenityType.bodyLarge.weight(.medium))
+      Text(message)
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+
+      if Action.self != EmptyView.self {
+        action
+          .padding(.top, 4)
+      }
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 28)
+    .padding(.horizontal, 18)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+}
+
+extension SerenityEmptyState where Action == EmptyView {
+  init(icon: String, title: String, message: String) {
+    self.init(icon: icon, title: title, message: message) { EmptyView() }
+  }
+}
+
+/// Due dates read as distances, not calendar coordinates — "Tomorrow" beats
+/// "12/5/2026" for the one question a task list has to answer.
+enum SerenityDateText {
+  static func due(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+    let day = calendar.startOfDay(for: date)
+    let today = calendar.startOfDay(for: now)
+    let dayDelta = calendar.dateComponents([.day], from: today, to: day).day ?? 0
+
+    switch dayDelta {
+    case 0:
+      return "Today"
+    case 1:
+      return "Tomorrow"
+    case -1:
+      return "Yesterday"
+    case 2...6:
+      return date.formatted(.dateTime.weekday(.wide))
+    case -6...(-2):
+      return "Overdue · \(date.formatted(.dateTime.weekday(.abbreviated)))"
+    default:
+      let sameYear = calendar.component(.year, from: day) == calendar.component(.year, from: today)
+      let stamp = sameYear
+        ? date.formatted(.dateTime.month(.abbreviated).day())
+        : date.formatted(.dateTime.month(.abbreviated).day().year())
+      return dayDelta < 0 ? "Overdue · \(stamp)" : stamp
+    }
+  }
+
+  /// Appends a time only when the due date carries one, so a date-only task
+  /// does not claim to be due at midnight.
+  static func dueWithTime(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+    let label = due(date, now: now, calendar: calendar)
+    let time = calendar.dateComponents([.hour, .minute], from: date)
+    guard (time.hour ?? 0) != 0 || (time.minute ?? 0) != 0 else { return label }
+    return "\(label) · \(date.formatted(date: .omitted, time: .shortened))"
+  }
+}
+
 struct SerenityDropdownOption<Value: Hashable>: Identifiable {
   let value: Value
   let title: String
