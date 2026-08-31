@@ -109,6 +109,8 @@ enum OAuthConfigurationValidationError: Error, LocalizedError {
 @MainActor
 final class AppState: ObservableObject {
   static let themePreferenceDefaultsKey = "serenity.ui.themePreference"
+  static let notificationsEnabledDefaultsKey = "serenity.notifications.enabled"
+  static let notificationLeadMinutesDefaultsKey = "serenity.notifications.leadMinutes"
   static let localLockEnabledDefaultsKey = "serenity.security.localLock.enabled"
   static let aiQuickCapturePreviewThreshold = 0.75
   private let settingsSync: SettingsSyncCoordinator
@@ -144,6 +146,8 @@ final class AppState: ObservableObject {
   @Published var journalRangeStartDate: Date = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
   @Published var journalRangeEndDate: Date = Date()
   @Published var includeArchivedProjects = true
+  @Published var notificationsEnabled = false
+  @Published var notificationLeadMinutes = 0
   @Published var isGlobalSearchPresented = false
   @Published var isHelpCenterPresented = false
   @Published var globalSearchQuery = ""
@@ -183,6 +187,7 @@ final class AppState: ObservableObject {
   private let googleIntegrationService: GoogleIntegrationService
   private let githubIntegrationService: GitHubIntegrationService
   private let aiWorkflowService: AIWorkflowService
+  private let notificationScheduler = NotificationScheduler(center: SystemNotificationCenter())
   private var iCloudSyncEngine: ICloudSyncEngine?
 
   private var sqliteCoreRepositories: GRDBCoreRepositorySet?
@@ -229,6 +234,9 @@ final class AppState: ObservableObject {
     }
 
     settings.localLockEnabled = UserDefaults.standard.bool(forKey: Self.localLockEnabledDefaultsKey)
+
+    notificationsEnabled = UserDefaults.standard.bool(forKey: Self.notificationsEnabledDefaultsKey)
+    notificationLeadMinutes = UserDefaults.standard.integer(forKey: Self.notificationLeadMinutesDefaultsKey)
 
     settingsSyncObserver = NotificationCenter.default.addObserver(
       forName: .settingsDidChangeRemotely,
@@ -1694,6 +1702,7 @@ final class AppState: ObservableObject {
       selectedTaskIDs = selectedTaskIDs.filter { id in tasks.contains(where: { $0.id == id }) }
       rebuildGlobalSearchIndex()
       setGlobalSearchQuery(globalSearchQuery)
+      syncTaskNotifications()
 
       coreWorkflowState = .ready
       await refreshDatabaseManagement()
@@ -1703,6 +1712,57 @@ final class AppState: ObservableObject {
       coreWorkflowState = .failed(message: message)
       showError(title: "Data load failed", message: message)
     }
+  }
+
+  // MARK: Notifications
+
+  /// Runs after every data refresh. Because the scheduler diffs desired against
+  /// pending, completing, deleting or rescheduling a task cancels its reminder
+  /// without any explicit call at those sites.
+  func syncTaskNotifications() {
+    // When reminders are off there is nothing to keep in sync; tearing down any
+    // leftovers is handled once, in `setNotificationsEnabled`.
+    guard notificationsEnabled else { return }
+
+    let occurrences = TaskNotificationPlan.occurrences(
+      for: tasks,
+      leadMinutes: notificationLeadMinutes
+    )
+    Task { [notificationScheduler] in
+      await notificationScheduler.reconcile(occurrences)
+    }
+  }
+
+  func setNotificationsEnabled(_ enabled: Bool) async {
+    guard enabled else {
+      notificationsEnabled = false
+      UserDefaults.standard.set(false, forKey: Self.notificationsEnabledDefaultsKey)
+      // Turning reminders off has to clear what is already queued, which the
+      // early-returning sync path deliberately will not do.
+      await notificationScheduler.reconcile([])
+      return
+    }
+
+    let granted = await SystemNotificationCenter().authorizationGranted()
+    guard granted else {
+      notificationsEnabled = false
+      UserDefaults.standard.set(false, forKey: Self.notificationsEnabledDefaultsKey)
+      showError(
+        title: "Notifications not allowed",
+        message: "Enable notifications for Serenity in System Settings › Notifications."
+      )
+      return
+    }
+
+    notificationsEnabled = true
+    UserDefaults.standard.set(true, forKey: Self.notificationsEnabledDefaultsKey)
+    syncTaskNotifications()
+  }
+
+  func setNotificationLeadMinutes(_ minutes: Int) {
+    notificationLeadMinutes = minutes
+    UserDefaults.standard.set(minutes, forKey: Self.notificationLeadMinutesDefaultsKey)
+    syncTaskNotifications()
   }
 
   func quickAddTaskFromCommand() async {

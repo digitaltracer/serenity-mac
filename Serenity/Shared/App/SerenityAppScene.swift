@@ -7191,6 +7191,39 @@ private struct SettingsSectionView: View {
         .pickerStyle(.segmented)
         .frame(maxWidth: 360)
       }
+
+      settingsField("Due reminders", help: "Notify you when a task falls due. Tasks without a time are reminded at 9am.") {
+        VStack(alignment: .leading, spacing: 12) {
+          Toggle(
+            "Notify me when a task is due",
+            isOn: Binding(
+              get: { appState.notificationsEnabled },
+              set: { enabled in
+                Task { await appState.setNotificationsEnabled(enabled) }
+              }
+            )
+          )
+          .toggleStyle(.switch)
+
+          if appState.notificationsEnabled {
+            Picker(
+              "Remind me",
+              selection: Binding(
+                get: { appState.notificationLeadMinutes },
+                set: { appState.setNotificationLeadMinutes($0) }
+              )
+            ) {
+              Text("At the due time").tag(0)
+              Text("5 minutes before").tag(5)
+              Text("15 minutes before").tag(15)
+              Text("1 hour before").tag(60)
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(maxWidth: 240, alignment: .leading)
+          }
+        }
+      }
     }
   }
 
