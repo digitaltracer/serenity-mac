@@ -357,6 +357,11 @@ final class AppState: ObservableObject {
       .sorted { ($0.dueDate ?? $0.createdAt) < ($1.dueDate ?? $1.createdAt) }
   }
 
+  /// What the menu bar shows at a glance: everything still owed today.
+  var menuBarRemainingCount: Int {
+    overdueTasks.count + todayTasks.filter { !$0.completed }.count
+  }
+
   /// Captured but not yet scheduled. Quick capture lands here, so Home has to
   /// show it — otherwise anything typed without a date disappears on send.
   var inboxTasks: [TaskEntity] {

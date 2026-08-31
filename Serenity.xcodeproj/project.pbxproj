@@ -83,6 +83,7 @@
 		A000000000000000000000F5 /* CloudSyncInitialExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F3 /* CloudSyncInitialExporter.swift */; };
 		A000000000000000000000F7 /* SyncAwareAIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F6 /* SyncAwareAIRepositories.swift */; };
 		A000000000000000000000F8 /* SyncAwareAIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F6 /* SyncAwareAIRepositories.swift */; };
+		A00000000000000000000103 /* MenuBarCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* MenuBarCaptureView.swift */; };
 		A00000000000000000000100 /* RecurrenceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000FF /* RecurrenceEngine.swift */; };
 		A00000000000000000000101 /* RecurrenceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000FF /* RecurrenceEngine.swift */; };
 		A000000000000000000000FD /* NotificationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000FC /* NotificationScheduler.swift */; };
@@ -136,6 +137,7 @@
 		A000000000000000000000E9 /* iCloudSyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iCloudSyncEngine.swift; sourceTree = "<group>"; };
 		A000000000000000000000F3 /* CloudSyncInitialExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncInitialExporter.swift; sourceTree = "<group>"; };
 		A000000000000000000000F6 /* SyncAwareAIRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncAwareAIRepositories.swift; sourceTree = "<group>"; };
+		A00000000000000000000102 /* MenuBarCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarCaptureView.swift; sourceTree = "<group>"; };
 		A000000000000000000000FF /* RecurrenceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurrenceEngine.swift; sourceTree = "<group>"; };
 		A000000000000000000000FC /* NotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScheduler.swift; sourceTree = "<group>"; };
 		A000000000000000000000F9 /* QuickCaptureDateParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickCaptureDateParser.swift; sourceTree = "<group>"; };
@@ -300,6 +302,7 @@
 		A0000000000000000000000D /* macOS */ = {
 			isa = PBXGroup;
 			children = (
+				A00000000000000000000102 /* MenuBarCaptureView.swift */,
 				A0000000000000000000003A /* SerenityMacApp.swift */,
 			);
 			path = macOS;
@@ -483,6 +486,7 @@
 				A000000000000000000000FA /* QuickCaptureDateParser.swift in Sources */,
 				A000000000000000000000FD /* NotificationScheduler.swift in Sources */,
 				A00000000000000000000100 /* RecurrenceEngine.swift in Sources */,
+				A00000000000000000000103 /* MenuBarCaptureView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

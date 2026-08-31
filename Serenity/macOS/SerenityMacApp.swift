@@ -65,6 +65,15 @@ struct SerenityMacApp: App {
         }
       }
     }
+
+    MenuBarExtra {
+      MenuBarCaptureView(appState: appState)
+    } label: {
+      // Carries today's remaining count so the app is glanceable without being
+      // opened.
+      Label("\(appState.menuBarRemainingCount)", systemImage: "checkmark.circle")
+    }
+    .menuBarExtraStyle(.window)
   }
 }
 
