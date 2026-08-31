@@ -845,13 +845,10 @@ private struct SectionView: View {
           .foregroundStyle(SerenityPalette.accent)
       }
 
-      VStack(alignment: .leading, spacing: 2) {
-        Text(section.title)
-          .font(density.sectionTitleFont)
-        Text(section.subtitle)
-          .font(density.sectionSubtitleFont)
-          .foregroundStyle(SerenityPalette.textSecondary)
-      }
+      // One line: the sidebar already names the section, so the subtitle only
+      // restated it. `AppSection.subtitle` still backs Help Center and search.
+      Text(section.title)
+        .font(density.sectionTitleFont)
 
       Spacer()
     }
@@ -3678,16 +3675,29 @@ private struct JournalSectionView: View {
 
   // MARK: Composer
 
+  /// Expanded once you engage with it. Title, mood, tags and Save used to sit
+  /// open permanently above an empty list, spending ~370pt before you had
+  /// decided to write anything.
+  private var isComposing: Bool {
+    newEntryContentFocused
+      || !newEntryContent.isEmpty
+      || !newEntryTitle.isEmpty
+      || newEntryMood != nil
+      || !newEntryTagList.isEmpty
+  }
+
   private var composer: some View {
     VStack(alignment: .leading, spacing: 14) {
-      TextField("Title (optional)", text: $newEntryTitle)
-        .textFieldStyle(.plain)
-        .serenityInputField()
+      if isComposing {
+        TextField("Title (optional)", text: $newEntryTitle)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+      }
 
       ZStack(alignment: .topLeading) {
         TextEditor(text: $newEntryContent)
           .focused($newEntryContentFocused)
-          .serenityTextArea(minHeight: 140)
+          .serenityTextArea(minHeight: isComposing ? 140 : 62)
 
         if newEntryContent.isEmpty && !newEntryContentFocused {
           Text("What's on your mind?")
@@ -3699,38 +3709,40 @@ private struct JournalSectionView: View {
         }
       }
 
-      VStack(alignment: .leading, spacing: 8) {
-        Text("How are you feeling?")
-          .font(SerenityType.caption.weight(.medium))
-          .foregroundStyle(SerenityPalette.textSecondary)
-        HStack(spacing: 8) {
-          ForEach(journalMoods, id: \.rawValue) { mood in
-            Button {
-              newEntryMood = (newEntryMood == mood) ? nil : mood
-            } label: {
-              Text("\(Self.emoji(for: mood))  \(mood.rawValue.capitalized)")
+      if isComposing {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("How are you feeling?")
+            .font(SerenityType.caption.weight(.medium))
+            .foregroundStyle(SerenityPalette.textSecondary)
+          HStack(spacing: 8) {
+            ForEach(journalMoods, id: \.rawValue) { mood in
+              Button {
+                newEntryMood = (newEntryMood == mood) ? nil : mood
+              } label: {
+                Text("\(Self.emoji(for: mood))  \(mood.rawValue.capitalized)")
+              }
+              .buttonStyle(SerenityPillButtonStyle(selected: newEntryMood == mood))
+              .hoverCursor(.pointingHand)
             }
-            .buttonStyle(SerenityPillButtonStyle(selected: newEntryMood == mood))
-            .hoverCursor(.pointingHand)
           }
         }
-      }
 
-      tagsField
+        tagsField
 
-      HStack {
-        Spacer()
-        Button("Save Entry") {
-          submitNewEntry()
+        HStack {
+          Spacer()
+          Button("Save Entry") {
+            submitNewEntry()
+          }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .disabled(saveDisabled)
+          .hoverCursor(.pointingHand)
         }
-        .buttonStyle(SerenityPrimaryButtonStyle())
-        .disabled(saveDisabled)
-        .opacity(saveDisabled ? 0.5 : 1)
-        .hoverCursor(.pointingHand)
       }
     }
     .padding(16)
     .serenityPanel(cornerRadius: 14)
+    .animation(.easeOut(duration: 0.16), value: isComposing)
   }
 
   private var tagsField: some View {
@@ -3950,36 +3962,45 @@ private struct GoalsSectionView: View {
   @State private var newGoalTarget = "5"
   @State private var newGoalType: GoalType = .weeklyTasks
   @State private var newGoalPriority: GoalPriority = .medium
+  @State private var showNewGoalForm = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
-      goalsOverview
-      newGoalPanel
+      if showNewGoalForm {
+        newGoalPanel
+      } else {
+        newGoalButton
+      }
       goalsPanel
     }
   }
 
-  private var goalsOverview: some View {
-    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], alignment: .leading, spacing: 12) {
-      goalMetricCard(
-        title: "Active",
-        value: "\(appState.goals.filter { $0.status == .active }.count)",
-        systemImage: "target",
-        tint: SerenityPalette.accent
-      )
-      goalMetricCard(
-        title: "Completed",
-        value: "\(appState.goals.filter { $0.status == .completed }.count)",
-        systemImage: "checkmark.seal.fill",
-        tint: .green
-      )
-      goalMetricCard(
-        title: "Average Progress",
-        value: averageGoalProgress,
-        systemImage: "chart.line.uptrend.xyaxis",
-        tint: .orange
-      )
+  /// The form used to sit open permanently above an empty list. It opens on
+  /// demand now, and the Active/Completed/Average tiles are gone — they read
+  /// 0 / 0 / 0% until the day you have goals, and add nothing after that.
+  private var newGoalButton: some View {
+    Button {
+      showNewGoalForm = true
+    } label: {
+      HStack(spacing: 10) {
+        Image(systemName: "plus")
+          .font(SerenityType.scaledSystem(size: 13, weight: .semibold))
+        Text("New goal")
+          .font(SerenityType.bodyMedium)
+        Spacer()
+      }
+      .foregroundStyle(SerenityPalette.textSecondary)
+      .contentShape(Rectangle())
     }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
   }
 
   private var newGoalPanel: some View {
@@ -4014,12 +4035,8 @@ private struct GoalsSectionView: View {
           .buttonStyle(SerenityPrimaryButtonStyle())
           .hoverCursor(.pointingHand)
 
-          Button {
-            Task {
-              await appState.refreshCoreWorkflowData()
-            }
-          } label: {
-            Label("Refresh", systemImage: "arrow.clockwise")
+          Button("Cancel") {
+            showNewGoalForm = false
           }
           .buttonStyle(SerenitySecondaryButtonStyle())
           .hoverCursor(.pointingHand)
@@ -4204,34 +4221,6 @@ private struct GoalsSectionView: View {
     }
   }
 
-  private func goalMetricCard(title: String, value: String, systemImage: String, tint: Color) -> some View {
-    HStack(spacing: 10) {
-      Image(systemName: systemImage)
-        .font(SerenityType.scaledSystem(size: 13, weight: .semibold))
-        .foregroundStyle(tint)
-        .frame(width: 30, height: 30)
-        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-
-      VStack(alignment: .leading, spacing: 2) {
-        Text(title)
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
-        Text(value)
-          .font(SerenityType.bodyLarge.weight(.semibold))
-          .foregroundStyle(SerenityPalette.textPrimary)
-      }
-
-      Spacer(minLength: 0)
-    }
-    .padding(12)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
-    )
-  }
-
   private func createGoal() {
     let target = Double(newGoalTarget) ?? 1
     Task {
@@ -4245,12 +4234,7 @@ private struct GoalsSectionView: View {
 
     newGoalTitle = ""
     newGoalTarget = "5"
-  }
-
-  private var averageGoalProgress: String {
-    guard !appState.goals.isEmpty else { return "0%" }
-    let average = appState.goals.map(\.progress.percentage).reduce(0, +) / Double(appState.goals.count)
-    return String(format: "%.0f%%", average)
+    showNewGoalForm = false
   }
 
   private var goalTypeOptions: [SerenityDropdownOption<GoalType>] {
@@ -4554,14 +4538,6 @@ struct InsightsSectionView: View {
         }
 
         Spacer()
-
-        Button {
-          Task { await appState.refreshAIWorkflows() }
-        } label: {
-          Label("Refresh", systemImage: "arrow.clockwise")
-        }
-        .buttonStyle(SerenitySecondaryButtonStyle())
-        .hoverCursor(.pointingHand)
       }
 
       if !hasEnabledCredential {
