@@ -1781,7 +1781,8 @@ final class AppState: ObservableObject {
     dueDate: Date?,
     projectID: String?,
     tags: [String],
-    subtasks: [TaskSubtask]? = nil
+    subtasks: [TaskSubtask]? = nil,
+    recurring: TaskRecurringPattern? = nil
   ) async -> Bool {
     guard let existing = tasks.first(where: { $0.id == id }) else { return false }
     let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1808,6 +1809,7 @@ final class AppState: ObservableObject {
     updated.tags = tags
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
+    updated.recurring = recurring
     if let subtasks {
       updated.subtasks = subtasks
     }
@@ -1834,6 +1836,14 @@ final class AppState: ObservableObject {
 
     do {
       try await saveTask(updated)
+
+      // Completing a recurring task rolls the series forward. The completed
+      // instance stays as history, which is what a streak will be computed from.
+      if updated.completed, let successor = RecurrenceEngine.successor(for: updated) {
+        try await saveTask(successor)
+        showToast("Repeats \(SerenityDateText.due(successor.dueDate ?? Date()).lowercased())")
+      }
+
       await refreshCoreWorkflowData()
     } catch {
       showError(title: "Failed to update task", message: error.localizedDescription)

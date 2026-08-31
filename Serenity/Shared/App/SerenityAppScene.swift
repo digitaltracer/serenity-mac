@@ -810,7 +810,8 @@ private struct SectionView: View {
       dueDate: draft.hasDueDate ? draft.dueDate : nil,
       projectID: draft.selectedProjectID,
       tags: draft.savedTags,
-      subtasks: draft.savedSubtasks
+      subtasks: draft.savedSubtasks,
+      recurring: draft.savedRecurrence
     )
 
     if saved {
@@ -10505,8 +10506,75 @@ struct TaskEditorDraft: Equatable, Identifiable {
   var tagInputText = ""
   var subtasks: [TaskSubtask]
   var subtaskInputText = ""
+  var repeatRule: RepeatRule
+  var repeatInterval: Int
 
   var id: String { original.id }
+
+  /// Flattens `TaskRecurringPattern` into something a picker can bind to.
+  enum RepeatRule: String, CaseIterable, Identifiable, Hashable {
+    case never
+    case daily
+    case weekly
+    case monthly
+    case customDays
+
+    var id: String { rawValue }
+
+    var title: String {
+      switch self {
+      case .never:
+        return "Never"
+      case .daily:
+        return "Daily"
+      case .weekly:
+        return "Weekly"
+      case .monthly:
+        return "Monthly"
+      case .customDays:
+        return "Every N days"
+      }
+    }
+
+    init(_ pattern: TaskRecurringPattern?) {
+      switch pattern?.type {
+      case .none:
+        self = .never
+      case .daily:
+        self = .daily
+      case .weekly:
+        self = .weekly
+      case .monthly:
+        self = .monthly
+      case .custom:
+        self = .customDays
+      }
+    }
+
+    var recurringType: RecurringType? {
+      switch self {
+      case .never:
+        return nil
+      case .daily:
+        return .daily
+      case .weekly:
+        return .weekly
+      case .monthly:
+        return .monthly
+      case .customDays:
+        return .custom
+      }
+    }
+  }
+
+  var savedRecurrence: TaskRecurringPattern? {
+    guard let type = repeatRule.recurringType else { return nil }
+    return TaskRecurringPattern(
+      type: type,
+      interval: repeatRule == .customDays ? max(repeatInterval, 1) : 1,
+      endDate: original.recurring?.endDate
+    )
+  }
 
   init(task: TaskEntity) {
     original = task
@@ -10518,6 +10586,8 @@ struct TaskEditorDraft: Equatable, Identifiable {
     selectedProjectID = task.projectId ?? ""
     tags = task.tags
     subtasks = task.subtasks
+    repeatRule = RepeatRule(task.recurring)
+    repeatInterval = task.recurring?.interval ?? 2
   }
 
   var isDirty: Bool {
@@ -10530,6 +10600,7 @@ struct TaskEditorDraft: Equatable, Identifiable {
       || !tagInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       || subtasks != original.subtasks
       || !subtaskInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      || savedRecurrence != original.recurring
   }
 
   var savedTags: [String] {
@@ -10614,6 +10685,32 @@ private struct TaskEditorView: View {
               if draft.hasDueDate {
                 DueDateSelectionField(selection: $draft.dueDate)
                   .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }
+          }
+
+          editorSection("Repeat") {
+            VStack(alignment: .leading, spacing: 10) {
+              SerenityDropdownField(
+                placeholder: "Never",
+                selection: $draft.repeatRule,
+                options: repeatRuleOptions
+              )
+              .frame(maxWidth: .infinity)
+
+              if draft.repeatRule == .customDays {
+                Stepper(
+                  "Every \(draft.repeatInterval) day\(draft.repeatInterval == 1 ? "" : "s")",
+                  value: $draft.repeatInterval,
+                  in: 1...365
+                )
+                .font(SerenityType.body)
+              }
+
+              if draft.repeatRule != .never {
+                Text("Completing this task creates the next one automatically.")
+                  .font(SerenityType.caption)
+                  .foregroundStyle(SerenityPalette.textSecondary)
               }
             }
           }
@@ -10757,6 +10854,16 @@ private struct TaskEditorView: View {
         title: value.rawValue.capitalized,
         systemImage: priorityIcon(value),
         tint: priorityColor(value)
+      )
+    }
+  }
+
+  private var repeatRuleOptions: [SerenityDropdownOption<TaskEditorDraft.RepeatRule>] {
+    TaskEditorDraft.RepeatRule.allCases.map { rule in
+      SerenityDropdownOption(
+        value: rule,
+        title: rule.title,
+        systemImage: rule == .never ? "minus.circle" : "repeat"
       )
     }
   }
