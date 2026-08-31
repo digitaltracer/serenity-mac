@@ -13,6 +13,12 @@ public enum AppSection: String, CaseIterable, Identifiable {
 
   public var id: String { rawValue }
 
+  /// Sidebar order, and therefore the order ⌘1–⌘8 follow. `allCases` is the
+  /// declaration order and is not guaranteed to match what the user sees.
+  static let navigationOrder: [AppSection] = [
+    .home, .actionHub, .journal, .goals, .insights, .aiSummaries, .integrations, .settings,
+  ]
+
   var title: String {
     switch self {
     case .home:

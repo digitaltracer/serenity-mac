@@ -1067,6 +1067,11 @@ private struct HomeSectionView: View {
       }
       TodayOverviewView()
     }
+    .onChange(of: appState.shouldFocusQuickCapture) { _, requested in
+      guard requested else { return }
+      quickCaptureFocused = true
+      appState.shouldFocusQuickCapture = false
+    }
   }
 
   private var header: some View {
@@ -2075,6 +2080,7 @@ private struct ActionHubSectionView: View {
   @State private var expandedTaskID: String?
   @State private var expandedDescriptionTaskIDs: Set<String> = []
   @State private var showQuickProjectCreator = false
+  @FocusState private var searchFocused: Bool
   @State private var quickProjectName = ""
   @State private var quickProjectDescription = ""
   @State private var quickProjectColor: Color = ProjectColorCodec.fallbackColor
@@ -2091,6 +2097,12 @@ private struct ActionHubSectionView: View {
       case .calendar:
         calendarView
       }
+    }
+    .onChange(of: appState.shouldFocusSectionSearch) { _, requested in
+      guard requested else { return }
+      activeTab = .tasks
+      searchFocused = true
+      appState.shouldFocusSectionSearch = false
     }
   }
 
@@ -2142,6 +2154,7 @@ private struct ActionHubSectionView: View {
           TextField("Search tasks, projects, or tags...", text: $searchQuery)
             .textFieldStyle(.plain)
             .font(SerenityType.scaledSystem(size: 17, weight: .regular))
+            .focused($searchFocused)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -9380,11 +9393,9 @@ private struct HelpCenterSheet: View {
               .buttonStyle(SerenitySecondaryButtonStyle())
               .hoverCursor(.pointingHand)
 
-              Button("Quick Add Task") {
-                Task {
-                  await appState.quickAddTaskFromCommand()
-                  appState.closeHelpCenter()
-                }
+              Button("Quick Capture") {
+                appState.closeHelpCenter()
+                appState.focusQuickCapture()
               }
               .buttonStyle(SerenitySecondaryButtonStyle())
               .hoverCursor(.pointingHand)
@@ -9442,8 +9453,11 @@ private struct HelpCenterSheet: View {
           GroupBox("Keyboard Shortcuts") {
             VStack(alignment: .leading, spacing: 8) {
               HelpShortcutRow(action: "Global Search", shortcut: "Cmd+K")
+              HelpShortcutRow(action: "Find in List", shortcut: "Cmd+F")
               HelpShortcutRow(action: "Help Center", shortcut: "Cmd+/")
-              HelpShortcutRow(action: "Quick Add Task", shortcut: "Cmd+Shift+N")
+              HelpShortcutRow(action: "Quick Capture", shortcut: "Cmd+Shift+N")
+              HelpShortcutRow(action: "Capture (in the capture field)", shortcut: "Cmd+Return")
+              HelpShortcutRow(action: "Switch section", shortcut: "Cmd+1 … Cmd+8")
             }
             .padding(.top, 8)
           }

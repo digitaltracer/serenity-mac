@@ -109,6 +109,7 @@ enum OAuthConfigurationValidationError: Error, LocalizedError {
 @MainActor
 final class AppState: ObservableObject {
   static let themePreferenceDefaultsKey = "serenity.ui.themePreference"
+  static let lastSectionDefaultsKey = "serenity.ui.lastSection"
   static let notificationsEnabledDefaultsKey = "serenity.notifications.enabled"
   static let notificationLeadMinutesDefaultsKey = "serenity.notifications.leadMinutes"
   static let localLockEnabledDefaultsKey = "serenity.security.localLock.enabled"
@@ -146,6 +147,10 @@ final class AppState: ObservableObject {
   @Published var journalRangeStartDate: Date = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
   @Published var journalRangeEndDate: Date = Date()
   @Published var includeArchivedProjects = true
+  /// Set by ⇧⌘N; `HomeSectionView` consumes and clears it.
+  @Published var shouldFocusQuickCapture = false
+  /// Set by ⌘F; the active section's list view consumes and clears it.
+  @Published var shouldFocusSectionSearch = false
   @Published var notificationsEnabled = false
   @Published var notificationLeadMinutes = 0
   @Published var isGlobalSearchPresented = false
@@ -234,6 +239,11 @@ final class AppState: ObservableObject {
     }
 
     settings.localLockEnabled = UserDefaults.standard.bool(forKey: Self.localLockEnabledDefaultsKey)
+
+    if let storedSection = UserDefaults.standard.string(forKey: Self.lastSectionDefaultsKey),
+       let section = AppSection(rawValue: storedSection) {
+      selectedSection = section
+    }
 
     notificationsEnabled = UserDefaults.standard.bool(forKey: Self.notificationsEnabledDefaultsKey)
     notificationLeadMinutes = UserDefaults.standard.integer(forKey: Self.notificationLeadMinutesDefaultsKey)
@@ -340,6 +350,9 @@ final class AppState: ObservableObject {
 
     if let section {
       AppLogger.info("Section selected: \(section.rawValue)")
+      // Deliberately not synced through iCloud: theme should follow you between
+      // devices, but which pane this Mac was on should not.
+      UserDefaults.standard.set(section.rawValue, forKey: Self.lastSectionDefaultsKey)
     }
   }
 
@@ -1765,14 +1778,18 @@ final class AppState: ObservableObject {
     syncTaskNotifications()
   }
 
-  func quickAddTaskFromCommand() async {
-    _ = await createTask(
-      title: "Quick task \(Self.commandDateFormatter.string(from: Date()))",
-      priority: .medium,
-      dueDate: Date(),
-      tags: ["quick-add"],
-      subtaskTitles: []
-    )
+  /// Takes you to the capture field rather than inventing a task. This used to
+  /// save a placeholder titled "Quick task <date>", which was a stub, not a
+  /// feature.
+  func focusQuickCapture() {
+    setSection(.home)
+    shouldFocusQuickCapture = true
+  }
+
+  /// ⌘F narrows the list you are looking at; ⌘K searches everything.
+  func focusSectionSearch() {
+    setSection(.actionHub)
+    shouldFocusSectionSearch = true
   }
 
   @discardableResult
@@ -2988,13 +3005,6 @@ final class AppState: ObservableObject {
     let formatter = DateFormatter()
     formatter.dateStyle = .medium
     formatter.timeStyle = .medium
-    return formatter
-  }()
-
-  private static let commandDateFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .none
-    formatter.timeStyle = .short
     return formatter
   }()
 

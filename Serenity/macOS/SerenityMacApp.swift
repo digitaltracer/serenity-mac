@@ -32,6 +32,11 @@ struct SerenityMacApp: App {
         }
         .keyboardShortcut("k", modifiers: [.command])
 
+        Button("Find in List") {
+          appState.focusSectionSearch()
+        }
+        .keyboardShortcut("f", modifiers: [.command])
+
         Button("Help Center") {
           appState.openHelpCenter()
         }
@@ -39,12 +44,25 @@ struct SerenityMacApp: App {
 
         Divider()
 
-        Button("Quick Add Task") {
-          Task {
-            await appState.quickAddTaskFromCommand()
-          }
+        Button("Quick Capture") {
+          appState.focusQuickCapture()
         }
         .keyboardShortcut("n", modifiers: [.command, .shift])
+      }
+
+      // ⌘1–⌘8, in the order the sidebar lists them.
+      CommandGroup(after: .sidebar) {
+        Divider()
+
+        ForEach(Array(AppSection.navigationOrder.enumerated()), id: \.element) { index, section in
+          Button(section.title) {
+            appState.setSection(section)
+          }
+          .keyboardShortcut(
+            KeyEquivalent(Character("\(index + 1)")),
+            modifiers: [.command]
+          )
+        }
       }
     }
   }
