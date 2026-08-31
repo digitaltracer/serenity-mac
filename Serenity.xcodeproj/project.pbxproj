@@ -83,6 +83,8 @@
 		A000000000000000000000F5 /* CloudSyncInitialExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F3 /* CloudSyncInitialExporter.swift */; };
 		A000000000000000000000F7 /* SyncAwareAIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F6 /* SyncAwareAIRepositories.swift */; };
 		A000000000000000000000F8 /* SyncAwareAIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F6 /* SyncAwareAIRepositories.swift */; };
+		A000000000000000000000FA /* QuickCaptureDateParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F9 /* QuickCaptureDateParser.swift */; };
+		A000000000000000000000FB /* QuickCaptureDateParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F9 /* QuickCaptureDateParser.swift */; };
 		A000000000000000000000EC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000EF /* Assets.xcassets */; };
 		A000000000000000000000ED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000EF /* Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -130,6 +132,7 @@
 		A000000000000000000000E9 /* iCloudSyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iCloudSyncEngine.swift; sourceTree = "<group>"; };
 		A000000000000000000000F3 /* CloudSyncInitialExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncInitialExporter.swift; sourceTree = "<group>"; };
 		A000000000000000000000F6 /* SyncAwareAIRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncAwareAIRepositories.swift; sourceTree = "<group>"; };
+		A000000000000000000000F9 /* QuickCaptureDateParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickCaptureDateParser.swift; sourceTree = "<group>"; };
 		A000000000000000000000EF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C73A2CAF2FAA2C2200AB200C /* GoogleAuth.local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = GoogleAuth.local.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -210,6 +213,7 @@
 				A00000000000000000000022 /* AppState.swift */,
 				A00000000000000000000023 /* CoreWorkflowModels.swift */,
 				A00000000000000000000040 /* DotEnv.swift */,
+				A000000000000000000000F9 /* QuickCaptureDateParser.swift */,
 				A00000000000000000000024 /* SerenityAppScene.swift */,
 				A000000000000000000000D0 /* SettingsSyncCoordinator.swift */,
 			);
@@ -468,6 +472,7 @@
 				A000000000000000000000E4 /* SyncAwareRepositories.swift in Sources */,
 				A000000000000000000000E7 /* CloudKitRecordMapping.swift in Sources */,
 				A000000000000000000000EA /* iCloudSyncEngine.swift in Sources */,
+				A000000000000000000000FA /* QuickCaptureDateParser.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -510,6 +515,7 @@
 				A000000000000000000000E5 /* SyncAwareRepositories.swift in Sources */,
 				A000000000000000000000E8 /* CloudKitRecordMapping.swift in Sources */,
 				A000000000000000000000EB /* iCloudSyncEngine.swift in Sources */,
+				A000000000000000000000FB /* QuickCaptureDateParser.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1280,10 +1280,11 @@ private struct HomeSectionView: View {
         tags: []
       )
     } else {
+      let parsed = QuickCaptureDateParser.parse(text)
       await appState.createTask(
-        title: text,
+        title: parsed.title,
         priority: .medium,
-        dueDate: nil,
+        dueDate: parsed.dueDate,
         tags: [],
         subtaskTitles: []
       )
