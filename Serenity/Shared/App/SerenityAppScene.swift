@@ -2054,15 +2054,73 @@ private struct ActionHubSectionView: View {
   }
 
   private enum TaskListFilter: String, CaseIterable, Identifiable {
-    case all
     case active
+    case inbox
+    case all
     case completed
 
     var id: String { rawValue }
+
+    var title: String {
+      switch self {
+      case .active:
+        return "Active"
+      case .inbox:
+        return "Inbox"
+      case .all:
+        return "All"
+      case .completed:
+        return "Completed"
+      }
+    }
+  }
+
+  /// Tasks read best grouped by how soon they matter rather than as one flat
+  /// due-date sort.
+  private enum DueBucket: String, CaseIterable, Identifiable {
+    case overdue
+    case today
+    case thisWeek
+    case later
+    case someday
+
+    var id: String { rawValue }
+
+    var title: String {
+      switch self {
+      case .overdue:
+        return "Overdue"
+      case .today:
+        return "Today"
+      case .thisWeek:
+        return "This week"
+      case .later:
+        return "Later"
+      case .someday:
+        return "Someday"
+      }
+    }
+
+    static func containing(_ task: TaskEntity, calendar: Calendar = .current) -> DueBucket {
+      guard let dueDate = task.dueDate else { return .someday }
+
+      let today = calendar.startOfDay(for: Date())
+      let dueDay = calendar.startOfDay(for: dueDate)
+
+      if dueDay < today {
+        return task.completed ? .today : .overdue
+      }
+      if dueDay == today {
+        return .today
+      }
+
+      let daysOut = calendar.dateComponents([.day], from: today, to: dueDay).day ?? 0
+      return daysOut <= 7 ? .thisWeek : .later
+    }
   }
 
   @State private var activeTab: HubTab = .tasks
-  @State private var taskFilter: TaskListFilter = .all
+  @State private var taskFilter: TaskListFilter = .active
   @State private var searchQuery = ""
   @State private var showQuickAddForm = false
 
@@ -2129,23 +2187,7 @@ private struct ActionHubSectionView: View {
     let tasks = displayedTasks
 
     return VStack(alignment: .leading, spacing: 16) {
-      if showQuickAddForm {
-        VStack(spacing: 14) {
-          progressPanel
-          quickAddPanel
-        }
-      } else {
-        ViewThatFits(in: .horizontal) {
-          HStack(alignment: .top, spacing: 14) {
-            progressPanel
-            quickAddPanel
-          }
-          VStack(spacing: 14) {
-            progressPanel
-            quickAddPanel
-          }
-        }
-      }
+      quickAddPanel
 
       HStack(spacing: 12) {
         HStack(spacing: 8) {
@@ -2167,7 +2209,7 @@ private struct ActionHubSectionView: View {
         Spacer(minLength: 8)
 
         ForEach(TaskListFilter.allCases) { filter in
-          Button(filter.rawValue.capitalized) {
+          Button(filter.title) {
             taskFilter = filter
           }
           .buttonStyle(SerenityPillButtonStyle(selected: taskFilter == filter))
@@ -2175,37 +2217,27 @@ private struct ActionHubSectionView: View {
         }
       }
 
-      HStack(spacing: 8) {
-        Button("Complete Selected") {
-          Task { await appState.markSelectedTasksCompleted() }
-        }
-        .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-        .disabled(appState.selectedTaskIDs.isEmpty)
-
-        Button("Delete Selected", role: .destructive) {
-          Task { await appState.deleteSelectedTasks() }
-        }
-        .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-        .disabled(appState.selectedTaskIDs.isEmpty)
+      if !appState.selectedTaskIDs.isEmpty {
+        selectionBar
       }
 
       if tasks.isEmpty {
-        Text("No tasks match your current filters.")
-          .foregroundStyle(SerenityPalette.textSecondary)
-          .padding(.top, 4)
+        emptyListState
       } else {
         LazyVStack(spacing: 0) {
-          ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
-            taskRow(task)
-              .overlay(alignment: .bottom) {
-                if index < tasks.count - 1 {
-                  Rectangle()
-                    .fill(SerenityPalette.thinBorder)
-                    .frame(height: 1)
+          ForEach(groupedTasks, id: \.bucket.id) { group in
+            bucketHeader(group.bucket, count: group.tasks.count)
+
+            ForEach(Array(group.tasks.enumerated()), id: \.element.id) { index, task in
+              taskRow(task)
+                .overlay(alignment: .bottom) {
+                  if index < group.tasks.count - 1 {
+                    Rectangle()
+                      .fill(SerenityPalette.thinBorder)
+                      .frame(height: 1)
+                  }
                 }
-              }
+            }
           }
         }
         .background(SerenityPalette.panelBackground, in: taskListShape)
@@ -2215,41 +2247,101 @@ private struct ActionHubSectionView: View {
     }
   }
 
+  private func bucketHeader(_ bucket: DueBucket, count: Int) -> some View {
+    HStack(spacing: 8) {
+      Text(bucket.title)
+        .font(SerenityType.caption.weight(.semibold))
+        .tracking(0.6)
+        .foregroundStyle(bucket == .overdue ? Color.red.opacity(0.9) : SerenityPalette.textSecondary)
+      Text("\(count)")
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary.opacity(0.8))
+      Spacer()
+    }
+    .padding(.horizontal, 14)
+    .padding(.top, 12)
+    .padding(.bottom, 6)
+    .background(SerenityPalette.panelBackgroundRaised.opacity(0.45))
+  }
+
+  /// Only mounted while a selection exists, so the list is not permanently
+  /// topped with two disabled buttons.
+  private var selectionBar: some View {
+    HStack(spacing: 8) {
+      Text("\(appState.selectedTaskIDs.count) selected")
+        .font(SerenityType.bodyMedium)
+        .foregroundStyle(SerenityPalette.textSecondary)
+
+      Spacer()
+
+      Button("Complete") {
+        Task { await appState.markSelectedTasksCompleted() }
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+
+      Button("Delete", role: .destructive) {
+        Task { await appState.deleteSelectedTasks() }
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+
+      Button("Clear") {
+        appState.clearTaskSelection()
+      }
+      .buttonStyle(.plain)
+      .font(SerenityType.bodyMedium)
+      .foregroundStyle(SerenityPalette.accent)
+      .hoverCursor(.pointingHand)
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 10)
+    .background(SerenityPalette.panelBackgroundRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+    .transition(.move(edge: .top).combined(with: .opacity))
+  }
+
+  @ViewBuilder
+  private var emptyListState: some View {
+    let completed = appState.tasks.filter(\.completed).count
+
+    switch taskFilter {
+    case .active where completed > 0:
+      SerenityEmptyState(
+        icon: "checkmark.circle",
+        title: "Nothing active",
+        message: "Every task is done."
+      ) {
+        Button("Show \(completed) completed") {
+          taskFilter = .completed
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    case .inbox:
+      SerenityEmptyState(
+        icon: "tray",
+        title: "Inbox is clear",
+        message: "Captured tasks land here until they get a due date."
+      )
+    default:
+      SerenityEmptyState(
+        icon: "magnifyingglass",
+        title: "No matches",
+        message: "No tasks match the current filter or search."
+      )
+    }
+  }
+
   private var taskListShape: RoundedRectangle {
     RoundedRectangle(cornerRadius: 14, style: .continuous)
   }
 
-  private var progressPanel: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      HStack {
-        Text("Overall Progress")
-          .font(SerenityType.sectionTitle)
-        Spacer()
-      }
-
-      HStack(spacing: 18) {
-        progressRing
-
-        VStack(alignment: .leading, spacing: 8) {
-          statLine("Completed", "\(completedCount)", tint: .green)
-          statLine("Remaining", "\(max(totalTaskCount - completedCount, 0))", tint: .orange)
-          statLine("Total Tasks", "\(totalTaskCount)", tint: SerenityPalette.accent)
-        }
-      }
-
-      Divider()
-        .overlay(SerenityPalette.thinBorder)
-
-      Text("\(max(totalTaskCount - completedCount, 0)) tasks left to complete")
-        .foregroundStyle(SerenityPalette.textSecondary)
-    }
-    .padding(18)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .stroke(SerenityPalette.border, lineWidth: 1)
-    )
+  private var isSelecting: Bool {
+    !appState.selectedTaskIDs.isEmpty
   }
 
   private var quickAddPanel: some View {
@@ -2353,7 +2445,7 @@ private struct ActionHubSectionView: View {
               newTaskTagInput = ""
               newTaskProjectID = ""
               searchQuery = ""
-              taskFilter = .all
+              taskFilter = .active
               includeDueDate = false
               resetQuickProjectForm()
               showQuickProjectCreator = false
@@ -2378,26 +2470,21 @@ private struct ActionHubSectionView: View {
         Button {
           showQuickAddForm = true
         } label: {
-          VStack(spacing: 8) {
+          HStack(spacing: 10) {
             Image(systemName: "plus")
-              .font(SerenityType.scaledSystem(size: 28, weight: .light))
-              .foregroundStyle(SerenityPalette.textSecondary)
-            Text("Add new task...")
-              .font(SerenityType.scaledSystem(size: 18, weight: .medium))
-              .foregroundStyle(SerenityPalette.textSecondary)
+              .font(SerenityType.scaledSystem(size: 13, weight: .semibold))
+            Text("Add a task")
+              .font(SerenityType.bodyMedium)
+            Spacer()
           }
-          .frame(maxWidth: .infinity, minHeight: 178)
-          .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-              .stroke(SerenityPalette.thinBorder, style: StrokeStyle(lineWidth: 1, dash: [6, 6]))
-          )
-          .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-          .hoverCursor(.pointingHand)
+        .hoverCursor(.pointingHand)
       }
     }
-    .padding(16)
+    .padding(showQuickAddForm ? 16 : 12)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     .overlay(
@@ -2479,23 +2566,30 @@ private struct ActionHubSectionView: View {
 
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 12) {
-        Button {
-          appState.toggleTaskSelection(id: task.id)
-        } label: {
-          Image(systemName: appState.selectedTaskIDs.contains(task.id) ? "checkmark.circle.fill" : "circle")
-            .foregroundStyle(appState.selectedTaskIDs.contains(task.id) ? SerenityPalette.accent : SerenityPalette.textSecondary)
-        }
-        .buttonStyle(.plain)
+        // Shown only once a selection exists (started with Cmd-click). Rendering
+        // it always put an unchecked circle next to a checked completion box on
+        // every finished row, which read as done and not-done at once.
+        if isSelecting {
+          Button {
+            appState.toggleTaskSelection(id: task.id)
+          } label: {
+            Image(systemName: appState.selectedTaskIDs.contains(task.id) ? "checkmark.square.fill" : "square")
+              .foregroundStyle(appState.selectedTaskIDs.contains(task.id) ? SerenityPalette.accent : SerenityPalette.textSecondary)
+          }
+          .buttonStyle(.plain)
           .hoverCursor(.pointingHand)
+          .accessibilityLabel(appState.selectedTaskIDs.contains(task.id) ? "Deselect \(task.title)" : "Select \(task.title)")
+        }
 
         Button {
           Task { await appState.toggleTaskCompletion(id: task.id) }
         } label: {
-          Image(systemName: task.completed ? "checkmark.square.fill" : "square")
+          Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
             .foregroundStyle(task.completed ? .green : SerenityPalette.textSecondary)
         }
         .buttonStyle(.plain)
           .hoverCursor(.pointingHand)
+          .accessibilityLabel(task.completed ? "Mark \(task.title) incomplete" : "Mark \(task.title) complete")
 
         taskEditorButton(task, accessibilityLabel: "Edit task \(task.title)") {
           Text(task.title)
@@ -2533,7 +2627,7 @@ private struct ActionHubSectionView: View {
         taskEditorButton(task, accessibilityLabel: "Edit task \(task.title) details") {
           HStack(spacing: 14) {
             if let dueDate = task.dueDate {
-              Label("Due \(dueDate.formatted(date: .numeric, time: .omitted))", systemImage: "calendar")
+              Label(SerenityDateText.dueWithTime(dueDate), systemImage: "calendar")
                 .foregroundStyle(isOverdue(task) ? Color.red : SerenityPalette.textSecondary)
             }
             if let projectName {
@@ -2626,7 +2720,31 @@ private struct ActionHubSectionView: View {
     }
     .padding(.horizontal, 18)
     .padding(.vertical, 18)
-    .background(isOverdue(task) ? Color.red.opacity(0.06) : Color.clear)
+    .background(
+      appState.selectedTaskIDs.contains(task.id)
+        ? SerenityPalette.accent.opacity(0.10)
+        : (isOverdue(task) ? Color.red.opacity(0.06) : Color.clear)
+    )
+    .contentShape(Rectangle())
+    // Starts a selection without giving every row a permanent selection
+    // control. `TapGesture.modifiers` is macOS-only, so touch gets the
+    // idiomatic long-press instead.
+#if os(macOS)
+    .simultaneousGesture(
+      TapGesture()
+        .modifiers(.command)
+        .onEnded { _ in
+          appState.toggleTaskSelection(id: task.id)
+        }
+    )
+#else
+    .simultaneousGesture(
+      LongPressGesture(minimumDuration: 0.4)
+        .onEnded { _ in
+          appState.toggleTaskSelection(id: task.id)
+        }
+    )
+#endif
   }
 
   private func taskEditorButton<Content: View>(
@@ -2782,14 +2900,6 @@ private struct ActionHubSectionView: View {
     }
   }
 
-  private var totalTaskCount: Int {
-    appState.tasks.count
-  }
-
-  private var completedCount: Int {
-    appState.tasks.filter(\.completed).count
-  }
-
   private var displayedTasks: [TaskEntity] {
     let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
@@ -2800,6 +2910,8 @@ private struct ActionHubSectionView: View {
           break
         case .active:
           if task.completed { return false }
+        case .inbox:
+          if task.completed || task.dueDate != nil { return false }
         case .completed:
           if !task.completed { return false }
         }
@@ -2818,6 +2930,15 @@ private struct ActionHubSectionView: View {
       .sorted { lhs, rhs in
         (lhs.dueDate ?? lhs.createdAt) < (rhs.dueDate ?? rhs.createdAt)
       }
+  }
+
+  /// Grouped in bucket order, each group keeping the due-date sort above.
+  private var groupedTasks: [(bucket: DueBucket, tasks: [TaskEntity])] {
+    let grouped = Dictionary(grouping: displayedTasks) { DueBucket.containing($0) }
+    return DueBucket.allCases.compactMap { bucket in
+      guard let tasks = grouped[bucket], !tasks.isEmpty else { return nil }
+      return (bucket, tasks)
+    }
   }
 
   private var dueTasksSorted: [TaskEntity] {
@@ -3034,37 +3155,6 @@ private struct ActionHubSectionView: View {
     let nextSelected = calendar.date(byAdding: .day, value: clampedDay - 1, to: monthStart) ?? monthStart
     calendarVisibleMonth = monthStart
     selectedCalendarDate = calendar.startOfDay(for: nextSelected)
-  }
-
-  private var progressRing: some View {
-    let percent = totalTaskCount == 0 ? 0 : Int((Double(completedCount) / Double(totalTaskCount)) * 100)
-    let progress = totalTaskCount == 0 ? 0 : Double(completedCount) / Double(totalTaskCount)
-
-    return ZStack {
-      Circle()
-        .stroke(SerenityPalette.thinBorder, lineWidth: 11)
-      Circle()
-        .trim(from: 0, to: progress)
-        .stroke(SerenityPalette.accent, style: StrokeStyle(lineWidth: 11, lineCap: .round))
-        .rotationEffect(.degrees(-90))
-      Text("\(percent)%")
-        .font(SerenityType.scaledSystem(size: 22, weight: .bold))
-    }
-    .frame(width: 108, height: 108)
-  }
-
-  private func statLine(_ label: String, _ value: String, tint: Color) -> some View {
-    HStack {
-      Circle()
-        .fill(tint)
-        .frame(width: 7, height: 7)
-      Text(label)
-        .foregroundStyle(SerenityPalette.textSecondary)
-      Spacer()
-      Text(value)
-        .foregroundStyle(tint)
-        .font(SerenityType.scaledSystem(size: 20, weight: .semibold))
-    }
   }
 
   private func chip(_ value: String, tint: Color = SerenityPalette.textSecondary) -> some View {
