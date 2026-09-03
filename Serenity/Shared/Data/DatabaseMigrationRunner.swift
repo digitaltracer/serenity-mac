@@ -395,5 +395,213 @@ actor DatabaseMigrationRunner {
         "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '6');",
       ]
     ),
+    DatabaseMigration(
+      identifier: "20260901_008_nvidia_provider",
+      statements: [
+        // SQLite cannot alter a CHECK constraint, so each provider-constrained table is rebuilt.
+        """
+        CREATE TABLE ai_insights_new (
+          id TEXT PRIMARY KEY,
+          provider TEXT NOT NULL CHECK (provider IN ('openai', 'gemini', 'anthropic', 'nvidia', 'local')),
+          type TEXT NOT NULL CHECK (type IN ('productivity', 'behavior', 'recommendation', 'warning')),
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          confidence REAL DEFAULT 0.5,
+          category TEXT NOT NULL CHECK (category IN ('tasks', 'journal', 'habits', 'goals')),
+          actionable INTEGER DEFAULT 0,
+          metadata TEXT DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          user_rating INTEGER CHECK (user_rating >= 1 AND user_rating <= 5),
+          dismissed INTEGER DEFAULT 0,
+          marked_helpful INTEGER DEFAULT 0,
+          user_notes TEXT,
+          visualization_data TEXT,
+          actionability_suggestions TEXT DEFAULT '[]',
+          theme_id TEXT,
+          is_recurring INTEGER DEFAULT 0,
+          occurrence_number INTEGER DEFAULT 1
+        );
+        """,
+        """
+        INSERT INTO ai_insights_new (
+          id, provider, type, title, description, confidence, category, actionable, metadata,
+          created_at, updated_at, user_rating, dismissed, marked_helpful, user_notes,
+          visualization_data, actionability_suggestions, theme_id, is_recurring, occurrence_number
+        )
+        SELECT
+          id, provider, type, title, description, confidence, category, actionable, metadata,
+          created_at, updated_at, user_rating, dismissed, marked_helpful, user_notes,
+          visualization_data, actionability_suggestions, theme_id, is_recurring, occurrence_number
+        FROM ai_insights;
+        """,
+        "DROP TABLE ai_insights;",
+        "ALTER TABLE ai_insights_new RENAME TO ai_insights;",
+        """
+        CREATE TABLE ai_recaps_new (
+          id TEXT PRIMARY KEY,
+          provider TEXT NOT NULL CHECK (provider IN ('openai', 'gemini', 'anthropic', 'nvidia', 'local')),
+          type TEXT NOT NULL CHECK (type IN ('weekly', 'monthly')),
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          highlights TEXT DEFAULT '[]',
+          challenges TEXT DEFAULT '[]',
+          recommendations TEXT DEFAULT '[]',
+          period TEXT NOT NULL,
+          metadata TEXT DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          viewed INTEGER DEFAULT 0,
+          favorited INTEGER DEFAULT 0,
+          exported INTEGER DEFAULT 0
+        );
+        """,
+        """
+        INSERT INTO ai_recaps_new (
+          id, provider, type, title, summary, highlights, challenges, recommendations, period,
+          metadata, created_at, updated_at, viewed, favorited, exported
+        )
+        SELECT
+          id, provider, type, title, summary, highlights, challenges, recommendations, period,
+          metadata, created_at, updated_at, viewed, favorited, exported
+        FROM ai_recaps;
+        """,
+        "DROP TABLE ai_recaps;",
+        "ALTER TABLE ai_recaps_new RENAME TO ai_recaps;",
+        """
+        CREATE TABLE ai_usage_new (
+          id TEXT PRIMARY KEY,
+          timestamp TEXT NOT NULL,
+          provider TEXT NOT NULL CHECK (provider IN ('openai', 'gemini', 'anthropic', 'nvidia')),
+          operation TEXT NOT NULL CHECK (operation IN ('analyze', 'recap', 'quickadd', 'summary')),
+          prompt_tokens INTEGER DEFAULT 0,
+          completion_tokens INTEGER DEFAULT 0,
+          total_tokens INTEGER DEFAULT 0,
+          model TEXT,
+          input_cost_usd REAL,
+          output_cost_usd REAL,
+          total_cost_usd REAL
+        );
+        """,
+        """
+        INSERT INTO ai_usage_new (
+          id, timestamp, provider, operation, prompt_tokens, completion_tokens, total_tokens,
+          model, input_cost_usd, output_cost_usd, total_cost_usd
+        )
+        SELECT
+          id, timestamp, provider, operation, prompt_tokens, completion_tokens, total_tokens,
+          model, input_cost_usd, output_cost_usd, total_cost_usd
+        FROM ai_usage;
+        """,
+        "DROP TABLE ai_usage;",
+        "ALTER TABLE ai_usage_new RENAME TO ai_usage;",
+        """
+        CREATE TABLE summaries_new (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          content TEXT NOT NULL,
+          summary_type TEXT NOT NULL CHECK(summary_type IN ('tasks', 'journal', 'combined')),
+          start_date TEXT NOT NULL,
+          end_date TEXT NOT NULL,
+          generated_at TEXT NOT NULL,
+          word_count INTEGER,
+          metadata TEXT DEFAULT '{}',
+          provider TEXT NOT NULL CHECK (provider IN ('openai', 'gemini', 'anthropic', 'nvidia', 'local')),
+          prompt_tokens INTEGER DEFAULT 0,
+          completion_tokens INTEGER DEFAULT 0,
+          total_tokens INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        """,
+        """
+        INSERT INTO summaries_new (
+          id, title, content, summary_type, start_date, end_date, generated_at, word_count,
+          metadata, provider, prompt_tokens, completion_tokens, total_tokens, created_at, updated_at
+        )
+        SELECT
+          id, title, content, summary_type, start_date, end_date, generated_at, word_count,
+          metadata, provider, prompt_tokens, completion_tokens, total_tokens, created_at, updated_at
+        FROM summaries;
+        """,
+        "DROP TABLE summaries;",
+        "ALTER TABLE summaries_new RENAME TO summaries;",
+        """
+        CREATE TABLE ai_provider_credentials_new (
+          id TEXT PRIMARY KEY,
+          provider TEXT NOT NULL CHECK (provider IN ('openai', 'gemini', 'anthropic', 'nvidia')),
+          name TEXT NOT NULL,
+          api_key_encrypted TEXT NOT NULL,
+          model_preference TEXT,
+          enabled INTEGER DEFAULT 1,
+          priority INTEGER DEFAULT 0,
+          metadata TEXT DEFAULT '{}',
+          last_used_at TEXT,
+          total_requests INTEGER DEFAULT 0,
+          total_tokens INTEGER DEFAULT 0,
+          success_count INTEGER DEFAULT 0,
+          error_count INTEGER DEFAULT 0,
+          last_error TEXT,
+          last_error_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(provider, name)
+        );
+        """,
+        """
+        INSERT INTO ai_provider_credentials_new (
+          id, provider, name, api_key_encrypted, model_preference, enabled, priority, metadata,
+          last_used_at, total_requests, total_tokens, success_count, error_count, last_error,
+          last_error_at, created_at, updated_at
+        )
+        SELECT
+          id, provider, name, api_key_encrypted, model_preference, enabled, priority, metadata,
+          last_used_at, total_requests, total_tokens, success_count, error_count, last_error,
+          last_error_at, created_at, updated_at
+        FROM ai_provider_credentials;
+        """,
+        "DROP TABLE ai_provider_credentials;",
+        "ALTER TABLE ai_provider_credentials_new RENAME TO ai_provider_credentials;",
+        """
+        CREATE TABLE ai_model_rates_new (
+          id TEXT PRIMARY KEY,
+          provider TEXT NOT NULL CHECK (provider IN ('openai', 'gemini', 'anthropic', 'nvidia')),
+          model TEXT NOT NULL,
+          input_usd_per_million REAL NOT NULL DEFAULT 0,
+          output_usd_per_million REAL NOT NULL DEFAULT 0,
+          source TEXT NOT NULL DEFAULT 'seeded' CHECK (source IN ('seeded', 'user', 'litellm')),
+          updated_at TEXT NOT NULL,
+          UNIQUE(provider, model)
+        );
+        """,
+        """
+        INSERT INTO ai_model_rates_new (
+          id, provider, model, input_usd_per_million, output_usd_per_million, source, updated_at
+        )
+        SELECT
+          id, provider, model, input_usd_per_million, output_usd_per_million, source, updated_at
+        FROM ai_model_rates;
+        """,
+        "DROP TABLE ai_model_rates;",
+        "ALTER TABLE ai_model_rates_new RENAME TO ai_model_rates;",
+        // Indexes are dropped with their tables.
+        "CREATE INDEX IF NOT EXISTS idx_ai_insights_created_at ON ai_insights(created_at DESC);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_insights_category ON ai_insights(category);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_insights_type ON ai_insights(type);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_insights_theme_id ON ai_insights(theme_id);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_recaps_created_at ON ai_recaps(created_at DESC);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_recaps_type ON ai_recaps(type);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_usage_timestamp ON ai_usage(timestamp DESC);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_usage_model ON ai_usage(provider, model);",
+        "CREATE INDEX IF NOT EXISTS idx_summaries_type ON summaries(summary_type);",
+        "CREATE INDEX IF NOT EXISTS idx_summaries_date_range ON summaries(start_date, end_date);",
+        "CREATE INDEX IF NOT EXISTS idx_summaries_generated ON summaries(generated_at DESC);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_credentials_provider ON ai_provider_credentials(provider);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_credentials_enabled ON ai_provider_credentials(enabled);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_credentials_priority ON ai_provider_credentials(priority);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_model_rates_provider_model ON ai_model_rates(provider, model);",
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '7');",
+      ]
+    ),
   ]
 }

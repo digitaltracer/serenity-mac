@@ -41,6 +41,14 @@ struct AIProviderModelCatalog {
       "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
     ],
+    .nvidia: [
+      "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "nvidia/nemotron-nano-3-30b-a3b",
+      "nvidia/nemotron-3-super-120b-a12b",
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      "openai/gpt-oss-120b",
+      "deepseek-ai/deepseek-v4-flash-0731",
+    ],
     .anthropic: [
       "claude-opus-4-7",
       "claude-opus-4-6",
@@ -1045,6 +1053,8 @@ actor AIWorkflowService {
       return settings.preferredModels?.gemini ?? AIProviderModelCatalog.models[.gemini]?.first ?? "gemini-3-pro-preview"
     case .anthropic:
       return settings.preferredModels?.anthropic ?? AIProviderModelCatalog.models[.anthropic]?.first ?? "claude-opus-4-7"
+    case .nvidia:
+      return settings.preferredModels?.nvidia ?? AIProviderModelCatalog.models[.nvidia]?.first ?? "nvidia/nemotron-3.5-lightning-30b-a3b"
     }
   }
 
@@ -1090,6 +1100,8 @@ actor AIWorkflowService {
       return .gemini
     case .anthropic:
       return .anthropic
+    case .nvidia:
+      return .nvidia
     }
   }
 
@@ -1101,6 +1113,8 @@ actor AIWorkflowService {
       return .gemini
     case .anthropic:
       return .anthropic
+    case .nvidia:
+      return .nvidia
     }
   }
 
@@ -1164,6 +1178,12 @@ enum AIUsageCostService {
     AIModelRateEntity(provider: .gemini, model: "gemini-2.5-flash-preview-09-2025", inputUSDPerMillion: 0.3, outputUSDPerMillion: 2.5, source: .seeded),
     AIModelRateEntity(provider: .gemini, model: "gemini-2.5-flash", inputUSDPerMillion: 0.3, outputUSDPerMillion: 2.5, source: .seeded),
     AIModelRateEntity(provider: .gemini, model: "gemini-2.5-flash-lite", inputUSDPerMillion: 0.1, outputUSDPerMillion: 0.4, source: .seeded),
+    AIModelRateEntity(provider: .nvidia, model: "nvidia/nemotron-3.5-lightning-30b-a3b", inputUSDPerMillion: 0.1, outputUSDPerMillion: 0.4, source: .seeded),
+    AIModelRateEntity(provider: .nvidia, model: "nvidia/nemotron-nano-3-30b-a3b", inputUSDPerMillion: 0.1, outputUSDPerMillion: 0.4, source: .seeded),
+    AIModelRateEntity(provider: .nvidia, model: "nvidia/nemotron-3-super-120b-a12b", inputUSDPerMillion: 0.3, outputUSDPerMillion: 1.2, source: .seeded),
+    AIModelRateEntity(provider: .nvidia, model: "nvidia/nemotron-3-ultra-550b-a55b", inputUSDPerMillion: 0.9, outputUSDPerMillion: 3.6, source: .seeded),
+    AIModelRateEntity(provider: .nvidia, model: "openai/gpt-oss-120b", inputUSDPerMillion: 0.15, outputUSDPerMillion: 0.6, source: .seeded),
+    AIModelRateEntity(provider: .nvidia, model: "deepseek-ai/deepseek-v4-flash-0731", inputUSDPerMillion: 0.27, outputUSDPerMillion: 1.1, source: .seeded),
   ]
 
   static func seedDefaultRatesIfNeeded(repositories: GRDBAIRepositorySet) throws {
@@ -1283,6 +1303,8 @@ enum AIUsageCostService {
       return normalizedModel(settings.preferredModels?.gemini ?? AIProviderModelCatalog.models[.gemini]?.first)
     case .anthropic:
       return normalizedModel(settings.preferredModels?.anthropic ?? AIProviderModelCatalog.models[.anthropic]?.first)
+    case .nvidia:
+      return normalizedModel(settings.preferredModels?.nvidia ?? AIProviderModelCatalog.models[.nvidia]?.first)
     }
   }
 
@@ -1294,7 +1316,7 @@ enum AIUsageCostService {
   static func parseLiteLLMRate(provider: AIUsageProvider, model: String, data: Data) throws -> AIModelRateEntity? {
     let object = try JSONSerialization.jsonObject(with: data)
     guard let pricing = object as? [String: Any] else { return nil }
-    let normalizedProvider = provider.rawValue.lowercased()
+    let normalizedProvider = provider.litellmSlug.lowercased()
     let normalizedModel = normalizedModel(model)
     let candidates = pricing.compactMap { key, value -> (String, [String: Any])? in
       guard let details = value as? [String: Any] else { return nil }

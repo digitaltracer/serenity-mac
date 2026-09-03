@@ -222,6 +222,23 @@ final class AIWorkflowServiceTests: XCTestCase {
     XCTAssertEqual(AIProviderAPIError.unexpected(500, "").errorDescription, "Provider returned HTTP 500")
   }
 
+  /// LiteLLM files NIM models under `nvidia_nim`; matching on the raw value would resolve no rate
+  /// and log every NIM request at zero cost without surfacing an error.
+  func testLiteLLMSlugMapsNvidiaOntoNvidiaNim() {
+    XCTAssertEqual(AIUsageProvider.nvidia.litellmSlug, "nvidia_nim")
+    XCTAssertEqual(AIUsageProvider.openai.litellmSlug, "openai")
+    XCTAssertEqual(AIUsageProvider.gemini.litellmSlug, "gemini")
+    XCTAssertEqual(AIUsageProvider.anthropic.litellmSlug, "anthropic")
+  }
+
+  func testNvidiaCatalogModelsAreNamespaced() {
+    let models = AIProviderModelCatalog.models[.nvidia] ?? []
+    XCTAssertFalse(models.isEmpty)
+    for model in models {
+      XCTAssertTrue(model.contains("/"), "NIM model ids are namespaced; \(model) is not")
+    }
+  }
+
   private func makeService(
     quickCaptureGenerator: @escaping AIWorkflowService.QuickCaptureGenerationHandler = AIProviderAPIClient.generateQuickCaptureJSON
   ) throws -> (AIWorkflowService, InMemorySecretStorageBackend, String) {

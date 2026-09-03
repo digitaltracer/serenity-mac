@@ -49,6 +49,8 @@ enum AIProviderAPIClient {
       return try await fetchAnthropicModels(apiKey: trimmed)
     case .gemini:
       return try await fetchGeminiModels(apiKey: trimmed)
+    case .nvidia:
+      return try await fetchNvidiaModels(apiKey: trimmed)
     }
   }
 
@@ -82,6 +84,14 @@ enum AIProviderAPIClient {
       )
     case .gemini:
       return try await generateGeminiJSON(
+        apiKey: trimmed,
+        model: model,
+        systemPrompt: systemPrompt,
+        userPrompt: userPrompt,
+        schema: schema
+      )
+    case .nvidia:
+      return try await generateNvidiaJSON(
         apiKey: trimmed,
         model: model,
         systemPrompt: systemPrompt,
@@ -378,6 +388,136 @@ enum AIProviderAPIClient {
       promptTokens: payload.usageMetadata?.promptTokenCount ?? estimateTokenCount(systemPrompt + userPrompt),
       completionTokens: payload.usageMetadata?.candidatesTokenCount ?? estimateTokenCount(text)
     )
+  }
+
+  // MARK: - NVIDIA NIM
+
+  private static let nvidiaBaseURL = "https://integrate.api.nvidia.com/v1"
+
+  private static func fetchNvidiaModels(apiKey: String) async throws -> [String] {
+    var request = URLRequest(url: URL(string: "\(nvidiaBaseURL)/models")!)
+    request.httpMethod = "GET"
+    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+    let payload: OpenAIModelsResponse = try await perform(request)
+    let allIDs = payload.data.map(\.id)
+    let chatIDs = allIDs.filter(isLikelyNvidiaChatModel)
+    return (chatIDs.isEmpty ? allIDs : chatIDs).sorted()
+  }
+
+  /// The catalog lists chat, embedding, reranking and OCR models with no capability field, so the
+  /// non-conversational families are filtered out by name.
+  private static func isLikelyNvidiaChatModel(_ id: String) -> Bool {
+    let lowered = id.lowercased()
+    let excluded = ["embed", "rerank", "embedqa", "ocr", "asr", "tts", "riva", "guard", "retriever"]
+    return !excluded.contains { lowered.contains($0) }
+  }
+
+  private struct NvidiaChatCompletionPayload: Decodable {
+    struct Choice: Decodable {
+      struct Message: Decodable {
+        let content: String?
+        let reasoningContent: String?
+
+        enum CodingKeys: String, CodingKey {
+          case content
+          case reasoningContent = "reasoning_content"
+        }
+      }
+
+      let message: Message?
+      let finishReason: String?
+
+      enum CodingKeys: String, CodingKey {
+        case message
+        case finishReason = "finish_reason"
+      }
+    }
+
+    struct Usage: Decodable {
+      let promptTokens: Int?
+      let completionTokens: Int?
+
+      enum CodingKeys: String, CodingKey {
+        case promptTokens = "prompt_tokens"
+        case completionTokens = "completion_tokens"
+      }
+    }
+
+    let choices: [Choice]?
+    let usage: Usage?
+  }
+
+  private static func generateNvidiaJSON(
+    apiKey: String,
+    model: String,
+    systemPrompt: String,
+    userPrompt: String,
+    schema: [String: Any]
+  ) async throws -> AIProviderTextGenerationResponse {
+    var request = URLRequest(url: URL(string: "\(nvidiaBaseURL)/chat/completions")!)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+    let schemaText = try jsonString(schema)
+    request.httpBody = try jsonData([
+      "model": model,
+      // A reasoning model spends this budget thinking before it answers; 1_200 was not enough to
+      // reach the JSON, so content came back empty.
+      "max_tokens": 4_096,
+      "temperature": 0,
+      // This task wants the answer, not the deliberation.
+      "chat_template_kwargs": ["enable_thinking": false],
+      "messages": [
+        ["role": "system", "content": systemPrompt],
+        [
+          "role": "user",
+          "content": """
+          \(userPrompt)
+
+          Return only one JSON object matching this JSON Schema. Do not wrap it in markdown:
+          \(schemaText)
+          """,
+        ],
+      ],
+    ])
+
+    let payload: NvidiaChatCompletionPayload = try await perform(request)
+    let choices = payload.choices ?? []
+    let messages = choices.compactMap(\.message)
+    let content = messages.compactMap(\.content).joined(separator: "\n")
+
+    guard content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      return AIProviderTextGenerationResponse(
+        text: content,
+        promptTokens: payload.usage?.promptTokens ?? estimateTokenCount(systemPrompt + userPrompt),
+        completionTokens: payload.usage?.completionTokens ?? estimateTokenCount(content)
+      )
+    }
+
+    // Empty content with reasoning present means the model was still thinking when it stopped.
+    // Reasoning text is deliberation, not the answer, so it is only worth mining for an object.
+    let reasoning = messages.compactMap(\.reasoningContent).joined(separator: "\n")
+    let finishReason = choices.compactMap(\.finishReason).first
+
+    if reasoning.contains("{"), reasoning.contains("}") {
+      return AIProviderTextGenerationResponse(
+        text: reasoning,
+        promptTokens: payload.usage?.promptTokens ?? estimateTokenCount(systemPrompt + userPrompt),
+        completionTokens: payload.usage?.completionTokens ?? estimateTokenCount(reasoning)
+      )
+    }
+
+    guard reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      throw AIProviderAPIError.incompleteResponse(
+        "the model returned \(reasoning.count) characters of reasoning and no answer"
+          + (finishReason == "length" ? " before hitting the token limit" : "")
+          + ". Try a non-reasoning model."
+      )
+    }
+
+    throw AIProviderAPIError.invalidResponse
+
   }
 
   // MARK: - Common

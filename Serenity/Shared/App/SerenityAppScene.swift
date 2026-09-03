@@ -1524,6 +1524,10 @@ private struct HomeSectionView: View {
       if let preferred = appState.aiSettings.preferredModels?.anthropic, !preferred.isEmpty {
         return preferred
       }
+    case .nvidia:
+      if let preferred = appState.aiSettings.preferredModels?.nvidia, !preferred.isEmpty {
+        return preferred
+      }
     }
 
     return appState.aiModelCatalog[credential.provider]?.first ?? "Default model"
@@ -1537,6 +1541,8 @@ private struct HomeSectionView: View {
       return "Gemini"
     case .anthropic:
       return "Anthropic"
+    case .nvidia:
+      return "NVIDIA NIM"
     }
   }
 
@@ -1548,6 +1554,8 @@ private struct HomeSectionView: View {
       return "diamond.fill"
     case .anthropic:
       return "brain.head.profile"
+    case .nvidia:
+      return "cpu.fill"
     }
   }
 
@@ -1559,6 +1567,8 @@ private struct HomeSectionView: View {
       return .purple
     case .anthropic:
       return .orange
+    case .nvidia:
+      return .green
     }
   }
 }
@@ -5120,7 +5130,7 @@ struct InsightsSectionView: View {
   }
 
   private var providerOptions: [AICredentialProvider] {
-    [.openai, .gemini, .anthropic]
+    [.openai, .gemini, .anthropic, .nvidia]
   }
 
   private func providerTitle(_ provider: AICredentialProvider) -> String {
@@ -5131,6 +5141,8 @@ struct InsightsSectionView: View {
       return "Gemini"
     case .anthropic:
       return "Anthropic"
+    case .nvidia:
+      return "NVIDIA NIM"
     }
   }
 
@@ -5142,6 +5154,8 @@ struct InsightsSectionView: View {
       return "diamond.fill"
     case .anthropic:
       return "brain.head.profile"
+    case .nvidia:
+      return "cpu.fill"
     }
   }
 
@@ -5153,6 +5167,8 @@ struct InsightsSectionView: View {
       return .purple
     case .anthropic:
       return .orange
+    case .nvidia:
+      return .green
     }
   }
 }
@@ -5765,6 +5781,7 @@ private struct CostCenterSectionView: View {
     case .openai: return "OpenAI"
     case .gemini: return "Gemini"
     case .anthropic: return "Anthropic"
+    case .nvidia: return "NVIDIA NIM"
     }
   }
 
@@ -5773,6 +5790,7 @@ private struct CostCenterSectionView: View {
     case .openai: return "OpenAI usage rates"
     case .gemini: return "Google Gemini usage rates"
     case .anthropic: return "Anthropic usage rates"
+    case .nvidia: return "NVIDIA NIM usage rates"
     }
   }
 
@@ -5781,6 +5799,7 @@ private struct CostCenterSectionView: View {
     case .openai: return "sparkles"
     case .gemini: return "diamond.fill"
     case .anthropic: return "brain.head.profile"
+    case .nvidia: return "cpu.fill"
     }
   }
 
@@ -5789,6 +5808,7 @@ private struct CostCenterSectionView: View {
     case .openai: return SerenityPalette.accent
     case .gemini: return .purple
     case .anthropic: return .orange
+    case .nvidia: return .green
     }
   }
 
@@ -7692,7 +7712,7 @@ private struct SettingsSectionView: View {
   }
 
   private var providerOptions: [AICredentialProvider] {
-    [.openai, .gemini, .anthropic]
+    [.openai, .gemini, .anthropic, .nvidia]
   }
 
   private func providerTitle(_ provider: AICredentialProvider) -> String {
@@ -7703,6 +7723,8 @@ private struct SettingsSectionView: View {
       return "Gemini"
     case .anthropic:
       return "Anthropic"
+    case .nvidia:
+      return "NVIDIA NIM"
     }
   }
 
@@ -7724,6 +7746,8 @@ private struct SettingsSectionView: View {
       return "ProviderGemini"
     case .anthropic:
       return "ProviderAnthropic"
+    case .nvidia:
+      return "ProviderNvidia"
     }
   }
 
@@ -7735,6 +7759,8 @@ private struct SettingsSectionView: View {
       return "diamond.fill"
     case .anthropic:
       return "brain.head.profile"
+    case .nvidia:
+      return "cpu.fill"
     }
   }
 
@@ -7746,6 +7772,8 @@ private struct SettingsSectionView: View {
       return .purple
     case .anthropic:
       return .orange
+    case .nvidia:
+      return .green
     }
   }
 

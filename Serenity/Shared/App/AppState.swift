@@ -1315,6 +1315,8 @@ final class AppState: ObservableObject {
       preferred.gemini = model
     case .anthropic:
       preferred.anthropic = model
+    case .nvidia:
+      preferred.nvidia = model
     }
 
     var updated = aiSettings

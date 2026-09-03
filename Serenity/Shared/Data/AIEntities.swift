@@ -4,6 +4,7 @@ public enum AIProvider: String, Codable, CaseIterable, Sendable {
   case openai
   case gemini
   case anthropic
+  case nvidia
   case local
 }
 
@@ -159,6 +160,17 @@ public enum AIUsageProvider: String, Codable, CaseIterable, Sendable {
   case openai
   case gemini
   case anthropic
+  case nvidia
+
+  /// LiteLLM files NIM models under `nvidia_nim`; every other provider matches its raw value.
+  var litellmSlug: String {
+    switch self {
+    case .nvidia:
+      return "nvidia_nim"
+    case .openai, .gemini, .anthropic:
+      return rawValue
+    }
+  }
 }
 
 public enum AIUsageOperation: String, Codable, CaseIterable, Sendable {
@@ -305,6 +317,7 @@ public enum AICredentialProvider: String, Codable, CaseIterable, Sendable {
   case openai
   case gemini
   case anthropic
+  case nvidia
 }
 
 public struct AICredentialEntity: Identifiable, Equatable, Sendable {
@@ -387,11 +400,13 @@ public struct AIPreferredModels: Codable, Equatable, Sendable {
   public var openai: String?
   public var gemini: String?
   public var anthropic: String?
+  public var nvidia: String?
 
-  public init(openai: String?, gemini: String?, anthropic: String?) {
+  public init(openai: String?, gemini: String?, anthropic: String?, nvidia: String? = nil) {
     self.openai = openai
     self.gemini = gemini
     self.anthropic = anthropic
+    self.nvidia = nvidia
   }
 }
 

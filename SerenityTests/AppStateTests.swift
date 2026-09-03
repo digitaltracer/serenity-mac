@@ -297,6 +297,50 @@ final class AppStateTests: XCTestCase {
   }
 
   @MainActor
+  func testAIProviderDropdownIncludesNvidia() {
+    let credentials = [
+      makeAICredential(provider: .anthropic, enabled: true),
+      makeAICredential(provider: .nvidia, enabled: true),
+    ]
+
+    XCTAssertEqual(AIProviderDropdownAvailability.enabledProviders(from: credentials), [.anthropic, .nvidia])
+  }
+
+  @MainActor
+  func testAIQuickCaptureRoutesThroughNvidiaCredential() async throws {
+    var seenProvider: AICredentialProvider?
+    var seenModel: String?
+    let fixture = try makeAIQuickCaptureState { provider, _, model, _, _, _ in
+      seenProvider = provider
+      seenModel = model
+      return AIProviderTextGenerationResponse(
+        text: Self.taskClassificationJSON(confidence: 0.91),
+        promptTokens: 10,
+        completionTokens: 20
+      )
+    }
+    defer { fixture.cleanup() }
+
+    await fixture.state.bootstrapLocalDatabase()
+    await fixture.state.refreshCoreWorkflowData()
+    let credential = try await fixture.service.addCredential(
+      provider: .nvidia,
+      name: "NIM",
+      apiKey: "nvapi-test",
+      modelPreference: "nvidia/nemotron-3.5-lightning-30b-a3b"
+    )
+
+    let saved = await fixture.state.submitAIQuickCapture(input: "book dentist and buy groceries", credentialID: credential.id)
+
+    XCTAssertTrue(saved)
+    XCTAssertEqual(seenProvider, .nvidia)
+    XCTAssertEqual(seenModel, "nvidia/nemotron-3.5-lightning-30b-a3b")
+
+    let usage = try await fixture.service.fetchSnapshot().usage
+    XCTAssertEqual(usage.filter { $0.provider == .nvidia }.count, 1)
+  }
+
+  @MainActor
   private func makeAIQuickCaptureState(
     quickCaptureGenerator: @escaping AIWorkflowService.QuickCaptureGenerationHandler
   ) throws -> AIQuickCaptureStateFixture {
