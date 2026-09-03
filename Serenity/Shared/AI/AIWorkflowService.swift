@@ -921,6 +921,10 @@ actor AIWorkflowService {
     Create a new project only when the task clearly belongs to a durable project that is not represented by an active existing project.
     For new projects, add them to newProjects and reference them from tasks by exact projectName.
     Return dueDate as an ISO 8601 string when the user implies a date or time, otherwise null.
+    Resolve every relative date against the current time and timezone given below, and include that
+    same UTC offset in the dueDate you return — never assume UTC.
+    "Tonight", "today" and "by end of day" all mean the end of the current local day, not the start
+    of the next one.
     Return concise task titles and preserve journal content faithfully.
     """
   }
@@ -933,10 +937,13 @@ actor AIWorkflowService {
   ) -> String {
     let encodedProjects = (try? jsonString(projects)) ?? "[]"
     let encodedTags = (try? jsonString(availableTags)) ?? "[]"
-    let nowText = ISO8601DateFormatter().string(from: now)
+    let localFormatter = ISO8601DateFormatter()
+    localFormatter.timeZone = .current
+    localFormatter.formatOptions = [.withInternetDateTime]
+    let nowText = localFormatter.string(from: now)
 
     return """
-    Current time: \(nowText)
+    Current time: \(nowText) (timezone \(TimeZone.current.identifier))
 
     Active and archived project context:
     \(encodedProjects)

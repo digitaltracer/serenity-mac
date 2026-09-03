@@ -438,6 +438,45 @@ final class AppStateTests: XCTestCase {
     XCTAssertNotNil(fixture.state.pendingAIQuickCapturePreview)
   }
 
+  /// Sending the time as bare UTC made the model resolve "tonight" to 23:59Z, which is the next
+  /// morning in any timezone east of Greenwich.
+  @MainActor
+  func testQuickCapturePromptStatesLocalTimeAndTimezone() async throws {
+    var seenUserPrompt: String?
+    let fixture = try makeAIQuickCaptureState { _, _, _, _, userPrompt, _ in
+      seenUserPrompt = userPrompt
+      return AIProviderTextGenerationResponse(
+        text: Self.taskClassificationJSON(confidence: 0.91),
+        promptTokens: 10,
+        completionTokens: 20
+      )
+    }
+    defer { fixture.cleanup() }
+
+    await fixture.state.bootstrapLocalDatabase()
+    await fixture.state.refreshCoreWorkflowData()
+    let credential = try await fixture.service.addCredential(
+      provider: .nvidia,
+      name: "NIM",
+      apiKey: "nvapi-test",
+      modelPreference: "nvidia/nemotron-3.5-lightning-30b-a3b"
+    )
+
+    _ = await fixture.state.submitAIQuickCapture(input: "finish it by tonight", credentialID: credential.id)
+
+    let prompt = try XCTUnwrap(seenUserPrompt)
+    XCTAssertTrue(prompt.contains(TimeZone.current.identifier), prompt)
+
+    let currentLine = try XCTUnwrap(
+      prompt.split(separator: "\n").first { $0.hasPrefix("Current time:") }.map(String.init)
+    )
+    // A bare Z would mean the offset was lost again — unless the machine really is on UTC.
+    if TimeZone.current.secondsFromGMT() != 0 {
+      XCTAssertFalse(currentLine.contains("Z ("), currentLine)
+      XCTAssertTrue(currentLine.contains("+") || currentLine.contains("-"), currentLine)
+    }
+  }
+
   @MainActor
   private func makeAIQuickCaptureState(
     quickCaptureGenerator: @escaping AIWorkflowService.QuickCaptureGenerationHandler
