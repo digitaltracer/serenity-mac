@@ -1018,7 +1018,7 @@ actor AIWorkflowService {
     for credential in ordered {
       let keychainKey = keychainKeyForCredential(credential.id)
       if let secret = try secretStore.secret(for: keychainKey), !secret.isEmpty {
-        let model = credential.modelPreference ?? preferredModel(for: credential.provider, settings: settings)
+        let model = resolvedModel(for: credential, settings: settings)
         return AICredentialSelectionResult(credential: credential, apiKey: secret, model: model)
       }
 
@@ -1041,20 +1041,72 @@ actor AIWorkflowService {
     }
 
     let settings = try repositories.settings.fetch() ?? .defaultValue
-    let model = credential.modelPreference ?? preferredModel(for: credential.provider, settings: settings)
+    let model = resolvedModel(for: credential, settings: settings)
     return AICredentialSelectionResult(credential: credential, apiKey: secret, model: model)
   }
 
-  private func preferredModel(for provider: AICredentialProvider, settings: AISettingsEntity) -> String {
+  /// Resolution order: the credential's own model, then the provider-wide setting, then the list
+  /// verified against the live API when the key was added, and only then the compiled-in catalog —
+  /// which goes stale as hosted models reach end of life.
+  private func resolvedModel(for credential: AICredentialEntity, settings: AISettingsEntity) -> String {
+    if let preference = credential.modelPreference?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !preference.isEmpty {
+      return preference
+    }
+    if let configured = settingsPreferredModel(for: credential.provider, settings: settings) {
+      return configured
+    }
+    if let verified = decodeAvailableModels(from: credential.metadataJSON).first {
+      return verified
+    }
+    return catalogFallbackModel(for: credential.provider)
+  }
+
+  private func settingsPreferredModel(
+    for provider: AICredentialProvider,
+    settings: AISettingsEntity
+  ) -> String? {
+    let configured: String?
     switch provider {
     case .openai:
-      return settings.preferredModels?.openai ?? AIProviderModelCatalog.models[.openai]?.first ?? "gpt-5.5"
+      configured = settings.preferredModels?.openai
     case .gemini:
-      return settings.preferredModels?.gemini ?? AIProviderModelCatalog.models[.gemini]?.first ?? "gemini-3-pro-preview"
+      configured = settings.preferredModels?.gemini
     case .anthropic:
-      return settings.preferredModels?.anthropic ?? AIProviderModelCatalog.models[.anthropic]?.first ?? "claude-opus-4-7"
+      configured = settings.preferredModels?.anthropic
     case .nvidia:
-      return settings.preferredModels?.nvidia ?? AIProviderModelCatalog.models[.nvidia]?.first ?? "nvidia/nemotron-3.5-lightning-30b-a3b"
+      configured = settings.preferredModels?.nvidia
+    }
+    guard let trimmed = configured?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+      return nil
+    }
+    return trimmed
+  }
+
+  func decodeAvailableModels(from metadataJSON: String) -> [String] {
+    guard
+      let data = metadataJSON.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let models = object["availableModels"] as? [String]
+    else {
+      return []
+    }
+    return models.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+  }
+
+  private func catalogFallbackModel(for provider: AICredentialProvider) -> String {
+    if let head = AIProviderModelCatalog.models[provider]?.first {
+      return head
+    }
+    switch provider {
+    case .openai:
+      return "gpt-5.5"
+    case .gemini:
+      return "gemini-3-pro-preview"
+    case .anthropic:
+      return "claude-opus-4-7"
+    case .nvidia:
+      return "nvidia/nemotron-3.5-lightning-30b-a3b"
     }
   }
 

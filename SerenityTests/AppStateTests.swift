@@ -340,6 +340,65 @@ final class AppStateTests: XCTestCase {
     XCTAssertEqual(usage.filter { $0.provider == .nvidia }.count, 1)
   }
 
+  /// A credential saved with "Default" must use the models verified against the live API, not the
+  /// compiled-in catalog — the catalog goes stale as hosted models reach end of life.
+  @MainActor
+  func testDefaultModelPrefersVerifiedModelsOverStaticCatalog() async throws {
+    var seenModel: String?
+    let fixture = try makeAIQuickCaptureState { _, _, model, _, _, _ in
+      seenModel = model
+      return AIProviderTextGenerationResponse(
+        text: Self.taskClassificationJSON(confidence: 0.91),
+        promptTokens: 10,
+        completionTokens: 20
+      )
+    }
+    defer { fixture.cleanup() }
+
+    await fixture.state.bootstrapLocalDatabase()
+    await fixture.state.refreshCoreWorkflowData()
+    let credential = try await fixture.service.addCredential(
+      provider: .nvidia,
+      name: "NIM",
+      apiKey: "nvapi-test",
+      modelPreference: nil,
+      availableModels: ["nvidia/verified-from-api", "nvidia/other"]
+    )
+
+    _ = await fixture.state.submitAIQuickCapture(input: "buy milk", credentialID: credential.id)
+
+    XCTAssertEqual(seenModel, "nvidia/verified-from-api")
+    XCTAssertNotEqual(seenModel, AIProviderModelCatalog.models[.nvidia]?.first)
+  }
+
+  @MainActor
+  func testExplicitModelPreferenceBeatsVerifiedModels() async throws {
+    var seenModel: String?
+    let fixture = try makeAIQuickCaptureState { _, _, model, _, _, _ in
+      seenModel = model
+      return AIProviderTextGenerationResponse(
+        text: Self.taskClassificationJSON(confidence: 0.91),
+        promptTokens: 10,
+        completionTokens: 20
+      )
+    }
+    defer { fixture.cleanup() }
+
+    await fixture.state.bootstrapLocalDatabase()
+    await fixture.state.refreshCoreWorkflowData()
+    let credential = try await fixture.service.addCredential(
+      provider: .nvidia,
+      name: "NIM",
+      apiKey: "nvapi-test",
+      modelPreference: "nvidia/chosen-by-user",
+      availableModels: ["nvidia/verified-from-api"]
+    )
+
+    _ = await fixture.state.submitAIQuickCapture(input: "buy milk", credentialID: credential.id)
+
+    XCTAssertEqual(seenModel, "nvidia/chosen-by-user")
+  }
+
   @MainActor
   private func makeAIQuickCaptureState(
     quickCaptureGenerator: @escaping AIWorkflowService.QuickCaptureGenerationHandler

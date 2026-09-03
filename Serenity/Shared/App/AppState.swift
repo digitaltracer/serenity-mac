@@ -1188,13 +1188,20 @@ final class AppState: ObservableObject {
       return
     }
 
+    // Saving without pressing Verify would otherwise store no model list, leaving the credential on
+    // the compiled-in catalog. A failure here is not fatal — the key still saves.
+    var resolvedModels = availableModels
+    if resolvedModels?.isEmpty ?? true {
+      resolvedModels = try? await aiWorkflowService.validateAPIKey(provider: provider, apiKey: trimmedKey)
+    }
+
     do {
       _ = try await aiWorkflowService.addCredential(
         provider: provider,
         name: name,
         apiKey: trimmedKey,
         modelPreference: modelPreference,
-        availableModels: availableModels
+        availableModels: resolvedModels
       )
       showToast("\(provider.rawValue.capitalized) credential added")
       await refreshAIWorkflows()
