@@ -664,18 +664,33 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
   let maxMenuHeight: CGFloat
   let footerDismissesOnTap: Bool
   let style: SerenityDropdownStyle
+  let searchable: Bool
   let footer: Footer
 
   @Binding var selection: Value
   @State private var showingPopover = false
   @State private var hovered = false
   @State private var hoveredOption: Value?
+  @State private var searchText = ""
+  @FocusState private var searchFocused: Bool
   @State private var menuContentHeight: CGFloat = 0
   @State private var menuViewportHeight: CGFloat = 0
   @State private var menuScrollOffset: CGFloat = 0
 
   private var selectedOption: SerenityDropdownOption<Value>? {
     options.first { $0.value == selection }
+  }
+
+  /// A search field only earns its space once scrolling becomes the alternative.
+  private var showsSearchField: Bool { searchable && options.count > 8 }
+
+  private var visibleOptions: [SerenityDropdownOption<Value>] {
+    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard showsSearchField, !query.isEmpty else { return options }
+    return options.filter { option in
+      option.title.localizedCaseInsensitiveContains(query)
+        || (option.subtitle?.localizedCaseInsensitiveContains(query) ?? false)
+    }
   }
 
   private var isInline: Bool { style == .inline }
@@ -790,10 +805,18 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
         .padding(8)
         .frame(minWidth: 220)
     }
+    .onChange(of: showingPopover) { _, isPresented in
+      searchText = ""
+      searchFocused = isPresented && showsSearchField
+    }
   }
 
   private var dropdownMenu: some View {
     VStack(alignment: .leading, spacing: 6) {
+      if showsSearchField {
+        dropdownSearchField
+      }
+
       dropdownScrollArea
 
       footer
@@ -810,6 +833,43 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
     .overlay(
       RoundedRectangle(cornerRadius: 14, style: .continuous)
         .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private var dropdownSearchField: some View {
+    HStack(spacing: 7) {
+      Image(systemName: "magnifyingglass")
+        .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
+        .foregroundStyle(SerenityPalette.textSecondary)
+
+      TextField("Filter \(options.count) options", text: $searchText)
+        .textFieldStyle(.plain)
+        .font(SerenityType.bodyMedium)
+        .foregroundStyle(SerenityPalette.textPrimary)
+        .focused($searchFocused)
+
+      if !searchText.isEmpty {
+        Button {
+          searchText = ""
+          searchFocused = true
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Clear filter")
+      }
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 7)
+    .background(
+      RoundedRectangle(cornerRadius: 9, style: .continuous)
+        .fill(SerenityPalette.inputBackground)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 9, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
     )
   }
 
@@ -853,16 +913,17 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
   }
 
   private var dropdownOptionsList: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      if options.isEmpty {
-        Text("No options")
+    let shown = visibleOptions
+    return VStack(alignment: .leading, spacing: 4) {
+      if shown.isEmpty {
+        Text(options.isEmpty ? "No options" : "No matches")
           .font(SerenityType.caption)
           .foregroundStyle(SerenityPalette.textSecondary)
           .frame(maxWidth: .infinity, alignment: .leading)
           .padding(.horizontal, 10)
           .padding(.vertical, 8)
       } else {
-        ForEach(options) { option in
+        ForEach(shown) { option in
           dropdownRow(option)
         }
       }
@@ -931,7 +992,8 @@ extension SerenityDropdownField where Footer == EmptyView {
     selection: Binding<Value>,
     options: [SerenityDropdownOption<Value>],
     maxMenuHeight: CGFloat = 240,
-    style: SerenityDropdownStyle = .field
+    style: SerenityDropdownStyle = .field,
+    searchable: Bool = false
   ) {
     self.placeholder = placeholder
     self._selection = selection
@@ -939,6 +1001,7 @@ extension SerenityDropdownField where Footer == EmptyView {
     self.maxMenuHeight = maxMenuHeight
     self.footerDismissesOnTap = false
     self.style = style
+    self.searchable = searchable
     self.footer = EmptyView()
   }
 }
@@ -951,6 +1014,7 @@ extension SerenityDropdownField {
     maxMenuHeight: CGFloat = 240,
     footerDismissesOnTap: Bool = true,
     style: SerenityDropdownStyle = .field,
+    searchable: Bool = false,
     @ViewBuilder footer: () -> Footer
   ) {
     self.placeholder = placeholder
@@ -959,6 +1023,7 @@ extension SerenityDropdownField {
     self.maxMenuHeight = maxMenuHeight
     self.footerDismissesOnTap = footerDismissesOnTap
     self.style = style
+    self.searchable = searchable
     self.footer = footer()
   }
 }

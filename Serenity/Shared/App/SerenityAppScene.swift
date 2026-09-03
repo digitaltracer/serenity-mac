@@ -7408,7 +7408,8 @@ private struct SettingsSectionView: View {
           SerenityDropdownField(
             placeholder: "Default",
             selection: $newCredentialModel,
-            options: addFormModelOptions
+            options: addFormModelOptions,
+            searchable: true
           )
           .frame(maxWidth: 280, alignment: .leading)
         }
@@ -7611,7 +7612,8 @@ private struct SettingsSectionView: View {
             }
           }
         ),
-        options: credentialModelOptions(for: credential)
+        options: credentialModelOptions(for: credential),
+        searchable: true
       )
       .frame(width: 220)
 
