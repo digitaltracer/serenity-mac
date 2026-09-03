@@ -212,6 +212,16 @@ final class AIWorkflowServiceTests: XCTestCase {
     XCTAssertEqual(classification.tasks.first?.title, "Book dentist appointment")
   }
 
+  /// A bare status code makes a rejected model id or payload field unguessable, so the provider's
+  /// own explanation has to reach the toast.
+  func testUnexpectedStatusCarriesProviderDetail() {
+    let detailed = AIProviderAPIError.unexpected(400, "invalid model id")
+    XCTAssertEqual(detailed.errorDescription, "Provider returned HTTP 400: invalid model id")
+
+    XCTAssertEqual(AIProviderAPIError.unexpected(500, nil).errorDescription, "Provider returned HTTP 500")
+    XCTAssertEqual(AIProviderAPIError.unexpected(500, "").errorDescription, "Provider returned HTTP 500")
+  }
+
   private func makeService(
     quickCaptureGenerator: @escaping AIWorkflowService.QuickCaptureGenerationHandler = AIProviderAPIClient.generateQuickCaptureJSON
   ) throws -> (AIWorkflowService, InMemorySecretStorageBackend, String) {

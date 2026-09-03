@@ -6,7 +6,8 @@ enum AIProviderAPIError: Error, LocalizedError, Equatable {
   case network(String)
   case decoding
   case invalidResponse
-  case unexpected(Int)
+  case incompleteResponse(String)
+  case unexpected(Int, String?)
 
   var errorDescription: String? {
     switch self {
@@ -20,8 +21,13 @@ enum AIProviderAPIError: Error, LocalizedError, Equatable {
       return "Unexpected response from provider"
     case .invalidResponse:
       return "Provider response did not include usable text"
-    case .unexpected(let status):
-      return "Provider returned HTTP \(status)"
+    case .incompleteResponse(let reason):
+      return "Provider response was incomplete: \(reason)"
+    case .unexpected(let status, let detail):
+      guard let detail, !detail.isEmpty else {
+        return "Provider returned HTTP \(status)"
+      }
+      return "Provider returned HTTP \(status): \(detail)"
     }
   }
 }
@@ -396,13 +402,31 @@ enum AIProviderAPIClient {
     case 429:
       throw AIProviderAPIError.rateLimited
     default:
-      throw AIProviderAPIError.unexpected(http.statusCode)
+      throw AIProviderAPIError.unexpected(http.statusCode, providerErrorDetail(from: data))
     }
     do {
       return try JSONDecoder().decode(T.self, from: data)
     } catch {
       throw AIProviderAPIError.decoding
     }
+  }
+
+  /// Providers explain a 4xx in the body; without it a bad model id or payload field is unguessable.
+  private static func providerErrorDetail(from data: Data) -> String? {
+    guard !data.isEmpty else { return nil }
+    if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+      for key in ["detail", "message", "title"] {
+        if let value = object[key] as? String, !value.isEmpty {
+          return value
+        }
+      }
+      if let error = object["error"] as? [String: Any], let message = error["message"] as? String {
+        return message
+      }
+    }
+    let text = String(decoding: data.prefix(400), as: UTF8.self)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return text.isEmpty ? nil : text
   }
 
   private static func jsonData(_ object: Any) throws -> Data {
