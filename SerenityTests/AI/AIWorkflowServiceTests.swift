@@ -239,6 +239,54 @@ final class AIWorkflowServiceTests: XCTestCase {
     }
   }
 
+  /// The generic DecodingError text names neither the field nor the path, which leaves both the
+  /// toast and the repair prompt with nothing to act on.
+  func testDecodingFailureNamesTheMissingField() throws {
+    struct Payload: Decodable {
+      let kind: String
+      let confidence: Double
+    }
+
+    let missingKey = Data(#"{"confidence": 0.9}"#.utf8)
+    do {
+      _ = try JSONDecoder().decode(Payload.self, from: missingKey)
+      XCTFail("Expected a decoding failure")
+    } catch {
+      let reason = AIWorkflowService.describeDecodingFailure(error)
+      XCTAssertTrue(reason.contains("kind"), reason)
+      XCTAssertTrue(reason.contains("missing required field"), reason)
+    }
+
+    let wrongType = Data(#"{"kind": "tasks", "confidence": "high"}"#.utf8)
+    do {
+      _ = try JSONDecoder().decode(Payload.self, from: wrongType)
+      XCTFail("Expected a decoding failure")
+    } catch {
+      let reason = AIWorkflowService.describeDecodingFailure(error)
+      XCTAssertTrue(reason.contains("confidence"), reason)
+      XCTAssertTrue(reason.contains("wrong type"), reason)
+    }
+
+    XCTAssertEqual(
+      AIWorkflowService.topLevelKeys(of: Data(#"{"b": 1, "a": 2}"#.utf8)),
+      "a, b"
+    )
+    XCTAssertEqual(AIWorkflowService.topLevelKeys(of: Data("not json".utf8)), "unparseable")
+  }
+
+  /// Reasoning text is deliberation, not the answer. Handing it to the JSON decoder produced
+  /// "malformed JSON at the root object" and hid the real cause.
+  func testIncompleteResponseNamesTheReasoningOnlyReply() {
+    let error = AIProviderAPIError.incompleteResponse(
+      "the model returned 3819 characters of reasoning and no answer before hitting the token limit. Try a non-reasoning model."
+    )
+    let described = try? XCTUnwrap(error.errorDescription)
+    XCTAssertEqual(
+      described,
+      "Provider response was incomplete: the model returned 3819 characters of reasoning and no answer before hitting the token limit. Try a non-reasoning model."
+    )
+  }
+
   private func makeService(
     quickCaptureGenerator: @escaping AIWorkflowService.QuickCaptureGenerationHandler = AIProviderAPIClient.generateQuickCaptureJSON
   ) throws -> (AIWorkflowService, InMemorySecretStorageBackend, String) {

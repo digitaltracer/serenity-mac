@@ -399,6 +399,45 @@ final class AppStateTests: XCTestCase {
     XCTAssertEqual(seenModel, "nvidia/chosen-by-user")
   }
 
+  /// A journal-mode reply legitimately omits `tasks`; a model not held to the schema by guided
+  /// decoding will drop it, and that must not fail the whole capture.
+  @MainActor
+  func testJournalReplyMissingTasksAndConfidenceStillDecodes() async throws {
+    let fixture = try makeAIQuickCaptureState { _, _, _, _, _, _ in
+      AIProviderTextGenerationResponse(
+        text: """
+        {
+          "kind": "journal",
+          "journal": {
+            "title": "Morning pages",
+            "content": "Felt good about the release today.",
+            "mood": null,
+            "tags": []
+          }
+        }
+        """,
+        promptTokens: 10,
+        completionTokens: 20
+      )
+    }
+    defer { fixture.cleanup() }
+
+    await fixture.state.bootstrapLocalDatabase()
+    await fixture.state.refreshCoreWorkflowData()
+    let credential = try await fixture.service.addCredential(
+      provider: .nvidia,
+      name: "NIM",
+      apiKey: "nvapi-test",
+      modelPreference: "nvidia/nemotron-3.5-lightning-30b-a3b"
+    )
+
+    let saved = await fixture.state.submitAIQuickCapture(input: "felt good today", credentialID: credential.id)
+
+    // No stated confidence routes to the preview rather than saving unreviewed.
+    XCTAssertFalse(saved)
+    XCTAssertNotNil(fixture.state.pendingAIQuickCapturePreview)
+  }
+
   @MainActor
   private func makeAIQuickCaptureState(
     quickCaptureGenerator: @escaping AIWorkflowService.QuickCaptureGenerationHandler

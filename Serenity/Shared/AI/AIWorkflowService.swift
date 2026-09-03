@@ -159,7 +159,7 @@ actor AIWorkflowService {
       } catch {
         let repairPrompt = quickCaptureRepairPrompt(
           invalidResponse: response.text,
-          validationError: error.localizedDescription,
+          validationError: Self.describeDecodingFailure(error),
           schema: schema
         )
         let repaired = try await quickCaptureGenerator(
@@ -646,9 +646,9 @@ actor AIWorkflowService {
 
   private struct RawQuickCaptureClassification: Decodable {
     var kind: AIQuickCaptureKind
-    var confidence: Double
+    var confidence: Double?
     var newProjects: [RawQuickCaptureProject]?
-    var tasks: [RawQuickCaptureTask]
+    var tasks: [RawQuickCaptureTask]?
     var journal: RawQuickCaptureJournal?
   }
 
@@ -700,17 +700,31 @@ actor AIWorkflowService {
     do {
       raw = try JSONDecoder().decode(RawQuickCaptureClassification.self, from: data)
     } catch {
-      throw AIWorkflowError.invalidQuickCaptureResponse(error.localizedDescription)
+      let reason = Self.describeDecodingFailure(error)
+      // The opening of the reply is what identifies the failure — reasoning prose, a markdown
+      // fence, an apology — so it is logged even in release, where DEBUG is not defined.
+      AppLogger.error(
+        """
+        AI quick capture decode failed: \(reason). \
+        Payload keys: \(Self.topLevelKeys(of: data)), \(data.count) bytes. \
+        Starts with: \(jsonText.prefix(200))
+        """
+      )
+      #if DEBUG
+      AppLogger.error("AI quick capture raw payload: \(jsonText.prefix(2_000))")
+      #endif
+      throw AIWorkflowError.invalidQuickCaptureResponse(reason)
     }
 
     let activeProjectIDs = Set(projects.filter { !$0.archived }.map(\.id))
     let activeProjectNames = Set(projects.filter { !$0.archived }.map { normalizedProjectName($0.name) }.filter { !$0.isEmpty })
     let newProjects = normalizeProjectDrafts(raw.newProjects ?? [], existingProjectNames: activeProjectNames)
-    let confidence = min(1, max(0, raw.confidence))
+    // No stated confidence routes to the preview instead of saving unreviewed.
+    let confidence = min(1, max(0, raw.confidence ?? 0.5))
 
     switch raw.kind {
     case .tasks:
-      let tasks = raw.tasks.compactMap { rawTask -> AIQuickCaptureTaskDraft? in
+      let tasks = (raw.tasks ?? []).compactMap { rawTask -> AIQuickCaptureTaskDraft? in
         let title = rawTask.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return nil }
 
@@ -764,6 +778,41 @@ actor AIWorkflowService {
       )
       return AIQuickCaptureClassification(kind: .journal, confidence: confidence, tasks: [], journal: journal)
     }
+  }
+
+  /// `DecodingError.localizedDescription` names neither the key nor the path, which leaves the
+  /// toast unactionable and gives the repair prompt nothing to correct.
+  static func describeDecodingFailure(_ error: Error) -> String {
+    guard let decodingError = error as? DecodingError else {
+      return error.localizedDescription
+    }
+
+    func path(_ context: DecodingError.Context) -> String {
+      let keys = context.codingPath.map(\.stringValue).filter { !$0.isEmpty }
+      return keys.isEmpty ? "the root object" : keys.joined(separator: ".")
+    }
+
+    switch decodingError {
+    case .keyNotFound(let key, let context):
+      return "missing required field '\(key.stringValue)' in \(path(context))"
+    case .valueNotFound(let type, let context):
+      return "field '\(path(context))' was null but must be \(type)"
+    case .typeMismatch(let type, let context):
+      return "field '\(path(context))' had the wrong type, expected \(type)"
+    case .dataCorrupted(let context):
+      return "malformed JSON at \(path(context)): \(context.debugDescription)"
+    @unknown default:
+      return error.localizedDescription
+    }
+  }
+
+  static func topLevelKeys(of data: Data) -> String {
+    guard
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
+      return "unparseable"
+    }
+    return object.keys.sorted().joined(separator: ", ")
   }
 
   private func extractJSONObject(from text: String) -> String {
