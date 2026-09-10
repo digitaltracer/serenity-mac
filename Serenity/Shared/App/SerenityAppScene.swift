@@ -2149,6 +2149,12 @@ private struct ActionHubSectionView: View {
   @State private var quickProjectName = ""
   @State private var quickProjectDescription = ""
   @State private var quickProjectColor: Color = ProjectColorCodec.fallbackColor
+  @State private var showProjectCreator = false
+  @State private var newProjectName = ""
+  @State private var newProjectDescription = ""
+  @State private var newProjectColor: Color = ProjectColorCodec.fallbackColor
+  @State private var editingProject: ProjectEntity?
+  @State private var projectPendingDeletion: ProjectEntity?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -2820,27 +2826,199 @@ private struct ActionHubSectionView: View {
   }
 
   private var projectsView: some View {
-    GroupBox("Projects") {
-      VStack(alignment: .leading, spacing: 10) {
-        if appState.projects.isEmpty {
-          Text("No projects yet. Create one from ActionHub task assignments.")
-            .foregroundStyle(SerenityPalette.textSecondary)
-        } else {
-          ForEach(appState.projects) { project in
-            HStack {
-              Text(project.name)
-                .font(SerenityType.scaledSystem(size: 20, weight: .regular))
-              Spacer()
-              Text(project.archived ? "Archived" : "Active")
-                .font(SerenityType.caption)
-                .foregroundStyle(project.archived ? SerenityPalette.textSecondary : .green)
+    VStack(alignment: .leading, spacing: 16) {
+      projectAddPanel
+
+      GroupBox {
+        VStack(alignment: .leading, spacing: 10) {
+          if appState.projects.isEmpty {
+            Text("No projects yet. Add one above to group your tasks.")
+              .foregroundStyle(SerenityPalette.textSecondary)
+          } else {
+            ForEach(appState.projects) { project in
+              projectRow(project)
             }
-            .padding(.vertical, 4)
           }
         }
+        .padding(.top, 4)
+      } label: {
+        HStack {
+          Text("Projects")
+          Spacer()
+          Toggle("Include archived", isOn: $appState.includeArchivedProjects)
+            .toggleStyle(.switch)
+            .font(SerenityType.caption)
+            .onChange(of: appState.includeArchivedProjects) { _, _ in
+              Task {
+                await appState.refreshCoreWorkflowData()
+              }
+            }
+        }
       }
-      .padding(.top, 4)
     }
+    .sheet(item: $editingProject) { project in
+      ProjectEditorView(project: project) { name, description, color in
+        Task {
+          await appState.updateProject(id: project.id, name: name, description: description, color: color)
+        }
+      }
+      .frame(minWidth: 420, minHeight: 260)
+    }
+    .confirmationDialog(
+      "Delete \(projectPendingDeletion?.name ?? "this project")?",
+      isPresented: Binding(
+        get: { projectPendingDeletion != nil },
+        set: { if !$0 { projectPendingDeletion = nil } }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Delete Project", role: .destructive) {
+        guard let project = projectPendingDeletion else { return }
+        projectPendingDeletion = nil
+        Task {
+          await appState.deleteProject(id: project.id)
+        }
+      }
+      Button("Cancel", role: .cancel) {
+        projectPendingDeletion = nil
+      }
+    } message: {
+      Text("Tasks assigned to it stay, but lose their project.")
+    }
+  }
+
+  private func projectRow(_ project: ProjectEntity) -> some View {
+    let taskCount = appState.tasks.filter { $0.projectId == project.id }.count
+
+    return VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 10) {
+        Circle()
+          .fill(ProjectColorCodec.color(from: project.color) ?? SerenityPalette.accent)
+          .frame(width: 10, height: 10)
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(project.name)
+            .font(SerenityType.bodyLarge.weight(.semibold))
+          if let description = project.description, !description.isEmpty {
+            Text(description)
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+          }
+        }
+
+        Spacer()
+
+        Text("\(taskCount) task\(taskCount == 1 ? "" : "s")")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+
+        Text(project.archived ? "Archived" : "Active")
+          .font(SerenityType.caption)
+          .foregroundStyle(project.archived ? SerenityPalette.textSecondary : .green)
+      }
+
+      HStack(spacing: 8) {
+        Button("Edit") {
+          editingProject = project
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button(project.archived ? "Unarchive" : "Archive") {
+          Task {
+            await appState.toggleProjectArchive(id: project.id)
+          }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Spacer()
+
+        Button("Delete", role: .destructive) {
+          projectPendingDeletion = project
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(10)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private var projectAddPanel: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      if showProjectCreator {
+        TextField("Project name", text: $newProjectName)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        TextField("Description (optional)", text: $newProjectDescription)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        HStack(spacing: 10) {
+          ColorPicker("Project color", selection: $newProjectColor, supportsOpacity: false)
+            .labelsHidden()
+          Text(ProjectColorCodec.hex(from: newProjectColor))
+            .font(SerenityType.scaledSystem(size: 11, weight: .regular, design: .monospaced))
+            .foregroundStyle(SerenityPalette.textSecondary)
+
+          Spacer(minLength: 0)
+        }
+
+        HStack(spacing: 12) {
+          Button("Create Project") {
+            let name = newProjectName
+            let description = newProjectDescription
+            let colorHex = ProjectColorCodec.hex(from: newProjectColor)
+
+            Task {
+              guard await appState.createProject(
+                name: name,
+                description: description,
+                color: colorHex
+              ) != nil else { return }
+
+              resetProjectForm()
+              showProjectCreator = false
+            }
+          }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .disabled(newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+          Button("Cancel") {
+            resetProjectForm()
+            showProjectCreator = false
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        }
+      } else {
+        Button {
+          showProjectCreator = true
+        } label: {
+          HStack(spacing: 10) {
+            Image(systemName: "plus")
+              .font(SerenityType.scaledSystem(size: 13, weight: .semibold))
+            Text("Add a project")
+              .font(SerenityType.bodyMedium)
+            Spacer()
+          }
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(showProjectCreator ? 16 : 12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
   }
 
   private var calendarView: some View {
@@ -3244,6 +3422,12 @@ private struct ActionHubSectionView: View {
     quickProjectName = ""
     quickProjectDescription = ""
     quickProjectColor = ProjectColorCodec.fallbackColor
+  }
+
+  private func resetProjectForm() {
+    newProjectName = ""
+    newProjectDescription = ""
+    newProjectColor = ProjectColorCodec.fallbackColor
   }
 
 }
