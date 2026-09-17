@@ -244,11 +244,30 @@ enum SerenityScreenMetrics {
   }
 }
 
+/// True on an iPhone-sized surface. `SerenityAppScene` resolves it from the
+/// horizontal size class, so regular-width iPad and macOS both read `false`.
+private struct SerenityCompactLayoutKey: EnvironmentKey {
+  static let defaultValue = false
+}
+
+extension EnvironmentValues {
+  var serenityCompactLayout: Bool {
+    get { self[SerenityCompactLayoutKey.self] }
+    set { self[SerenityCompactLayoutKey.self] = newValue }
+  }
+}
+
+enum SerenityTouchMetrics {
+  /// The HIG minimum. Controls sized for a pointer are raised to it on a phone.
+  static let minimumTarget: CGFloat = 44
+}
+
 typealias SerenityPalette = SerenityUI.Palette
 typealias SerenityType = SerenityUI.Typography
 
 struct SerenityPrimaryButtonStyle: ButtonStyle {
   @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.serenityCompactLayout) private var compactLayout
 
   private var fillOpacity: CGFloat {
     guard isEnabled else { return 0.35 }
@@ -261,6 +280,7 @@ struct SerenityPrimaryButtonStyle: ButtonStyle {
       .padding(.horizontal, 12)
       .padding(.vertical, 7)
       .foregroundStyle(Color.white.opacity(isEnabled ? 1 : 0.5))
+      .frame(minHeight: compactLayout ? SerenityTouchMetrics.minimumTarget : 0)
       .background(
         RoundedRectangle(cornerRadius: 10, style: .continuous)
           .fill(
@@ -278,12 +298,15 @@ struct SerenityPrimaryButtonStyle: ButtonStyle {
 }
 
 struct SerenitySecondaryButtonStyle: ButtonStyle {
+  @Environment(\.serenityCompactLayout) private var compactLayout
+
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(SerenityType.bodyMedium)
       .padding(.horizontal, 12)
       .padding(.vertical, 7)
       .foregroundStyle(SerenityPalette.textPrimary)
+      .frame(minHeight: compactLayout ? SerenityTouchMetrics.minimumTarget : 0)
       .background(
         RoundedRectangle(cornerRadius: 10, style: .continuous)
           .fill(SerenityPalette.panelBackgroundRaised.opacity(configuration.isPressed ? 0.72 : 1))
@@ -300,12 +323,15 @@ struct SerenitySecondaryButtonStyle: ButtonStyle {
 struct SerenityPillButtonStyle: ButtonStyle {
   let selected: Bool
 
+  @Environment(\.serenityCompactLayout) private var compactLayout
+
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(SerenityType.bodyMedium)
       .padding(.horizontal, 16)
       .padding(.vertical, 8)
       .foregroundStyle(selected ? SerenityPalette.textOnInteractiveSurface : SerenityPalette.textSecondary)
+      .frame(minHeight: compactLayout ? SerenityTouchMetrics.minimumTarget : 0)
       .background(
         RoundedRectangle(cornerRadius: 12, style: .continuous)
           .fill(selected ? SerenityPalette.activeItemBackground.opacity(configuration.isPressed ? 0.72 : 1) : SerenityPalette.panelBackgroundRaised.opacity(configuration.isPressed ? 0.75 : 1))
@@ -515,6 +541,8 @@ private struct SerenityScrollMetrics: Equatable {
 }
 
 struct SerenityThemedScrollView<Content: View>: View {
+  @Environment(\.serenityCompactLayout) private var compactLayout
+
   private let content: Content
 
   @State private var contentHeight: CGFloat = 0
@@ -526,8 +554,9 @@ struct SerenityThemedScrollView<Content: View>: View {
     self.content = content()
   }
 
+  /// The custom scrollbar is a hover affordance; a phone uses the system one.
   private var shouldShowScrollbar: Bool {
-    viewportHeight > 0 && contentHeight > viewportHeight + 4
+    !compactLayout && viewportHeight > 0 && contentHeight > viewportHeight + 4
   }
 
   private var thumbHeight: CGFloat {
@@ -1140,4 +1169,141 @@ extension View {
   func serenityTextArea(minHeight: CGFloat = 120) -> some View {
     modifier(SerenityTextAreaModifier(minHeight: minHeight))
   }
+
+  /// Controls sized to their label on the Mac read as stray fragments in a
+  /// phone-width column, so they fill it instead.
+  @ViewBuilder
+  func serenityFullWidthOnCompact(_ compact: Bool) -> some View {
+    if compact {
+      frame(maxWidth: .infinity)
+    } else {
+      self
+    }
+  }
+
+  /// A Mac sheet needs an explicit minimum size; on iOS the presentation sizes
+  /// itself, and a minimum wider than the screen clips the content.
+  @ViewBuilder
+  func serenityDesktopSheetSize(minWidth: CGFloat, minHeight: CGFloat) -> some View {
+#if os(macOS)
+    frame(minWidth: minWidth, minHeight: minHeight)
+#else
+    self
+#endif
+  }
 }
+
+#if os(iOS)
+struct SerenitySwipeAction: Identifiable {
+  let id: String
+  let title: String
+  let systemImage: String
+  let tint: Color
+  let action: () -> Void
+
+  init(id: String, title: String, systemImage: String, tint: Color, action: @escaping () -> Void) {
+    self.id = id
+    self.title = title
+    self.systemImage = systemImage
+    self.tint = tint
+    self.action = action
+  }
+}
+
+/// Swipe-to-act for rows that live in a `LazyVStack` rather than a `List`,
+/// where `.swipeActions` is unavailable. The task list is one rounded container
+/// by design, which a `List` cannot reproduce, so the gesture is hand-rolled.
+private struct SerenitySwipeActionsModifier: ViewModifier {
+  let rowID: String
+  let actions: [SerenitySwipeAction]
+  @Binding var openRowID: String?
+
+  @State private var translation: CGFloat = 0
+
+  private static let actionWidth: CGFloat = 76
+
+  private var revealWidth: CGFloat {
+    CGFloat(actions.count) * Self.actionWidth
+  }
+
+  private var isOpen: Bool {
+    openRowID == rowID
+  }
+
+  private var offset: CGFloat {
+    min(0, max(-revealWidth, (isOpen ? -revealWidth : 0) + translation))
+  }
+
+  func body(content: Content) -> some View {
+    ZStack(alignment: .trailing) {
+      HStack(spacing: 0) {
+        ForEach(actions) { action in
+          Button {
+            withAnimation(.easeOut(duration: 0.18)) {
+              translation = 0
+              openRowID = nil
+            }
+            action.action()
+          } label: {
+            VStack(spacing: 4) {
+              Image(systemName: action.systemImage)
+                .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
+              Text(action.title)
+                .font(SerenityType.caption)
+            }
+            .frame(width: Self.actionWidth)
+            .frame(maxHeight: .infinity)
+            .foregroundStyle(Color.white)
+            .background(action.tint)
+            .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel(action.title)
+        }
+      }
+      .frame(width: revealWidth)
+      .opacity(offset < -0.5 ? 1 : 0)
+
+      content
+        .background(SerenityPalette.panelBackground)
+        .offset(x: offset)
+        .simultaneousGesture(dragGesture)
+    }
+    .clipped()
+    .onChange(of: openRowID) { _, newValue in
+      guard newValue != rowID, translation != 0 else { return }
+      translation = 0
+    }
+  }
+
+  private var dragGesture: some Gesture {
+    DragGesture(minimumDistance: 18, coordinateSpace: .local)
+      .onChanged { value in
+        // Vertical intent belongs to the scroll view.
+        guard abs(value.translation.width) > abs(value.translation.height) else { return }
+        translation = value.translation.width
+      }
+      .onEnded { value in
+        let settled = (isOpen ? -revealWidth : 0) + value.predictedEndTranslation.width
+        withAnimation(.easeOut(duration: 0.2)) {
+          translation = 0
+          if settled < -revealWidth / 2 {
+            openRowID = rowID
+          } else if isOpen {
+            openRowID = nil
+          }
+        }
+      }
+  }
+}
+
+extension View {
+  func serenitySwipeActions(
+    rowID: String,
+    openRowID: Binding<String?>,
+    actions: [SerenitySwipeAction]
+  ) -> some View {
+    modifier(SerenitySwipeActionsModifier(rowID: rowID, actions: actions, openRowID: openRowID))
+  }
+}
+#endif
