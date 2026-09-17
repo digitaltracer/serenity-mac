@@ -80,12 +80,15 @@ final class SectionViewSmokeTests: XCTestCase {
 
   func testHomeHeaderAndCaptureCardSurvive() throws {
     let source = try appSceneSource()
+    let sectionView = try XCTUnwrap(source.slice(from: "private struct SectionView", to: "private struct HomeSectionHeader"))
+    let header = try XCTUnwrap(source.slice(from: "private struct HomeSectionHeader", to: "private struct HomeSectionView"))
     let home = try XCTUnwrap(source.slice(from: "private struct HomeSectionView", to: "private struct ActionHubSectionView"))
-    let header = try XCTUnwrap(String(home).slice(from: "private var header", to: "private var quickCaptureCard"))
     let quickCaptureCard = try XCTUnwrap(String(home).slice(from: "private var quickCaptureCard", to: "private var quickCaptureProviderDropdown"))
 
-    XCTAssertTrue(home.contains("header\n        .padding(.bottom, density.sectionSpacing)"))
-    XCTAssertTrue(header.contains("HStack(alignment: .center, spacing: 12)"))
+    // The title belongs to SectionView's pinned band, not to the scrolling
+    // content, so it reads as the screen's title rather than its first row.
+    XCTAssertTrue(sectionView.contains("HomeSectionHeader()"))
+    XCTAssertTrue(header.contains("HStack(alignment: .firstTextBaseline, spacing: 12)"))
     XCTAssertTrue(quickCaptureCard.contains("Text(quickCaptureHelperText)\n            .font(SerenityType.body)"))
   }
 

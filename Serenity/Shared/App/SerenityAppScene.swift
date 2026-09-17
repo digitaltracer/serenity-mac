@@ -95,6 +95,10 @@ struct SerenityAppScene: View {
 #if os(macOS)
     .toolbar {
       ToolbarItemGroup(placement: .primaryAction) {
+        // The window toolbar fills from the leading edge, so this flexible
+        // space is what parks the controls opposite the page header.
+        Spacer()
+
         TopBarButton(symbol: "magnifyingglass", accessibilityLabel: "Search") {
           appState.openGlobalSearch()
         }
@@ -104,8 +108,6 @@ struct SerenityAppScene: View {
         TopBarButton(symbol: appState.themePreference.topBarSymbol, accessibilityLabel: "Theme") {
           cycleThemePreference()
         }
-        Spacer()
-          .frame(width: 8)
       }
     }
     .toolbarBackground(.hidden, for: .windowToolbar)
@@ -549,6 +551,16 @@ private enum SerenityContentDensity {
     }
   }
 
+  /// Deliberately wider than `sectionSpacing`: the title needs to read as the
+  /// screen's header, not as the first row of the content.
+  var pageHeaderSpacing: CGFloat {
+    switch self {
+    case .regular: return 38
+    case .compact: return 34
+    case .tight: return 32
+    }
+  }
+
   var sectionIconContainer: CGFloat {
     switch self {
     case .regular: return 50
@@ -687,44 +699,79 @@ private struct SectionView: View {
       }
   }
 
+  /// The page title sits outside the scroll view so it reads as the screen's
+  /// title rather than as the first thing on it — on the Mac it rises into the
+  /// transparent toolbar row, level with the controls parked on the right.
   private var sectionContent: some View {
     GeometryReader { proxy in
       let density = SerenityContentDensity.from(width: proxy.size.width)
 
-      SerenityThemedScrollView {
-        VStack(alignment: .leading, spacing: density.sectionSpacing) {
-          if section != .home {
-            sectionHeader(density: density)
-          }
+      VStack(alignment: .leading, spacing: 0) {
+        pageHeader(density: density)
+          .padding(.top, Self.headerTopPadding(density))
+          .padding(.leading, density.contentPadding)
+          .padding(.trailing, density.contentPadding + 14)
+          .padding(.bottom, Self.headerScrollGap)
 
-          switch section {
-          case .home:
-            HomeSectionView(density: density)
-          case .actionHub:
-            ActionHubSectionView(onEditTask: openTaskEditor)
-          case .journal:
-            JournalSectionView()
-          case .goals:
-            GoalsSectionView()
-          case .projects:
-            ProjectsSectionView()
-          case .integrations:
-            IntegrationsSectionView()
-          case .insights:
-            InsightsSectionView()
-          case .aiSummaries:
-            AISummariesSectionView()
-          case .settings:
-            SettingsSectionView()
+        SerenityThemedScrollView {
+          VStack(alignment: .leading, spacing: density.sectionSpacing) {
+            switch section {
+            case .home:
+              HomeSectionView(density: density)
+            case .actionHub:
+              ActionHubSectionView(onEditTask: openTaskEditor)
+            case .journal:
+              JournalSectionView()
+            case .goals:
+              GoalsSectionView()
+            case .projects:
+              ProjectsSectionView()
+            case .integrations:
+              IntegrationsSectionView()
+            case .insights:
+              InsightsSectionView()
+            case .aiSummaries:
+              AISummariesSectionView()
+            case .settings:
+              SettingsSectionView()
+            }
           }
+          .frame(maxWidth: .infinity, alignment: .topLeading)
+          .padding(.top, density.pageHeaderSpacing + density.contentPadding - Self.headerScrollGap)
+          .padding(.leading, density.contentPadding)
+          .padding(.trailing, density.contentPadding + 14)
+          .padding(.bottom, density.contentBottomPadding)
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(.top, density.contentPadding)
-        .padding(.leading, density.contentPadding)
-        .padding(.trailing, density.contentPadding + 14)
-        .padding(.bottom, density.contentBottomPadding)
       }
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
+#if os(macOS)
+    .ignoresSafeArea(.container, edges: .top)
+#endif
+  }
+
+  @ViewBuilder
+  private func pageHeader(density: SerenityContentDensity) -> some View {
+    if section == .home {
+      HomeSectionHeader()
+    } else {
+      sectionHeader(density: density)
+    }
+  }
+
+  /// Most of the gap under the title belongs *inside* the scroll view. The
+  /// capture card's halo bleeds well past its bounds and the scroll view clips,
+  /// so a boundary sitting close to the card sliced that halo into a hard line.
+  private static let headerScrollGap: CGFloat = 10
+
+  private static func headerTopPadding(_ density: SerenityContentDensity) -> CGFloat {
+#if os(macOS)
+    // Sits the title row on the band the toolbar controls occupy, a hair lower
+    // so the glyphs are not flush against the window edge.
+    return 16
+#else
+    return density.contentPadding
+#endif
   }
 
 #if os(iOS)
@@ -1031,48 +1078,15 @@ private struct QuickCaptureEditor: View {
 }
 #endif
 
-private struct HomeSectionView: View {
-  let density: SerenityContentDensity
-
-  @EnvironmentObject private var appState: AppState
-
-  @State private var quickCapture = ""
-  @State private var submitting = false
-  @State private var quickCaptureFocused = false
-  @State private var selectedQuickCaptureCredentialID = ""
-
-  private let nativeQuickCaptureProviderID = "native"
+private struct HomeSectionHeader: View {
   private static let dateFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.dateFormat = "EEEE, MMMM d, yyyy"
     return formatter
   }()
-  private static let quickCapturePreviewDateFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .medium
-    formatter.timeStyle = .short
-    return formatter
-  }()
 
   var body: some View {
-    VStack(alignment: .leading, spacing: density.sectionSpacing) {
-      header
-        .padding(.bottom, density.sectionSpacing)
-      quickCaptureCard
-      if let preview = appState.pendingAIQuickCapturePreview {
-        aiQuickCapturePreview(preview)
-      }
-      TodayOverviewView()
-    }
-    .onChange(of: appState.shouldFocusQuickCapture) { _, requested in
-      guard requested else { return }
-      quickCaptureFocused = true
-      appState.shouldFocusQuickCapture = false
-    }
-  }
-
-  private var header: some View {
-    HStack(alignment: .center, spacing: 12) {
+    HStack(alignment: .firstTextBaseline, spacing: 12) {
       Image(systemName: "house")
         .font(SerenityType.scaledSystem(size: 22, weight: .semibold))
         .foregroundStyle(SerenityPalette.accent)
@@ -1090,6 +1104,40 @@ private struct HomeSectionView: View {
       }
 
       Spacer()
+    }
+  }
+}
+
+private struct HomeSectionView: View {
+  let density: SerenityContentDensity
+
+  @EnvironmentObject private var appState: AppState
+
+  @State private var quickCapture = ""
+  @State private var submitting = false
+  @State private var quickCaptureFocused = false
+  @State private var selectedQuickCaptureCredentialID = ""
+
+  private let nativeQuickCaptureProviderID = "native"
+  private static let quickCapturePreviewDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateStyle = .medium
+    formatter.timeStyle = .short
+    return formatter
+  }()
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: density.sectionSpacing) {
+      quickCaptureCard
+      if let preview = appState.pendingAIQuickCapturePreview {
+        aiQuickCapturePreview(preview)
+      }
+      TodayOverviewView()
+    }
+    .onChange(of: appState.shouldFocusQuickCapture) { _, requested in
+      guard requested else { return }
+      quickCaptureFocused = true
+      appState.shouldFocusQuickCapture = false
     }
   }
 
