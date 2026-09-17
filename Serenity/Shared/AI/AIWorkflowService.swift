@@ -6,6 +6,7 @@ enum AIWorkflowError: Error, LocalizedError, Equatable {
   case credentialNotFound(String)
   case summaryNotFound(String)
   case invalidQuickCaptureResponse(String)
+  case invalidSlackResponse(String)
 
   var errorDescription: String? {
     switch self {
@@ -19,6 +20,8 @@ enum AIWorkflowError: Error, LocalizedError, Equatable {
       return "Summary \(id) was not found."
     case .invalidQuickCaptureResponse(let reason):
       return "AI quick capture response was invalid: \(reason)"
+    case .invalidSlackResponse(let reason):
+      return "AI Slack response was invalid: \(reason)"
     }
   }
 }
@@ -187,6 +190,160 @@ actor AIWorkflowService {
     } catch {
       try? repositories.credentials.recordError(id: selection.credential.id, message: error.localizedDescription, at: Date())
       throw error
+    }
+  }
+
+  /// Runs the Slack signals through the same provider plumbing quick capture
+  /// uses. A failing batch does not discard the batches that already succeeded —
+  /// its signals come back named so the caller can retry just those.
+  func proposeSlackDecisions(
+    signals: [SlackSignal],
+    credentialID: String,
+    openTasks: [TaskEntity],
+    projects: [AIQuickCaptureProjectContext],
+    availableTags: [String],
+    names: [String: String],
+    ownName: String,
+    now: Date = Date()
+  ) async throws -> SlackDecisionOutcome {
+    guard !signals.isEmpty else {
+      return SlackDecisionOutcome(decisions: [], failedSignalIDs: [], lastError: nil)
+    }
+
+    let repositories = try await requireRepositories()
+    let selection = try chooseCredential(id: credentialID)
+    let schema = SlackProposalPlanner.schema()
+    let systemPrompt = SlackProposalPlanner.systemPrompt(ownName: ownName)
+    let validTaskIDs = Set(openTasks.map(\.id))
+
+    var decisions: [SlackDecision] = []
+    var failed: [String] = []
+    var lastError: String?
+
+    for batch in SlackProposalPlanner.batches(of: signals) {
+      var candidates: [String: [TaskEntity]] = [:]
+      for signal in batch {
+        candidates[signal.id] = SlackProposalPlanner.shortlist(tasks: openTasks, for: signal)
+      }
+
+      let userPrompt = SlackProposalPlanner.userPrompt(
+        signals: batch,
+        candidates: candidates,
+        projects: projects,
+        availableTags: availableTags,
+        names: names,
+        now: now
+      )
+
+      do {
+        let response = try await quickCaptureGenerator(
+          selection.credential.provider,
+          selection.apiKey,
+          selection.model,
+          systemPrompt,
+          userPrompt,
+          schema
+        )
+        decisions.append(
+          contentsOf: try decodeSlackDecisions(
+            response.text,
+            signals: batch,
+            projects: projects,
+            validTaskIDs: validTaskIDs
+          )
+        )
+        try recordUsage(
+          repositories: repositories,
+          selection: selection,
+          operation: .slack,
+          promptTokens: response.promptTokens,
+          completionTokens: response.completionTokens
+        )
+      } catch {
+        failed.append(contentsOf: batch.map(\.id))
+        lastError = error.localizedDescription
+        try? repositories.credentials.recordError(
+          id: selection.credential.id,
+          message: error.localizedDescription,
+          at: Date()
+        )
+      }
+    }
+
+    return SlackDecisionOutcome(decisions: decisions, failedSignalIDs: failed, lastError: lastError)
+  }
+
+  private func decodeSlackDecisions(
+    _ text: String,
+    signals: [SlackSignal],
+    projects: [AIQuickCaptureProjectContext],
+    validTaskIDs: Set<String>
+  ) throws -> [SlackDecision] {
+    let jsonText = extractJSONObject(from: text)
+    guard let data = jsonText.data(using: .utf8) else {
+      throw AIWorkflowError.invalidSlackResponse("Response was not UTF-8 text")
+    }
+
+    let raw: RawSlackDecisions
+    do {
+      raw = try JSONDecoder().decode(RawSlackDecisions.self, from: data)
+    } catch {
+      let reason = Self.describeDecodingFailure(error)
+      AppLogger.error(
+        """
+        AI Slack decode failed: \(reason). \
+        Payload keys: \(Self.topLevelKeys(of: data)), \(data.count) bytes. \
+        Starts with: \(jsonText.prefix(200))
+        """
+      )
+      throw AIWorkflowError.invalidSlackResponse(reason)
+    }
+
+    let signalIDs = Set(signals.map(\.id))
+    let activeProjectIDs = Set(projects.filter { !$0.archived }.map(\.id))
+
+    return (raw.decisions ?? []).compactMap { rawDecision -> SlackDecision? in
+      guard let signalID = rawDecision.signalId, signalIDs.contains(signalID) else { return nil }
+
+      var action = SlackDecisionAction(rawValue: (rawDecision.action ?? "").lowercased()) ?? .ignore
+      let title = rawDecision.title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      var targetTaskID = rawDecision.targetTaskId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+
+      // A model that invents a task id has told us it wants a change, not which
+      // one — so fall back to proposing new work rather than editing at random.
+      if action == .update, targetTaskID.map({ !validTaskIDs.contains($0) }) ?? true {
+        targetTaskID = nil
+        action = title == nil ? .ignore : .create
+      }
+      if action == .create, title == nil {
+        action = .ignore
+      }
+
+      let description = rawDecision.description?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      let priority = rawDecision.priority
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        .flatMap(TaskPriority.init(rawValue:))
+      let projectID = rawDecision.projectId
+        .flatMap { activeProjectIDs.contains($0) ? $0 : nil }
+
+      return SlackDecision(
+        signalID: signalID,
+        action: action,
+        targetTaskID: targetTaskID,
+        payload: SlackProposalPayload(
+          title: title,
+          description: description,
+          priority: priority,
+          dueDate: parseQuickCaptureDueDate(rawDecision.dueDate),
+          projectId: projectID,
+          projectName: rawDecision.projectName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+          tags: normalizeTags(rawDecision.tags ?? []),
+          subtasks: normalizeList(rawDecision.subtasks ?? []),
+          statusChange: SlackStatusChange(rawValue: (rawDecision.statusChange ?? "none").lowercased()) ?? .none
+        ),
+        confidence: min(1, max(0, rawDecision.confidence ?? 0.5)),
+        reason: rawDecision.reason?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      )
     }
   }
 
@@ -642,6 +799,27 @@ actor AIWorkflowService {
     let markdown = "# \(summary.title)\n\n\(summary.content)\n"
     try markdown.data(using: .utf8)?.write(to: fileURL, options: .atomic)
     return fileURL.path
+  }
+
+  private struct RawSlackDecisions: Decodable {
+    struct Decision: Decodable {
+      let signalId: String?
+      let action: String?
+      let targetTaskId: String?
+      let title: String?
+      let description: String?
+      let priority: String?
+      let dueDate: String?
+      let projectId: String?
+      let projectName: String?
+      let tags: [String]?
+      let subtasks: [String]?
+      let statusChange: String?
+      let confidence: Double?
+      let reason: String?
+    }
+
+    let decisions: [Decision]?
   }
 
   private struct RawQuickCaptureClassification: Decodable {
