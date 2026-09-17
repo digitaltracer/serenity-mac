@@ -13,6 +13,11 @@ enum IntegrationServiceError: Error, LocalizedError {
   case invalidResponse
   case unsupportedResponseStatus(Int, String)
   case missingGitHubToken
+  case missingSlackConfiguration
+  case missingSlackSession
+  case missingSlackPresenter
+  case slackAuthorizationCancelled
+  case slackAPIError(String)
 
   var errorDescription: String? {
     switch self {
@@ -28,6 +33,16 @@ enum IntegrationServiceError: Error, LocalizedError {
       return "Integration request failed (\(status)): \(body)"
     case .missingGitHubToken:
       return "GitHub token is missing."
+    case .missingSlackConfiguration:
+      return "Slack is not configured. Add SLACK_CLIENT_ID to the app configuration."
+    case .missingSlackSession:
+      return "Slack session is missing. Connect Slack first."
+    case .missingSlackPresenter:
+      return "Serenity could not find a window to present Slack sign-in."
+    case .slackAuthorizationCancelled:
+      return "Slack sign-in was cancelled."
+    case .slackAPIError(let code):
+      return "Slack API returned an error: \(code)"
     }
   }
 }

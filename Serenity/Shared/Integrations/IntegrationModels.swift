@@ -4,6 +4,7 @@ import GoogleSignIn
 enum IntegrationProvider: String, CaseIterable, Identifiable, Sendable {
   case google
   case github
+  case slack
 
   var id: String { rawValue }
 
@@ -13,6 +14,8 @@ enum IntegrationProvider: String, CaseIterable, Identifiable, Sendable {
       return "Google Calendar"
     case .github:
       return "GitHub"
+    case .slack:
+      return "Slack"
     }
   }
 }
@@ -144,4 +147,76 @@ struct GitHubSyncPayload: Sendable {
   var tasks: [TaskEntity]
   var project: ProjectEntity?
   var importedCount: Int
+}
+
+enum SlackConfiguration {
+  static let clientIDInfoKey = "SLACK_CLIENT_ID"
+  static let callbackScheme = "serenity"
+  static let redirectURI = "serenity://slack-oauth"
+  static let authorizeURL = URL(string: "https://slack.com/oauth/v2/authorize")!
+  static let accessURL = URL(string: "https://slack.com/api/oauth.v2.access")!
+  static let apiBaseURL = URL(string: "https://slack.com/api/")!
+
+  /// User scopes only — a custom-scheme redirect is a desktop redirect, and
+  /// Slack refuses bot scopes on those. `im:history` and `mpim:history` are
+  /// deliberately absent so the token cannot read DMs even by mistake.
+  static let userScopes = [
+    "channels:history",
+    "groups:history",
+    "channels:read",
+    "groups:read",
+    "users:read",
+    "usergroups:read",
+  ]
+
+  static var isConfigured: Bool {
+    clientID != nil
+  }
+
+  static var clientID: String? {
+    let rawValue = Bundle.main.object(forInfoDictionaryKey: clientIDInfoKey) as? String
+    let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let trimmed, !trimmed.isEmpty else { return nil }
+    guard !trimmed.hasPrefix("$(") || !trimmed.hasSuffix(")") else { return nil }
+    return trimmed
+  }
+}
+
+struct SlackIntegrationSession: Codable, Equatable, Sendable {
+  var accessToken: String
+  var refreshToken: String?
+  var expiresAt: Date?
+  var teamID: String
+  var teamName: String?
+  var teamURL: String?
+  var userID: String
+  var userName: String?
+  var connectedAt: Date
+
+  /// Rotating tokens live for hours, so treat anything inside the window as
+  /// already stale rather than waiting for a 401 mid-sync.
+  func needsRefresh(now: Date = Date(), window: TimeInterval = 300) -> Bool {
+    guard let expiresAt else { return false }
+    return expiresAt.timeIntervalSince(now) <= window
+  }
+}
+
+struct SlackIntegrationState: Equatable, Sendable {
+  var connected: Bool
+  var teamName: String?
+  var userName: String?
+  var expiresAt: Date?
+  var syncEnabled: Bool
+  var lastSyncAt: Date?
+  var lastError: String?
+
+  static let disconnected = SlackIntegrationState(
+    connected: false,
+    teamName: nil,
+    userName: nil,
+    expiresAt: nil,
+    syncEnabled: false,
+    lastSyncAt: nil,
+    lastError: nil
+  )
 }
