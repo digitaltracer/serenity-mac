@@ -439,6 +439,7 @@ private struct ExternalTaskDocument: Codable {
   let subtasks: [TaskSubtask]
   let recurring: TaskRecurringPattern?
   let userId: String?
+  let activity: [TaskActivityEntry]?
 
   init(from entity: TaskEntity) {
     id = entity.id
@@ -455,6 +456,7 @@ private struct ExternalTaskDocument: Codable {
     subtasks = entity.subtasks
     recurring = entity.recurring
     userId = entity.userId
+    activity = entity.activity
   }
 
   var entity: TaskEntity {
@@ -472,7 +474,8 @@ private struct ExternalTaskDocument: Codable {
       updatedAt: updatedAt,
       subtasks: subtasks,
       recurring: recurring,
-      userId: userId
+      userId: userId,
+      activity: activity ?? []
     )
   }
 }

@@ -603,5 +603,12 @@ actor DatabaseMigrationRunner {
         "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '7');",
       ]
     ),
+    DatabaseMigration(
+      identifier: "20260910_010_task_activity",
+      statements: [
+        "ALTER TABLE tasks ADD COLUMN activity_json TEXT NOT NULL DEFAULT '[]';",
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '8');",
+      ]
+    ),
   ]
 }

@@ -196,3 +196,99 @@ struct CoreDataExportSnapshot: Encodable {
   let journalEntries: [JournalExportItem]
   let goals: [GoalExportItem]
 }
+
+/// Turns a task save into the lines its activity log should carry. Events are
+/// rendered once, here, and stored as text — an entry written today has to
+/// still read correctly a month from now, so nothing relative goes in.
+enum TaskActivityRecorder {
+  static func events(
+    from old: TaskEntity,
+    to new: TaskEntity,
+    projectNames: [String: String] = [:],
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> [TaskActivityEntry] {
+    var lines: [String] = []
+
+    if old.title != new.title {
+      lines.append("Renamed from \"\(old.title)\"")
+    }
+
+    if old.completed != new.completed {
+      lines.append(new.completed ? "Marked complete" : "Reopened")
+    }
+
+    if old.priority != new.priority {
+      lines.append("Priority set to \(new.priority.rawValue.capitalized)")
+    }
+
+    if old.dueDate != new.dueDate {
+      if let dueDate = new.dueDate {
+        lines.append("Due date set to \(stamp(dueDate, calendar: calendar))")
+      } else {
+        lines.append("Due date cleared")
+      }
+    }
+
+    if old.projectId != new.projectId {
+      if let projectId = new.projectId {
+        lines.append("Moved to \(projectNames[projectId] ?? "another project")")
+      } else {
+        lines.append("Removed from its project")
+      }
+    }
+
+    lines.append(contentsOf: subtaskLines(from: old, to: new))
+    lines.append(contentsOf: tagLines(from: old, to: new))
+
+    return lines.map {
+      TaskActivityEntry(id: UUID().uuidString, kind: .event, text: $0, createdAt: now)
+    }
+  }
+
+  private static func subtaskLines(from old: TaskEntity, to new: TaskEntity) -> [String] {
+    var lines: [String] = []
+    let before = Dictionary(old.subtasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
+    for subtask in new.subtasks {
+      guard let previous = before[subtask.id] else {
+        lines.append("Subtask added · \(subtask.title)")
+        continue
+      }
+      if previous.completed != subtask.completed {
+        lines.append("\(subtask.completed ? "Subtask done" : "Subtask reopened") · \(subtask.title)")
+      }
+    }
+
+    let surviving = Set(new.subtasks.map(\.id))
+    for subtask in old.subtasks where !surviving.contains(subtask.id) {
+      lines.append("Subtask removed · \(subtask.title)")
+    }
+
+    return lines
+  }
+
+  private static func tagLines(from old: TaskEntity, to new: TaskEntity) -> [String] {
+    guard old.tags != new.tags else { return [] }
+
+    var lines: [String] = []
+    let added = new.tags.filter { !old.tags.contains($0) }
+    let removed = old.tags.filter { !new.tags.contains($0) }
+
+    if !added.isEmpty {
+      lines.append("Tagged \(added.joined(separator: ", "))")
+    }
+    if !removed.isEmpty {
+      lines.append("Untagged \(removed.joined(separator: ", "))")
+    }
+
+    return lines
+  }
+
+  private static func stamp(_ date: Date, calendar: Calendar) -> String {
+    let day = date.formatted(.dateTime.day().month(.abbreviated).year())
+    let time = calendar.dateComponents([.hour, .minute], from: date)
+    guard (time.hour ?? 0) != 0 || (time.minute ?? 0) != 0 else { return day }
+    return "\(day), \(date.formatted(date: .omitted, time: .shortened))"
+  }
+}

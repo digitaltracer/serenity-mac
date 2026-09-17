@@ -2071,6 +2071,70 @@ final class AppState: ObservableObject {
     }
   }
 
+  func addTaskComment(taskID: String, text: String) async {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    guard let task = tasks.first(where: { $0.id == taskID }) else { return }
+
+    var updated = task
+    updated.activity.append(
+      TaskActivityEntry(
+        id: UUID().uuidString,
+        kind: .comment,
+        text: trimmed,
+        createdAt: Date()
+      )
+    )
+    updated.updatedAt = Date()
+
+    do {
+      try await saveTask(updated)
+      await refreshCoreWorkflowData()
+    } catch {
+      showError(title: "Failed to add comment", message: error.localizedDescription)
+    }
+  }
+
+  func updateTaskComment(taskID: String, commentID: String, text: String) async {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    guard let task = tasks.first(where: { $0.id == taskID }) else { return }
+
+    var updated = task
+    guard let index = updated.activity.firstIndex(where: { $0.id == commentID }) else { return }
+    guard updated.activity[index].kind == .comment else { return }
+    guard updated.activity[index].text != trimmed else { return }
+
+    updated.activity[index].text = trimmed
+    updated.activity[index].editedAt = Date()
+    updated.updatedAt = Date()
+
+    do {
+      try await saveTask(updated)
+      await refreshCoreWorkflowData()
+    } catch {
+      showError(title: "Failed to update comment", message: error.localizedDescription)
+    }
+  }
+
+  func deleteTaskComment(taskID: String, commentID: String) async {
+    guard let task = tasks.first(where: { $0.id == taskID }) else { return }
+
+    var updated = task
+    guard let index = updated.activity.firstIndex(where: { $0.id == commentID }) else { return }
+    guard updated.activity[index].kind == .comment else { return }
+
+    updated.activity.remove(at: index)
+    updated.updatedAt = Date()
+
+    do {
+      try await saveTask(updated)
+      await refreshCoreWorkflowData()
+    } catch {
+      showError(title: "Failed to delete comment", message: error.localizedDescription)
+    }
+  }
+
   @discardableResult
   func createProject(name: String, description: String, color: String) async -> ProjectEntity? {
     let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2773,6 +2837,8 @@ final class AppState: ObservableObject {
   }
 
   private func saveTask(_ task: TaskEntity) async throws {
+    let task = recordingActivity(for: task)
+
     switch settings.backendProfile {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
@@ -2789,6 +2855,20 @@ final class AppState: ObservableObject {
       }
       _ = try await externalPostgresAdapter.updateTask(task)
     }
+  }
+
+  /// Every task write funnels through `saveTask`, so this is the one place that
+  /// has both the old and the new task — and the only place events get logged.
+  private func recordingActivity(for task: TaskEntity) -> TaskEntity {
+    guard let previous = tasks.first(where: { $0.id == task.id }) else { return task }
+
+    let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+    let events = TaskActivityRecorder.events(from: previous, to: task, projectNames: names)
+    guard !events.isEmpty else { return task }
+
+    var recorded = task
+    recorded.activity.append(contentsOf: events)
+    return recorded
   }
 
   private func deleteTask(id: String, in profile: BackendProfile) async throws {

@@ -10,7 +10,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
 
     let summary = try await runner.bootstrapDatabase(at: databaseURL)
 
-    XCTAssertEqual(summary.appliedMigrations.count, 8)
+    XCTAssertEqual(summary.appliedMigrations.count, 9)
     XCTAssertTrue(summary.skippedMigrations.isEmpty)
 
     let dbQueue = try DatabaseQueue(path: databaseURL.path)
@@ -66,7 +66,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     let secondRun = try await runner.bootstrapDatabase(at: databaseURL)
 
     XCTAssertTrue(secondRun.appliedMigrations.isEmpty)
-    XCTAssertEqual(secondRun.skippedMigrations.count, 8)
+    XCTAssertEqual(secondRun.skippedMigrations.count, 9)
   }
 
   func testNvidiaIsAcceptedByEveryProviderConstrainedTable() async throws {
@@ -96,7 +96,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     try seedPreNvidiaDatabase(at: databaseURL)
 
     let summary = try await DatabaseMigrationRunner().bootstrapDatabase(at: databaseURL)
-    XCTAssertEqual(summary.appliedMigrations, ["20260901_008_nvidia_provider"])
+    XCTAssertEqual(summary.appliedMigrations, ["20260901_008_nvidia_provider", "20260910_010_task_activity"])
 
     let dbQueue = try DatabaseQueue(path: databaseURL.path)
 
@@ -245,6 +245,20 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
         );
         """)
       try db.execute(sql: "INSERT INTO app_metadata (key, value) VALUES ('schema_version', '6');")
+
+      try db.execute(sql: """
+        CREATE TABLE tasks (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          notes TEXT,
+          completed INTEGER NOT NULL DEFAULT 0,
+          due_at TEXT,
+          project_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          subtasks_json TEXT NOT NULL DEFAULT '[]'
+        );
+        """)
 
       try db.execute(sql: """
         CREATE TABLE ai_insights (

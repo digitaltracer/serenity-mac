@@ -20,6 +20,36 @@ public struct TaskSubtask: Codable, Equatable, Identifiable, Sendable {
   }
 }
 
+public enum TaskActivityKind: String, Codable, Sendable {
+  case comment
+  case event
+}
+
+/// One line of a task's history — something you wrote, or something that
+/// happened to the task. Event text is stored already rendered and in absolute
+/// terms, so a stored line never drifts the way "tomorrow" would.
+public struct TaskActivityEntry: Codable, Equatable, Identifiable, Sendable {
+  public var id: String
+  public var kind: TaskActivityKind
+  public var text: String
+  public var createdAt: Date
+  public var editedAt: Date?
+
+  public init(
+    id: String,
+    kind: TaskActivityKind,
+    text: String,
+    createdAt: Date,
+    editedAt: Date? = nil
+  ) {
+    self.id = id
+    self.kind = kind
+    self.text = text
+    self.createdAt = createdAt
+    self.editedAt = editedAt
+  }
+}
+
 public enum RecurringType: String, Codable, Sendable {
   case daily
   case weekly
@@ -54,6 +84,7 @@ public struct TaskEntity: Identifiable, Equatable, Sendable {
   public var subtasks: [TaskSubtask]
   public var recurring: TaskRecurringPattern?
   public var userId: String?
+  public var activity: [TaskActivityEntry]
 
   public init(
     id: String,
@@ -69,7 +100,8 @@ public struct TaskEntity: Identifiable, Equatable, Sendable {
     updatedAt: Date,
     subtasks: [TaskSubtask],
     recurring: TaskRecurringPattern?,
-    userId: String?
+    userId: String?,
+    activity: [TaskActivityEntry] = []
   ) {
     self.id = id
     self.title = title
@@ -85,6 +117,7 @@ public struct TaskEntity: Identifiable, Equatable, Sendable {
     self.subtasks = subtasks
     self.recurring = recurring
     self.userId = userId
+    self.activity = activity
   }
 }
 

@@ -2623,7 +2623,8 @@ private struct ActionHubSectionView: View {
     let isExpanded = expandedTaskID == task.id
     let projectName = projectName(for: task.projectId)
     let completedSubtasks = task.subtasks.filter(\.completed).count
-    let hasSummary = task.dueDate != nil || projectName != nil || !task.subtasks.isEmpty
+    let commentCount = task.activity.filter { $0.kind == .comment }.count
+    let hasSummary = task.dueDate != nil || projectName != nil || !task.subtasks.isEmpty || commentCount > 0
 
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 12) {
@@ -2697,6 +2698,9 @@ private struct ActionHubSectionView: View {
             if !task.subtasks.isEmpty {
               Label("\(completedSubtasks)/\(task.subtasks.count) subtasks", systemImage: "checklist")
             }
+            if commentCount > 0 {
+              Label("\(commentCount) comment\(commentCount == 1 ? "" : "s")", systemImage: "bubble.left")
+            }
           }
           .font(SerenityType.caption)
           .foregroundStyle(SerenityPalette.textSecondary)
@@ -2748,7 +2752,7 @@ private struct ActionHubSectionView: View {
             }
           }
 
-          HStack {
+          HStack(spacing: 8) {
             TextField("Add subtask", text: subtaskBinding(for: task.id))
               .textFieldStyle(.plain)
               .serenityInputField()
@@ -2760,7 +2764,22 @@ private struct ActionHubSectionView: View {
             }
             .buttonStyle(SerenitySecondaryButtonStyle())
             .hoverCursor(.pointingHand)
+          }
 
+          TaskActivityLogView(
+            task: task,
+            onAddComment: { text in
+              Task { await appState.addTaskComment(taskID: task.id, text: text) }
+            },
+            onUpdateComment: { commentID, text in
+              Task { await appState.updateTaskComment(taskID: task.id, commentID: commentID, text: text) }
+            },
+            onDeleteComment: { commentID in
+              Task { await appState.deleteTaskComment(taskID: task.id, commentID: commentID) }
+            }
+          )
+
+          HStack(spacing: 8) {
             Spacer()
 
             Button("Edit") {
@@ -10989,6 +11008,473 @@ struct TaskEditorDraft: Equatable, Identifiable {
         normalized.order = offset
         return normalized
       }
+  }
+}
+
+/// A task's history on one rail: the comments you wrote and the events the task
+/// recorded. Comments carry body weight and a solid dot, events stay at caption
+/// with a hollow one — skim the solid dots and you have read the comments.
+private struct TaskActivityLogView: View {
+  enum Filter: String, CaseIterable, Identifiable {
+    case all
+    case comments
+
+    var id: String { rawValue }
+
+    var title: String {
+      switch self {
+      case .all:
+        return "All"
+      case .comments:
+        return "Comments"
+      }
+    }
+  }
+
+  private struct Entry: Identifiable {
+    let id: String
+    let isComment: Bool
+    let text: String
+    let date: Date
+    let edited: Bool
+  }
+
+  let task: TaskEntity
+  let onAddComment: (String) -> Void
+  let onUpdateComment: (String, String) -> Void
+  let onDeleteComment: (String) -> Void
+
+  @State private var filter: Filter = .all
+  @State private var draft = ""
+  @State private var isComposing = false
+  @State private var editingID: String?
+  @State private var editDraft = ""
+  @State private var confirmingID: String?
+  @State private var showsEveryEntry = false
+  @State private var hoveredID: String?
+  @FocusState private var composerFocused: Bool
+
+  /// Past this many entries the log folds to its first and last few. A task you
+  /// have been chewing on for weeks should not push the list off the screen.
+  private static let foldThreshold = 8
+  private static let foldTail = 5
+  private static let gutter: CGFloat = 22
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Divider()
+        .overlay(SerenityPalette.thinBorder)
+
+      header
+
+      VStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(visibleEntries.enumerated()), id: \.element.id) { index, entry in
+          entryRow(entry)
+
+          if index == 0, foldedCount > 0 {
+            foldRow
+          }
+        }
+
+        if filteredEntries.isEmpty {
+          railed(dot: EmptyView()) {
+            Text("No comments on this task yet.")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+          }
+        }
+
+        composerRow
+      }
+      .overlay(alignment: .topLeading) {
+        Rectangle()
+          .fill(SerenityPalette.thinBorder)
+          .frame(width: 1)
+      }
+      .padding(.leading, 4)
+    }
+  }
+
+  // MARK: entries
+
+  private var allEntries: [Entry] {
+    let created = Entry(
+      id: "created-\(task.id)",
+      isComment: false,
+      text: "Task created",
+      date: task.createdAt,
+      edited: false
+    )
+
+    let logged = task.activity.map {
+      Entry(
+        id: $0.id,
+        isComment: $0.kind == .comment,
+        text: $0.text,
+        date: $0.createdAt,
+        edited: $0.editedAt != nil
+      )
+    }
+
+    return ([created] + logged).sorted { $0.date < $1.date }
+  }
+
+  private var filteredEntries: [Entry] {
+    filter == .comments ? allEntries.filter(\.isComment) : allEntries
+  }
+
+  private var commentCount: Int {
+    task.activity.filter { $0.kind == .comment }.count
+  }
+
+  private var foldedCount: Int {
+    guard !showsEveryEntry, filteredEntries.count > Self.foldThreshold else { return 0 }
+    return filteredEntries.count - Self.foldTail - 1
+  }
+
+  private var visibleEntries: [Entry] {
+    guard foldedCount > 0 else { return filteredEntries }
+    return [filteredEntries[0]] + filteredEntries.suffix(Self.foldTail)
+  }
+
+  // MARK: chrome
+
+  private var header: some View {
+    HStack(spacing: 6) {
+      Image(systemName: "clock")
+      Text(headingText)
+      Spacer(minLength: 8)
+      filterControl
+    }
+    .font(SerenityType.caption.weight(.semibold))
+    .foregroundStyle(SerenityPalette.textSecondary)
+  }
+
+  private var headingText: String {
+    filter == .comments
+      ? "Activity · \(commentCount) of \(allEntries.count)"
+      : "Activity · \(allEntries.count)"
+  }
+
+  private var filterControl: some View {
+    HStack(spacing: 2) {
+      ForEach(Filter.allCases) { option in
+        Button {
+          withAnimation(.easeInOut(duration: 0.18)) {
+            filter = option
+          }
+        } label: {
+          Text(option.title)
+            .font(SerenityType.caption)
+            .foregroundStyle(filter == option ? SerenityPalette.textOnInteractiveSurface : SerenityPalette.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 3)
+            .background(
+              RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(filter == option ? SerenityPalette.activeItemBackground : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverCursor(.pointingHand)
+        .accessibilityLabel(option == .all ? "Show all activity" : "Show comments only")
+      }
+    }
+    .padding(2)
+    .background(SerenityPalette.panelBackgroundRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+  }
+
+  // MARK: rows
+
+  /// Every row hangs off the same rail: a fixed gutter holding the dot, then
+  /// the content. The rail itself is one overlay on the stack.
+  private func railed<Dot: View, Content: View>(
+    dot: Dot,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    HStack(alignment: .top, spacing: 0) {
+      ZStack(alignment: .topLeading) {
+        Color.clear.frame(width: Self.gutter, height: 1)
+        dot
+      }
+      content()
+      Spacer(minLength: 0)
+    }
+    .padding(.vertical, 7)
+  }
+
+  private var solidDot: some View {
+    Circle()
+      .fill(SerenityPalette.textSecondary)
+      .frame(width: 7, height: 7)
+      .offset(x: -3, y: 5)
+  }
+
+  private var hollowDot: some View {
+    Circle()
+      .fill(SerenityPalette.panelBackground)
+      .overlay(Circle().stroke(SerenityPalette.border, lineWidth: 1))
+      .frame(width: 5, height: 5)
+      .offset(x: -2, y: 6)
+  }
+
+  @ViewBuilder
+  private func entryRow(_ entry: Entry) -> some View {
+    railed(dot: entry.isComment ? AnyView(solidDot) : AnyView(hollowDot)) {
+      if entry.id == editingID {
+        editor(for: entry)
+      } else if entry.id == confirmingID {
+        deleteConfirmation(for: entry)
+      } else if entry.isComment {
+        comment(entry)
+      } else {
+        event(entry)
+      }
+    }
+    .contentShape(Rectangle())
+    .onHover { hovering in
+      if hovering {
+        hoveredID = entry.id
+      } else if hoveredID == entry.id {
+        hoveredID = nil
+      }
+    }
+  }
+
+  private func comment(_ entry: Entry) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      HStack(spacing: 8) {
+        Text(stamp(for: entry))
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+
+        Spacer(minLength: 0)
+
+        if showsActions(for: entry) {
+          commentActions(entry)
+        }
+      }
+      .frame(minHeight: 16)
+
+      Text(entry.text)
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textPrimary)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private func commentActions(_ entry: Entry) -> some View {
+    HStack(spacing: 2) {
+      Button {
+        editDraft = entry.text
+        editingID = entry.id
+        confirmingID = nil
+      } label: {
+        Image(systemName: "pencil")
+          .font(SerenityType.scaledSystem(size: 11, weight: .regular))
+          .frame(width: 20, height: 20)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .foregroundStyle(SerenityPalette.textSecondary)
+      .hoverCursor(.pointingHand)
+      .accessibilityLabel("Edit comment")
+
+      Button {
+        confirmingID = entry.id
+        editingID = nil
+      } label: {
+        Image(systemName: "trash")
+          .font(SerenityType.scaledSystem(size: 11, weight: .regular))
+          .frame(width: 20, height: 20)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .foregroundStyle(SerenityPalette.textSecondary)
+      .hoverCursor(.pointingHand)
+      .accessibilityLabel("Delete comment")
+    }
+  }
+
+  private func event(_ entry: Entry) -> some View {
+    HStack(spacing: 8) {
+      Text(stamp(for: entry))
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary.opacity(0.7))
+      Text(entry.text)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  private func editor(for entry: Entry) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      TextField("Comment", text: $editDraft, axis: .vertical)
+        .textFieldStyle(.plain)
+        .lineLimit(2...10)
+        .serenityInputField()
+
+      HStack(spacing: 8) {
+        Text(stamp(for: entry))
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+
+        Spacer(minLength: 0)
+
+        Button("Cancel") {
+          editingID = nil
+          editDraft = ""
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button("Save") {
+          onUpdateComment(entry.id, editDraft)
+          editingID = nil
+          editDraft = ""
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .disabled(editDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+    }
+  }
+
+  /// Inline rather than a confirmationDialog: a sheet for one line of your own
+  /// text is heavy. Deleting a project keeps its dialog — that one orphans tasks.
+  private func deleteConfirmation(for entry: Entry) -> some View {
+    HStack(spacing: 8) {
+      Text("Delete this comment?")
+        .font(SerenityType.bodyMedium)
+        .foregroundStyle(SerenityPalette.textPrimary)
+
+      Spacer(minLength: 0)
+
+      Button("Cancel") {
+        confirmingID = nil
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+
+      Button("Delete", role: .destructive) {
+        onDeleteComment(entry.id)
+        confirmingID = nil
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .foregroundStyle(Color.red.opacity(0.9))
+      .hoverCursor(.pointingHand)
+    }
+  }
+
+  private var foldRow: some View {
+    railed(
+      dot: Circle()
+        .fill(SerenityPalette.accent.opacity(0.5))
+        .frame(width: 5, height: 5)
+        .offset(x: -2, y: 6)
+    ) {
+      Button {
+        withAnimation(.easeInOut(duration: 0.18)) {
+          showsEveryEntry = true
+        }
+      } label: {
+        Label("Show \(foldedCount) earlier entries", systemImage: "chevron.down")
+          .font(SerenityType.caption.weight(.semibold))
+      }
+      .buttonStyle(.plain)
+      .foregroundStyle(SerenityPalette.accent)
+      .hoverCursor(.pointingHand)
+    }
+  }
+
+  private var composerRow: some View {
+    railed(
+      dot: Circle()
+        .fill(SerenityPalette.panelBackground)
+        .overlay(Circle().stroke(SerenityPalette.border, lineWidth: 1))
+        .overlay(
+          Image(systemName: "plus")
+            .font(SerenityType.scaledSystem(size: 6, weight: .bold))
+            .foregroundStyle(SerenityPalette.textSecondary)
+        )
+        .frame(width: 11, height: 11)
+        .offset(x: -5, y: 12)
+    ) {
+      VStack(alignment: .leading, spacing: 8) {
+        TextField("Write a comment…", text: $draft, axis: .vertical)
+          .textFieldStyle(.plain)
+          .lineLimit(isComposing ? 3...8 : 1...4)
+          .serenityInputField()
+          .focused($composerFocused)
+
+        if isComposing {
+          HStack(spacing: 8) {
+            Text("⌘↩ to post")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+
+            Spacer(minLength: 0)
+
+            Button("Cancel") {
+              draft = ""
+              composerFocused = false
+              withAnimation(.easeOut(duration: 0.16)) {
+                isComposing = false
+              }
+            }
+            .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
+
+            Button("Post", action: post)
+              .buttonStyle(SerenityPrimaryButtonStyle())
+              .hoverCursor(.pointingHand)
+              .keyboardShortcut(.return, modifiers: .command)
+              .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          }
+        }
+      }
+      .onChange(of: composerFocused) { _, focused in
+        guard focused else { return }
+        withAnimation(.easeOut(duration: 0.16)) {
+          isComposing = true
+        }
+      }
+    }
+  }
+
+  // MARK: actions
+
+  private func post() {
+    let text = draft
+    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+    onAddComment(text)
+    draft = ""
+    composerFocused = false
+    withAnimation(.easeOut(duration: 0.16)) {
+      isComposing = false
+    }
+  }
+
+  private func stamp(for entry: Entry) -> String {
+    let elapsed = SerenityDateText.elapsed(entry.date)
+    return entry.edited ? "\(elapsed) · edited" : elapsed
+  }
+
+  /// Hover reveals the per-comment controls on the Mac; touch has no hover, so
+  /// they stay put there.
+  private func showsActions(for entry: Entry) -> Bool {
+#if os(macOS)
+    return hoveredID == entry.id
+#else
+    return true
+#endif
   }
 }
 

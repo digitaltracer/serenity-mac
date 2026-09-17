@@ -393,6 +393,44 @@ enum SerenityDateText {
     }
   }
 
+  /// Log entries read as elapsed time — how long ago you wrote it, not the
+  /// calendar coordinate. Distinct from `due`, which prefixes "Overdue" for
+  /// dates in the past; history is always in the past and that would be noise.
+  static func elapsed(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+    let seconds = now.timeIntervalSince(date)
+    let clock = date.formatted(date: .omitted, time: .shortened)
+
+    if seconds < 60 {
+      return "Just now"
+    }
+    if seconds < 3600 {
+      return "\(Int(seconds / 60))m ago"
+    }
+    if seconds < 6 * 3600 {
+      return "\(Int(seconds / 3600))h ago"
+    }
+
+    let day = calendar.startOfDay(for: date)
+    let today = calendar.startOfDay(for: now)
+    let dayDelta = calendar.dateComponents([.day], from: day, to: today).day ?? 0
+
+    switch dayDelta {
+    case ..<0:
+      return "\(date.formatted(.dateTime.day().month(.abbreviated))) · \(clock)"
+    case 0:
+      return "Today · \(clock)"
+    case 1:
+      return "Yesterday · \(clock)"
+    case 2...6:
+      return "\(dayDelta) days ago"
+    default:
+      let sameYear = calendar.component(.year, from: day) == calendar.component(.year, from: today)
+      return sameYear
+        ? date.formatted(.dateTime.day().month(.abbreviated))
+        : date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+  }
+
   /// Appends a time only when the due date carries one, so a date-only task
   /// does not claim to be due at midnight.
   static func dueWithTime(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {

@@ -180,6 +180,7 @@ final class GRDBTaskRepository: CoreTaskRepository {
   func save(_ task: TaskEntity) throws {
     let tagsJSON = try CoreRepositoryCodec.encodeJSON(task.tags)
     let subtasksJSON = try CoreRepositoryCodec.encodeJSON(task.subtasks)
+    let activityJSON = try CoreRepositoryCodec.encodeJSON(task.activity)
     let recurringJSON = try task.recurring.map { try CoreRepositoryCodec.encodeJSON($0) }
 
     try dbQueue.write { db in
@@ -198,11 +199,12 @@ final class GRDBTaskRepository: CoreTaskRepository {
           project_id,
           tags_json,
           subtasks_json,
+          activity_json,
           recurring_json,
           user_id,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           title = excluded.title,
           notes = excluded.notes,
@@ -215,6 +217,7 @@ final class GRDBTaskRepository: CoreTaskRepository {
           project_id = excluded.project_id,
           tags_json = excluded.tags_json,
           subtasks_json = excluded.subtasks_json,
+          activity_json = excluded.activity_json,
           recurring_json = excluded.recurring_json,
           user_id = excluded.user_id,
           updated_at = excluded.updated_at;
@@ -232,6 +235,7 @@ final class GRDBTaskRepository: CoreTaskRepository {
           task.projectId,
           tagsJSON,
           subtasksJSON,
+          activityJSON,
           recurringJSON,
           task.userId,
           CoreRepositoryCodec.encodeDate(task.createdAt),
@@ -250,6 +254,7 @@ final class GRDBTaskRepository: CoreTaskRepository {
   private static func makeTask(from row: Row) throws -> TaskEntity {
     let tags: [String] = try CoreRepositoryCodec.decodeJSONOrDefault([String].self, from: row["tags_json"], default: [])
     let subtasks: [TaskSubtask] = try CoreRepositoryCodec.decodeJSONOrDefault([TaskSubtask].self, from: row["subtasks_json"], default: [])
+    let activity: [TaskActivityEntry] = try CoreRepositoryCodec.decodeJSONOrDefault([TaskActivityEntry].self, from: row["activity_json"], default: [])
 
     let recurringValue: String? = row["recurring_json"]
     let recurring = try recurringValue.flatMap {
@@ -272,7 +277,8 @@ final class GRDBTaskRepository: CoreTaskRepository {
       updatedAt: try CoreRepositoryCodec.decodeDate(row["updated_at"]),
       subtasks: subtasks,
       recurring: recurring,
-      userId: row["user_id"]
+      userId: row["user_id"],
+      activity: activity
     )
   }
 }

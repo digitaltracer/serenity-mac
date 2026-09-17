@@ -97,6 +97,7 @@ struct TaskSyncRecordKind: SyncRecordKind {
     record["updatedAt"] = task.updatedAt as CKRecordValue
     record["tagsJSON"] = try CloudKitJSONCodec.encode(task.tags) as CKRecordValue
     record["subtasksJSON"] = try CloudKitJSONCodec.encode(task.subtasks) as CKRecordValue
+    record["activityJSON"] = try CloudKitJSONCodec.encode(task.activity) as CKRecordValue
     record["recurringJSON"] = try task.recurring.map { try CloudKitJSONCodec.encode($0) as CKRecordValue }
   }
 
@@ -109,6 +110,7 @@ struct TaskSyncRecordKind: SyncRecordKind {
 
     let tags: [String] = try (record["tagsJSON"] as? String).map { try CloudKitJSONCodec.decode($0) } ?? []
     let subtasks: [TaskSubtask] = try (record["subtasksJSON"] as? String).map { try CloudKitJSONCodec.decode($0) } ?? []
+    let activity: [TaskActivityEntry] = try (record["activityJSON"] as? String).map { try CloudKitJSONCodec.decode($0) } ?? []
     let recurring: TaskRecurringPattern? = try (record["recurringJSON"] as? String)
       .map { try CloudKitJSONCodec.decode($0) as TaskRecurringPattern }
 
@@ -126,7 +128,8 @@ struct TaskSyncRecordKind: SyncRecordKind {
       updatedAt: updatedAt,
       subtasks: subtasks,
       recurring: recurring,
-      userId: record["userId"] as? String
+      userId: record["userId"] as? String,
+      activity: activity
     )
   }
 }
