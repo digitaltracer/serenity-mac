@@ -1339,15 +1339,26 @@ final class AppState: ObservableObject {
 
           if let proposal {
             try repositories.proposals.save(proposal)
+            // A thread that keeps moving would otherwise stack up one pending
+            // proposal per sync. The newest reflects where the conversation
+            // actually got to.
+            try repositories.proposals.supersedePending(
+              channelID: proposal.source.channelID,
+              threadTS: proposal.source.threadTS,
+              excluding: proposal.id,
+              at: now
+            )
             proposed += 1
           }
 
           seenEntries.append(
-            SlackSeenMessage(
-              channelID: signal.anchor.channelID,
-              ts: signal.anchor.ts,
-              outcome: proposal == nil ? .ignored : .proposed
-            )
+            contentsOf: signal.seenCandidates.map {
+              SlackSeenMessage(
+                channelID: $0.channelID,
+                ts: $0.ts,
+                outcome: proposal == nil ? .ignored : .proposed
+              )
+            }
           )
         }
 

@@ -18,8 +18,16 @@ struct SlackRelevanceSettings: Equatable, Sendable, Codable {
 struct SlackSignal: Equatable, Sendable, Identifiable {
   var anchor: SlackMessage
   var context: [SlackMessage]
+  /// Every message that would have anchored on its own before the thread was
+  /// collapsed. All of them get marked seen together, or the ones left over
+  /// would anchor again on the next pass.
+  var covered: [SlackMessage] = []
 
   var id: String { anchor.id }
+
+  var seenCandidates: [SlackMessage] {
+    covered.isEmpty ? [anchor] : covered
+  }
 }
 
 struct SlackFilterResult: Sendable {
@@ -64,8 +72,8 @@ enum SlackRelevanceFilter {
     let byChannel = Dictionary(grouping: messages, by: \.channelID)
       .mapValues { $0.sorted { SlackTimestamp.isAfter($1.ts, $0.ts) } }
 
-    var signals: [SlackSignal] = []
     var rejected: [SlackMessage] = []
+    var anchorsByThread: [String: [SlackMessage]] = [:]
 
     for message in messages.sorted(by: { SlackTimestamp.isAfter($1.ts, $0.ts) }) {
       guard !seenKeys.contains(message.id) else { continue }
@@ -81,10 +89,27 @@ enum SlackRelevanceFilter {
         continue
       }
 
-      let context = context(for: message, in: byChannel[message.channelID] ?? [])
-      signals.append(SlackSignal(anchor: message, context: context))
+      let root = message.threadTS ?? message.ts
+      anchorsByThread["\(message.channelID):\(root)", default: []].append(message)
     }
 
+    // One conversation is one piece of work. Anchoring every reply separately
+    // asks the model the same question repeatedly and answers it with a stack
+    // of near-identical proposals.
+    var signals: [SlackSignal] = []
+    for anchors in anchorsByThread.values {
+      let ordered = anchors.sorted { SlackTimestamp.isAfter($1.ts, $0.ts) }
+      guard let anchor = ordered.last else { continue }
+      signals.append(
+        SlackSignal(
+          anchor: anchor,
+          context: context(for: anchor, in: byChannel[anchor.channelID] ?? []),
+          covered: ordered
+        )
+      )
+    }
+
+    signals.sort { SlackTimestamp.isAfter($1.anchor.ts, $0.anchor.ts) }
     return SlackFilterResult(signals: signals, rejected: rejected)
   }
 

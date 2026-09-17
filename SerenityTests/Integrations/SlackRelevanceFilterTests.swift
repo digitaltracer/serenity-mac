@@ -182,3 +182,53 @@ final class SlackRelevanceFilterTests: XCTestCase {
     )
   }
 }
+
+extension SlackRelevanceFilterTests {
+  func testAThreadBecomesOneSignalRatherThanOnePerReply() {
+    let messages = [
+      message(ts: "1.0", user: "U_JANE", text: "can we ship the release?", threadTS: "1.0"),
+      message(ts: "2.0", user: "U_JANE", text: "any update?", threadTS: "1.0"),
+      message(ts: "3.0", user: "U_RAVI", text: "merging tonight", threadTS: "1.0"),
+    ]
+
+    let result = SlackRelevanceFilter.filter(
+      messages: messages,
+      ownUserID: "U_ME",
+      participatedThreads: ["1.0"]
+    )
+
+    XCTAssertEqual(result.signals.count, 1, "One conversation is one piece of work")
+    XCTAssertEqual(result.signals.first?.anchor.ts, "3.0", "The newest reply carries the current state")
+    XCTAssertEqual(
+      result.signals.first?.seenCandidates.map(\.ts),
+      ["1.0", "2.0", "3.0"],
+      "Every collapsed reply must be marked seen, or it anchors again next pass"
+    )
+  }
+
+  func testSeparateThreadsStaySeparateSignals() {
+    let messages = [
+      message(ts: "2.0", user: "U_JANE", text: "update on A?", threadTS: "1.0"),
+      message(ts: "4.0", user: "U_JANE", text: "update on B?", threadTS: "3.0"),
+    ]
+
+    let result = SlackRelevanceFilter.filter(
+      messages: messages,
+      ownUserID: "U_ME",
+      participatedThreads: ["1.0", "3.0"]
+    )
+
+    XCTAssertEqual(result.signals.count, 2)
+  }
+
+  func testUnthreadedChannelMentionsStayIndividual() {
+    let messages = [
+      message(ts: "1.0", user: "U_JANE", text: "<@U_ME> ship the export"),
+      message(ts: "2.0", user: "U_RAVI", text: "<@U_ME> also review the doc"),
+    ]
+
+    let result = SlackRelevanceFilter.filter(messages: messages, ownUserID: "U_ME")
+
+    XCTAssertEqual(result.signals.count, 2, "Unrelated asks are not one conversation")
+  }
+}
