@@ -111,6 +111,8 @@ final class AppState: ObservableObject {
   static let themePreferenceDefaultsKey = "serenity.ui.themePreference"
   static let lastSectionDefaultsKey = "serenity.ui.lastSection"
   static let notificationsEnabledDefaultsKey = "serenity.notifications.enabled"
+  static let slackSyncEnabledDefaultsKey = "serenity.slack.syncEnabled"
+  static let slackPollIntervalDefaultsKey = "serenity.slack.pollIntervalMinutes"
   static let notificationLeadMinutesDefaultsKey = "serenity.notifications.leadMinutes"
   static let localLockEnabledDefaultsKey = "serenity.security.localLock.enabled"
   static let aiQuickCapturePreviewThreshold = 0.75
@@ -168,6 +170,7 @@ final class AppState: ObservableObject {
   @Published var slackRelevanceSettings: SlackRelevanceSettings = .default
   @Published var slackConfigured = false
   @Published var slackChannelsWatched = 0
+  @Published var slackLastPass: SlackSyncPass?
   @Published var slackPollIntervalMinutes = 15
   @Published var integrationSyncInProgress = false
   @Published var integrationDiagnosticsLines: [String] = []
@@ -946,11 +949,22 @@ final class AppState: ObservableObject {
       slackIntegrationState.teamName = slackSession.teamName
       slackIntegrationState.userName = slackSession.userName
       slackIntegrationState.expiresAt = slackSession.expiresAt
+      // A stored session means the user connected on purpose, so default the
+      // toggle on rather than restoring it silently off.
+      slackIntegrationState.syncEnabled = UserDefaults.standard.object(
+        forKey: Self.slackSyncEnabledDefaultsKey
+      ) as? Bool ?? true
+      if let stored = UserDefaults.standard.object(forKey: Self.slackPollIntervalDefaultsKey) as? Int {
+        slackPollIntervalMinutes = max(1, stored)
+      }
     } else {
       slackIntegrationState = .disconnected
     }
     await loadSlackProposals()
     restartSlackPolling()
+    if slackIntegrationState.connected, slackIntegrationState.syncEnabled {
+      Task { _ = await self.syncSlackNow() }
+    }
 
     do {
       let tokens = try await githubIntegrationService.listTokens()
@@ -1154,9 +1168,11 @@ final class AppState: ObservableObject {
       slackIntegrationState.userName = session.userName
       slackIntegrationState.expiresAt = session.expiresAt
       slackIntegrationState.syncEnabled = true
+      UserDefaults.standard.set(true, forKey: Self.slackSyncEnabledDefaultsKey)
       slackIntegrationState.lastError = nil
       showToast("Connected to \(session.teamName ?? "Slack")")
       restartSlackPolling()
+      _ = await syncSlackNow()
       await refreshIntegrationDiagnostics()
     } catch IntegrationServiceError.slackAuthorizationCancelled {
       await refreshIntegrationDiagnostics()
@@ -1185,12 +1201,14 @@ final class AppState: ObservableObject {
 
   func setSlackIntegrationSyncEnabled(_ enabled: Bool) async {
     slackIntegrationState.syncEnabled = enabled
+    UserDefaults.standard.set(enabled, forKey: Self.slackSyncEnabledDefaultsKey)
     restartSlackPolling()
     await refreshIntegrationDiagnostics()
   }
 
   func setSlackPollIntervalMinutes(_ minutes: Int) {
     slackPollIntervalMinutes = max(1, minutes)
+    UserDefaults.standard.set(slackPollIntervalMinutes, forKey: Self.slackPollIntervalDefaultsKey)
     restartSlackPolling()
   }
 
@@ -1267,6 +1285,11 @@ final class AppState: ObservableObject {
       try repositories.seenMessages.record(
         filtered.rejected.map { SlackSeenMessage(channelID: $0.channelID, ts: $0.ts, outcome: .filtered) },
         at: now
+      )
+
+      AppLogger.info(
+        "Slack sync: \(batch.channelsScanned) channel(s), \(batch.messages.count) new message(s), "
+          + "\(filtered.signals.count) aimed at you"
       )
 
       var proposed = 0
@@ -1349,6 +1372,16 @@ final class AppState: ObservableObject {
       try repositories.cursors.save(cursorsToSave)
 
       slackIntegrationState.lastSyncAt = now
+      slackLastPass = SlackSyncPass(
+        at: now,
+        channelsScanned: batch.channelsScanned,
+        messagesRead: batch.messages.count,
+        signals: filtered.signals.count,
+        proposalsCreated: proposed,
+        stoppedOnDeadline: batch.reachedDeadline
+      )
+      AppLogger.info("Slack sync: \(proposed) proposal(s) queued for review")
+
       await loadSlackProposals()
       announceSlackProposals(newlyProposed: proposed)
 
@@ -1361,6 +1394,7 @@ final class AppState: ObservableObject {
       )
     } catch {
       slackIntegrationState.lastError = error.localizedDescription
+      AppLogger.error("Slack sync failed: \(error.localizedDescription)")
       await refreshIntegrationDiagnostics()
       return nil
     }
@@ -1591,6 +1625,17 @@ final class AppState: ObservableObject {
       lines.append("Slack last sync: \(lastSyncAt)")
     }
     lines.append("Slack channels watched: \(slackChannelsWatched)")
+    if let pass = slackLastPass {
+      lines.append("Slack last pass: \(Self.backendDiagnosticsDateFormatter.string(from: pass.at))")
+      lines.append("Slack messages read: \(pass.messagesRead) across \(pass.channelsScanned) channel(s)")
+      lines.append("Slack aimed at you: \(pass.signals)")
+      lines.append("Slack proposals created: \(pass.proposalsCreated)")
+      if pass.stoppedOnDeadline {
+        lines.append("Slack pass hit its time budget — more will arrive next sync")
+      }
+    } else {
+      lines.append("Slack last pass: never")
+    }
     lines.append("Slack pending proposals: \(slackProposals.count)")
     if let error = slackIntegrationState.lastError {
       lines.append("Slack last error: \(error)")

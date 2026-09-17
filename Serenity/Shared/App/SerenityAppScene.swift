@@ -1994,6 +1994,7 @@ struct IntegrationsSectionView: View {
   @State private var githubToken = ""
   @State private var githubDisplayName = ""
   @State private var isConnectingGoogle = false
+  @State private var showDiagnostics = false
 
   private var isGoogleConfigured: Bool {
     appState.googleCalendarConfigured
@@ -2005,7 +2006,59 @@ struct IntegrationsSectionView: View {
       connectedServicesCard
       githubTokensCard
       iCloudSyncStatusCard
+      diagnosticsCard
     }
+    .task {
+      await appState.refreshIntegrationDiagnostics()
+    }
+  }
+
+  /// These lines were being computed on every sync and shown nowhere. When an
+  /// integration quietly does nothing, they are the difference between a bug
+  /// and a workspace that simply had nothing to say.
+  private var diagnosticsCard: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Button {
+        showDiagnostics.toggle()
+        if showDiagnostics {
+          Task { await appState.refreshIntegrationDiagnostics() }
+        }
+      } label: {
+        HStack(spacing: 8) {
+          Text("Diagnostics")
+            .font(SerenityType.sectionTitle)
+          Spacer()
+          Image(systemName: showDiagnostics ? "chevron.down" : "chevron.right")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+
+      if showDiagnostics {
+        Divider().overlay(SerenityPalette.thinBorder)
+
+        VStack(alignment: .leading, spacing: 4) {
+          ForEach(appState.integrationDiagnosticsLines, id: \.self) { line in
+            Text(line)
+              .font(SerenityType.body.monospaced())
+              .foregroundStyle(SerenityPalette.textSecondary)
+              .textSelection(.enabled)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+        }
+        .padding(16)
+      }
+    }
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
   }
 
   private var syncStatusCard: some View {

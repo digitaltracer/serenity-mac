@@ -220,3 +220,14 @@ struct SlackIntegrationState: Equatable, Sendable {
     lastError: nil
   )
 }
+
+/// What one sync pass actually did. Without this a first connection is a black
+/// box: no proposals looks identical to nothing read at all.
+struct SlackSyncPass: Equatable, Sendable {
+  var at: Date
+  var channelsScanned: Int
+  var messagesRead: Int
+  var signals: Int
+  var proposalsCreated: Int
+  var stoppedOnDeadline: Bool
+}
