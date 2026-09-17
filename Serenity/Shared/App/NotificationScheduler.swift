@@ -19,6 +19,10 @@ protocol NotificationCenterAdapter: Sendable {
   func pendingIdentifiers() async -> Set<String>
   func schedule(_ occurrence: NotifiableOccurrence) async
   func cancel(identifiers: [String]) async
+  /// Fires now rather than on a schedule, replacing any earlier notification
+  /// with the same identifier. The reconcile-diff model does not fit something
+  /// that fires once, immediately.
+  func postNow(id: String, title: String, body: String?) async
 }
 
 /// Diffs the occurrences that *should* exist against those already scheduled.
@@ -159,5 +163,21 @@ struct SystemNotificationCenter: NotificationCenterAdapter {
   func cancel(identifiers: [String]) async {
     guard isAvailable else { return }
     UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: identifiers)
+  }
+
+  func postNow(id: String, title: String, body: String?) async {
+    guard isAvailable else { return }
+    let center = UNUserNotificationCenter.current()
+    center.removeDeliveredNotifications(withIdentifiers: [id])
+
+    let content = UNMutableNotificationContent()
+    content.title = title
+    if let body {
+      content.body = body
+    }
+    content.sound = .default
+
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+    try? await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
   }
 }

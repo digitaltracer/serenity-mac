@@ -4,6 +4,7 @@ import XCTest
 private actor FakeNotificationCenter: NotificationCenterAdapter {
   private(set) var scheduled: [String: NotifiableOccurrence] = [:]
   private(set) var cancelledCalls: [[String]] = []
+  private(set) var posted: [String] = []
 
   init(preloaded: [NotifiableOccurrence] = []) {
     for occurrence in preloaded {
@@ -24,6 +25,10 @@ private actor FakeNotificationCenter: NotificationCenterAdapter {
     for identifier in identifiers {
       scheduled.removeValue(forKey: identifier)
     }
+  }
+
+  func postNow(id: String, title: String, body: String?) async {
+    posted.append(id)
   }
 }
 

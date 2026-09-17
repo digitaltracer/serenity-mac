@@ -163,6 +163,12 @@ final class AppState: ObservableObject {
   @Published var lastDatabaseExportPath: String?
   @Published var googleIntegrationState: GoogleIntegrationState = .disconnected
   @Published var githubIntegrationState: GitHubIntegrationState = .empty
+  @Published var slackIntegrationState: SlackIntegrationState = .disconnected
+  @Published var slackProposals: [SlackProposal] = []
+  @Published var slackRelevanceSettings: SlackRelevanceSettings = .default
+  @Published var slackConfigured = false
+  @Published var slackChannelsWatched = 0
+  @Published var slackPollIntervalMinutes = 15
   @Published var integrationSyncInProgress = false
   @Published var integrationDiagnosticsLines: [String] = []
   @Published var googleCalendarConfigured = false
@@ -191,8 +197,13 @@ final class AppState: ObservableObject {
   private let sensitiveOperationRateGuard: SensitiveOperationRateGuard
   private let googleIntegrationService: GoogleIntegrationService
   private let githubIntegrationService: GitHubIntegrationService
+  private let slackIntegrationService: SlackIntegrationService
+  private var slackMessageReader: SlackMessageReader?
+  private var slackRepositories: GRDBSlackRepositorySet?
+  private var slackPollTask: Task<Void, Never>?
   private let aiWorkflowService: AIWorkflowService
-  private let notificationScheduler = NotificationScheduler(center: SystemNotificationCenter())
+  private let notificationCenter: NotificationCenterAdapter = SystemNotificationCenter()
+  private lazy var notificationScheduler = NotificationScheduler(center: notificationCenter)
   private var iCloudSyncEngine: ICloudSyncEngine?
 
   private var sqliteCoreRepositories: GRDBCoreRepositorySet?
@@ -215,6 +226,7 @@ final class AppState: ObservableObject {
     sensitiveOperationRateGuard: SensitiveOperationRateGuard = SensitiveOperationRateGuard(),
     googleIntegrationService: GoogleIntegrationService? = nil,
     githubIntegrationService: GitHubIntegrationService = GitHubIntegrationService(),
+    slackIntegrationService: SlackIntegrationService? = nil,
     aiWorkflowService: AIWorkflowService? = nil,
     settingsSync: SettingsSyncCoordinator = .shared
   ) {
@@ -231,6 +243,7 @@ final class AppState: ObservableObject {
     self.sensitiveOperationRateGuard = sensitiveOperationRateGuard
     self.googleIntegrationService = googleIntegrationService ?? GoogleIntegrationService()
     self.githubIntegrationService = githubIntegrationService
+    self.slackIntegrationService = slackIntegrationService ?? SlackIntegrationService()
     self.aiWorkflowService = aiWorkflowService ?? AIWorkflowService(sqliteBackendAdapter: sqliteBackendAdapter)
 
     if let storedTheme = UserDefaults.standard.string(forKey: Self.themePreferenceDefaultsKey),
@@ -926,6 +939,19 @@ final class AppState: ObservableObject {
       googleIntegrationState.lastError = error.localizedDescription
     }
 
+    slackConfigured = slackIntegrationService.isConfigured
+
+    if let slackSession = try? slackIntegrationService.currentSession() {
+      slackIntegrationState.connected = true
+      slackIntegrationState.teamName = slackSession.teamName
+      slackIntegrationState.userName = slackSession.userName
+      slackIntegrationState.expiresAt = slackSession.expiresAt
+    } else {
+      slackIntegrationState = .disconnected
+    }
+    await loadSlackProposals()
+    restartSlackPolling()
+
     do {
       let tokens = try await githubIntegrationService.listTokens()
       githubIntegrationState.tokens = tokens
@@ -1099,6 +1125,10 @@ final class AppState: ObservableObject {
         )
       }
 
+      if let slackOutcome = await syncSlackNow() {
+        outcomes.append(slackOutcome)
+      }
+
       if outcomes.isEmpty {
         showToast("No integrations were enabled for sync")
       } else {
@@ -1112,6 +1142,425 @@ final class AppState: ObservableObject {
       showError(title: "Integration sync failed", message: error.localizedDescription)
       await refreshIntegrationDiagnostics()
     }
+  }
+
+  // MARK: Slack
+
+  func connectSlackIntegration() async {
+    do {
+      let session = try await slackIntegrationService.signIn()
+      slackIntegrationState.connected = true
+      slackIntegrationState.teamName = session.teamName
+      slackIntegrationState.userName = session.userName
+      slackIntegrationState.expiresAt = session.expiresAt
+      slackIntegrationState.syncEnabled = true
+      slackIntegrationState.lastError = nil
+      showToast("Connected to \(session.teamName ?? "Slack")")
+      restartSlackPolling()
+      await refreshIntegrationDiagnostics()
+    } catch IntegrationServiceError.slackAuthorizationCancelled {
+      await refreshIntegrationDiagnostics()
+    } catch {
+      slackIntegrationState.lastError = error.localizedDescription
+      showError(title: "Slack sign-in failed", message: error.localizedDescription)
+      await refreshIntegrationDiagnostics()
+    }
+  }
+
+  func disconnectSlackIntegration() async {
+    do {
+      try await slackIntegrationService.disconnect()
+      slackIntegrationState = .disconnected
+      slackMessageReader = nil
+      slackProposals = []
+      restartSlackPolling()
+      showToast("Disconnected from Slack")
+    } catch {
+      slackIntegrationState.lastError = error.localizedDescription
+      showError(title: "Failed to disconnect Slack", message: error.localizedDescription)
+    }
+
+    await refreshIntegrationDiagnostics()
+  }
+
+  func setSlackIntegrationSyncEnabled(_ enabled: Bool) async {
+    slackIntegrationState.syncEnabled = enabled
+    restartSlackPolling()
+    await refreshIntegrationDiagnostics()
+  }
+
+  func setSlackPollIntervalMinutes(_ minutes: Int) {
+    slackPollIntervalMinutes = max(1, minutes)
+    restartSlackPolling()
+  }
+
+  /// Polls only while the app is running — a quit Mac app checks nothing, which
+  /// is why the Integrations row says so rather than leaving it to be guessed.
+  func restartSlackPolling() {
+    slackPollTask?.cancel()
+    slackPollTask = nil
+
+    guard !Self.isRunningUnderXCTest else { return }
+    guard slackIntegrationState.connected, slackIntegrationState.syncEnabled else { return }
+
+    slackPollTask = Task { [weak self] in
+      while !Task.isCancelled {
+        guard let interval = self?.slackPollIntervalMinutes else { return }
+        try? await Task.sleep(nanoseconds: UInt64(max(1, interval)) * 60 * 1_000_000_000)
+        guard !Task.isCancelled else { return }
+        await self?.syncSlackNow()
+      }
+    }
+  }
+
+  func setSlackRelevanceSettings(_ settings: SlackRelevanceSettings) {
+    slackRelevanceSettings = settings
+  }
+
+  func loadSlackProposals() async {
+    guard slackIntegrationState.connected else {
+      slackProposals = []
+      return
+    }
+
+    do {
+      let repositories = try await requireSlackRepositories()
+      slackProposals = try repositories.proposals.fetchPending()
+    } catch {
+      slackProposals = []
+      slackIntegrationState.lastError = error.localizedDescription
+    }
+  }
+
+  /// One pass: read what is new, drop what is not aimed at you, ask the model
+  /// about the rest, and queue whatever it proposes for review. Nothing here
+  /// writes to a task.
+  @discardableResult
+  func syncSlackNow(now: Date = Date()) async -> IntegrationSyncOutcome? {
+    guard slackIntegrationState.connected, slackIntegrationState.syncEnabled else { return nil }
+
+    do {
+      let session = try await slackIntegrationService.activeSession()
+      slackIntegrationState.expiresAt = session.expiresAt
+
+      let repositories = try await requireSlackRepositories()
+      let reader = slackReader()
+      let previousCursors = try repositories.cursors.fetchAll()
+
+      let batch = try await reader.fetchNewActivity(
+        session: session,
+        cursors: previousCursors,
+        now: now,
+        deadline: now.addingTimeInterval(120)
+      )
+      slackChannelsWatched = batch.cursors.count
+
+      let filtered = SlackRelevanceFilter.filter(
+        messages: batch.messages,
+        ownUserID: session.userID,
+        ownGroupIDs: await reader.ownGroups(session: session, now: now),
+        participatedThreads: Set(batch.cursors.flatMap(\.participatedThreadTS)),
+        seenKeys: try repositories.seenMessages.seenKeys(),
+        settings: slackRelevanceSettings
+      )
+
+      try repositories.seenMessages.record(
+        filtered.rejected.map { SlackSeenMessage(channelID: $0.channelID, ts: $0.ts, outcome: .filtered) },
+        at: now
+      )
+
+      var proposed = 0
+      var failedChannels: Set<String> = []
+
+      if !filtered.signals.isEmpty {
+        guard let credential = defaultSlackCredential() else {
+          throw AIWorkflowError.noCredentialConfigured
+        }
+
+        let names = await reader.userNameMap()
+        let outcome = try await aiWorkflowService.proposeSlackDecisions(
+          signals: filtered.signals,
+          credentialID: credential.id,
+          openTasks: tasks,
+          projects: quickCaptureProjectContext,
+          availableTags: quickCaptureAvailableTags,
+          names: names,
+          ownName: session.userName ?? "the user",
+          now: now
+        )
+
+        let failedSignals = Set(outcome.failedSignalIDs)
+        let decisions = Dictionary(
+          outcome.decisions.map { ($0.signalID, $0) },
+          uniquingKeysWith: { first, _ in first }
+        )
+        var seenEntries: [SlackSeenMessage] = []
+
+        for signal in filtered.signals {
+          // A failed signal is recorded nowhere, so the retry below re-reads it
+          // rather than losing it to a transient provider error.
+          if failedSignals.contains(signal.id) {
+            failedChannels.insert(signal.anchor.channelID)
+            continue
+          }
+
+          let proposal = decisions[signal.id].flatMap {
+            SlackProposalMapper.proposal(
+              from: $0,
+              signal: signal,
+              workspaceURL: session.teamURL,
+              names: names,
+              now: now
+            )
+          }
+
+          if let proposal {
+            try repositories.proposals.save(proposal)
+            proposed += 1
+          }
+
+          seenEntries.append(
+            SlackSeenMessage(
+              channelID: signal.anchor.channelID,
+              ts: signal.anchor.ts,
+              outcome: proposal == nil ? .ignored : .proposed
+            )
+          )
+        }
+
+        try repositories.seenMessages.record(seenEntries, at: now)
+        slackIntegrationState.lastError = outcome.lastError
+      } else {
+        slackIntegrationState.lastError = nil
+      }
+
+      // Cursors advance last, and not at all for a channel whose signals failed:
+      // the seen table makes a re-read cheap, whereas a skipped window is gone.
+      let previousByChannel = Dictionary(
+        previousCursors.map { ($0.channelID, $0) },
+        uniquingKeysWith: { first, _ in first }
+      )
+      let cursorsToSave = batch.cursors.map { cursor -> SlackChannelCursor in
+        guard failedChannels.contains(cursor.channelID) else { return cursor }
+        var held = cursor
+        held.lastTS = previousByChannel[cursor.channelID]?.lastTS
+        return held
+      }
+      try repositories.cursors.save(cursorsToSave)
+
+      slackIntegrationState.lastSyncAt = now
+      await loadSlackProposals()
+      announceSlackProposals(newlyProposed: proposed)
+
+      return IntegrationSyncOutcome(
+        provider: .slack,
+        importedTasks: proposed,
+        detail: proposed == 0
+          ? "Slack: nothing new to review"
+          : "Slack: \(proposed) proposal(s) waiting"
+      )
+    } catch {
+      slackIntegrationState.lastError = error.localizedDescription
+      await refreshIntegrationDiagnostics()
+      return nil
+    }
+  }
+
+  func acceptSlackProposal(id: String) async {
+    guard let proposal = slackProposals.first(where: { $0.id == id }) else { return }
+
+    do {
+      let repositories = try await requireSlackRepositories()
+      let now = Date()
+
+      switch proposal.kind {
+      case .create:
+        try await applySlackCreate(proposal, at: now)
+      case .update:
+        guard let taskID = proposal.targetTaskID, tasks.contains(where: { $0.id == taskID }) else {
+          try repositories.proposals.updateStatus(id: id, status: .superseded, decidedAt: now)
+          showToast("That task no longer exists, so the proposal was dropped")
+          await loadSlackProposals()
+          return
+        }
+        try await applySlackUpdate(proposal, taskID: taskID, at: now)
+      }
+
+      try repositories.proposals.updateStatus(id: id, status: .accepted, decidedAt: now)
+      try repositories.proposals.supersedePending(
+        channelID: proposal.source.channelID,
+        threadTS: proposal.source.threadTS,
+        excluding: id,
+        at: now
+      )
+
+      await refreshCoreWorkflowData()
+      await loadSlackProposals()
+    } catch {
+      showError(title: "Could not apply the Slack proposal", message: error.localizedDescription)
+    }
+  }
+
+  func dismissSlackProposal(id: String) async {
+    guard let proposal = slackProposals.first(where: { $0.id == id }) else { return }
+
+    do {
+      let repositories = try await requireSlackRepositories()
+      let now = Date()
+      try repositories.proposals.updateStatus(id: id, status: .dismissed, decidedAt: now)
+      try repositories.proposals.supersedePending(
+        channelID: proposal.source.channelID,
+        threadTS: proposal.source.threadTS,
+        excluding: id,
+        at: now
+      )
+      await loadSlackProposals()
+    } catch {
+      showError(title: "Could not dismiss the Slack proposal", message: error.localizedDescription)
+    }
+  }
+
+  func dismissAllSlackProposals() async {
+    do {
+      let repositories = try await requireSlackRepositories()
+      let now = Date()
+      for proposal in slackProposals {
+        try repositories.proposals.updateStatus(id: proposal.id, status: .dismissed, decidedAt: now)
+      }
+      await loadSlackProposals()
+    } catch {
+      showError(title: "Could not clear the Slack proposals", message: error.localizedDescription)
+    }
+  }
+
+  private func applySlackCreate(_ proposal: SlackProposal, at now: Date) async throws {
+    let payload = proposal.payload
+    let completed = payload.statusChange == .completed
+
+    let task = TaskEntity(
+      id: UUID().uuidString,
+      title: payload.title ?? "Untitled",
+      description: payload.description,
+      completed: completed,
+      completedAt: completed ? now : nil,
+      priority: payload.priority ?? .medium,
+      dueDate: payload.dueDate,
+      projectId: validQuickCaptureProjectID(payload.projectId),
+      tags: payload.tags,
+      createdAt: now,
+      updatedAt: now,
+      subtasks: payload.subtasks.enumerated().map { offset, title in
+        TaskSubtask(id: UUID().uuidString, title: title, completed: false, order: offset)
+      },
+      recurring: nil,
+      userId: nil,
+      activity: [slackAttribution(for: proposal, at: now)]
+    )
+
+    try await saveTask(task)
+  }
+
+  /// Writes only the fields the proposal actually changes. `saveTask` diffs the
+  /// result and logs what moved, so this adds just the line saying where it
+  /// came from.
+  private func applySlackUpdate(_ proposal: SlackProposal, taskID: String, at now: Date) async throws {
+    guard var task = tasks.first(where: { $0.id == taskID }) else { return }
+    let payload = proposal.payload
+
+    if let title = payload.title { task.title = title }
+    if let description = payload.description { task.description = description }
+    if let priority = payload.priority { task.priority = priority }
+    if let dueDate = payload.dueDate { task.dueDate = dueDate }
+    if let projectID = validQuickCaptureProjectID(payload.projectId) { task.projectId = projectID }
+
+    if !payload.tags.isEmpty {
+      var tags = task.tags
+      for tag in payload.tags where !tags.contains(tag) {
+        tags.append(tag)
+      }
+      task.tags = tags
+    }
+
+    if !payload.subtasks.isEmpty {
+      let start = task.subtasks.count
+      task.subtasks.append(
+        contentsOf: payload.subtasks.enumerated().map { offset, title in
+          TaskSubtask(id: UUID().uuidString, title: title, completed: false, order: start + offset)
+        }
+      )
+    }
+
+    switch payload.statusChange {
+    case .completed:
+      task.completed = true
+      task.completedAt = now
+    case .reopened:
+      task.completed = false
+      task.completedAt = nil
+    case .none:
+      break
+    }
+
+    task.updatedAt = now
+    task.activity.append(slackAttribution(for: proposal, at: now))
+    try await saveTask(task)
+  }
+
+  private func slackAttribution(for proposal: SlackProposal, at now: Date) -> TaskActivityEntry {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "d MMM yyyy"
+
+    return TaskActivityEntry(
+      id: UUID().uuidString,
+      kind: .event,
+      text: "From Slack · \(proposal.source.author) in #\(proposal.source.channelName), \(formatter.string(from: proposal.source.sentAt))",
+      createdAt: now
+    )
+  }
+
+  /// One notification for the batch, replacing the previous one. Firing per
+  /// proposal would turn a quiet feature into a noisy one.
+  private func announceSlackProposals(newlyProposed: Int) {
+    guard notificationsEnabled, newlyProposed > 0 else { return }
+
+    let total = slackProposals.count
+    let title = total == 1 ? "1 Slack item needs a decision" : "\(total) Slack items need a decision"
+    let body = newlyProposed == total ? nil : "\(newlyProposed) new since the last check"
+
+    Task { [notificationCenter] in
+      await notificationCenter.postNow(id: "slack-proposals", title: title, body: body)
+    }
+  }
+
+  private func defaultSlackCredential() -> AICredentialEntity? {
+    aiCredentials
+      .filter(\.enabled)
+      .sorted { lhs, rhs in
+        lhs.priority == rhs.priority ? lhs.createdAt < rhs.createdAt : lhs.priority < rhs.priority
+      }
+      .first
+  }
+
+  private func slackReader() -> SlackMessageReader {
+    if let slackMessageReader {
+      return slackMessageReader
+    }
+
+    let reader = SlackMessageReader(client: slackIntegrationService.client)
+    slackMessageReader = reader
+    return reader
+  }
+
+  private func requireSlackRepositories() async throws -> GRDBSlackRepositorySet {
+    if let slackRepositories {
+      return slackRepositories
+    }
+
+    _ = try await requireSQLiteCoreRepositories()
+    let repositories = try sqliteBackendAdapter.makeSlackRepositories()
+    slackRepositories = repositories
+    return repositories
   }
 
   func refreshIntegrationDiagnostics() async {
@@ -1129,6 +1578,23 @@ final class AppState: ObservableObject {
       lines.append("Google error: \(error)")
     }
 
+    lines.append("Slack configured: \(slackConfigured ? "yes" : "no")")
+    lines.append("Slack connected: \(slackIntegrationState.connected ? "yes" : "no")")
+    lines.append("Slack sync enabled: \(slackIntegrationState.syncEnabled ? "yes" : "no")")
+    if let teamName = slackIntegrationState.teamName {
+      lines.append("Slack workspace: \(teamName)")
+    }
+    if let expiresAt = slackIntegrationState.expiresAt {
+      lines.append("Slack token expires: \(expiresAt)")
+    }
+    if let lastSyncAt = slackIntegrationState.lastSyncAt {
+      lines.append("Slack last sync: \(lastSyncAt)")
+    }
+    lines.append("Slack channels watched: \(slackChannelsWatched)")
+    lines.append("Slack pending proposals: \(slackProposals.count)")
+    if let error = slackIntegrationState.lastError {
+      lines.append("Slack last error: \(error)")
+    }
     lines.append("GitHub tokens: \(githubIntegrationState.tokens.count)")
     lines.append("GitHub sync enabled: \(githubIntegrationState.syncEnabled ? "yes" : "no")")
     if let lastSyncAt = githubIntegrationState.lastSyncAt {

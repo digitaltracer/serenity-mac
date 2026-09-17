@@ -2047,7 +2047,8 @@ struct IntegrationsSectionView: View {
   private var lastSyncSummary: String {
     let recents = [
       appState.googleIntegrationState.lastSyncAt,
-      appState.githubIntegrationState.lastSyncAt
+      appState.githubIntegrationState.lastSyncAt,
+      appState.slackIntegrationState.lastSyncAt
     ].compactMap { $0 }
 
     if appState.integrationSyncInProgress {
@@ -2075,12 +2076,134 @@ struct IntegrationsSectionView: View {
       Divider().overlay(SerenityPalette.thinBorder).padding(.leading, 16)
 
       githubServiceRow
+
+      Divider().overlay(SerenityPalette.thinBorder).padding(.leading, 16)
+
+      slackServiceRow
     }
     .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 14, style: .continuous)
         .stroke(SerenityPalette.border, lineWidth: 1)
     )
+  }
+
+  private var slackServiceRow: some View {
+    let connected = appState.slackIntegrationState.connected
+
+    return VStack(alignment: .leading, spacing: 0) {
+      HStack(alignment: .center, spacing: 14) {
+        serviceIcon(systemName: "number", accent: Color(red: 0.36, green: 0.19, blue: 0.56))
+
+        VStack(alignment: .leading, spacing: 3) {
+          HStack(spacing: 8) {
+            Text("Slack")
+              .font(SerenityType.bodyLarge.weight(.semibold))
+            statusPill(connected: connected)
+          }
+          Text(slackStatusDetail)
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+
+        Spacer()
+
+        if connected {
+          Toggle("", isOn: Binding(
+            get: { appState.slackIntegrationState.syncEnabled },
+            set: { enabled in
+              Task { await appState.setSlackIntegrationSyncEnabled(enabled) }
+            }
+          ))
+          .toggleStyle(.switch)
+          .labelsHidden()
+
+          Button("Disconnect") {
+            Task { await appState.disconnectSlackIntegration() }
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        } else {
+          Button("Connect") {
+            Task { await appState.connectSlackIntegration() }
+          }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .disabled(!appState.slackConfigured)
+        }
+      }
+      .padding(16)
+
+      if connected {
+        VStack(alignment: .leading, spacing: 8) {
+          Toggle("Include @here and @channel", isOn: Binding(
+            get: { appState.slackRelevanceSettings.includeBroadcastMentions },
+            set: { value in
+              var settings = appState.slackRelevanceSettings
+              settings.includeBroadcastMentions = value
+              appState.setSlackRelevanceSettings(settings)
+            }
+          ))
+
+          Toggle("Include messages from bots", isOn: Binding(
+            get: { appState.slackRelevanceSettings.includeBotMessages },
+            set: { value in
+              var settings = appState.slackRelevanceSettings
+              settings.includeBotMessages = value
+              appState.setSlackRelevanceSettings(settings)
+            }
+          ))
+
+          HStack(spacing: 8) {
+            Text("Check every")
+            Picker("", selection: Binding(
+              get: { appState.slackPollIntervalMinutes },
+              set: { appState.setSlackPollIntervalMinutes($0) }
+            )) {
+              Text("5 min").tag(5)
+              Text("15 min").tag(15)
+              Text("30 min").tag(30)
+              Text("1 hour").tag(60)
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(width: 110)
+          }
+
+          Text("Serenity reads the channels you belong to while the app is open, and never asks for permission to read your DMs.")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+        .font(SerenityType.body)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 16)
+      }
+    }
+  }
+
+  private var slackStatusDetail: String {
+    if !appState.slackConfigured {
+      return "Add SLACK_CLIENT_ID to the app configuration to enable Slack"
+    }
+    if let error = appState.slackIntegrationState.lastError {
+      return error
+    }
+    guard appState.slackIntegrationState.connected else {
+      return "Turn channel conversations into reviewable task proposals"
+    }
+
+    var parts: [String] = []
+    if let team = appState.slackIntegrationState.teamName {
+      parts.append(team)
+    }
+    if appState.slackChannelsWatched > 0 {
+      parts.append("\(appState.slackChannelsWatched) channel(s) watched")
+    }
+    let pending = appState.slackProposals.count
+    if pending > 0 {
+      parts.append("\(pending) waiting to review")
+    }
+    return parts.isEmpty ? "Connected" : parts.joined(separator: " · ")
   }
 
   private var googleServiceRow: some View {
@@ -2452,6 +2575,268 @@ private func tagsIncludingPendingInput(_ tags: [String], input: String) -> [Stri
   return tags + [pendingTag]
 }
 
+/// One field a proposal would change, rendered as before → after so a
+/// mis-targeted update is visible before it is applied rather than after.
+struct SlackProposalChange: Identifiable {
+  let id = UUID()
+  let label: String
+  let before: String?
+  let after: String
+}
+
+/// The review queue. Nothing Slack proposes reaches a task until a card here
+/// is accepted.
+struct SlackProposalInboxView: View {
+  @EnvironmentObject private var appState: AppState
+  @Environment(\.serenityCompactLayout) private var compactLayout
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      header
+
+      if appState.slackProposals.isEmpty {
+        emptyState
+      } else {
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 12) {
+            ForEach(appState.slackProposals) { proposal in
+              card(for: proposal)
+            }
+          }
+          .padding(.bottom, 8)
+        }
+      }
+    }
+    .padding(compactLayout ? 16 : 24)
+    .frame(minWidth: compactLayout ? nil : 520, minHeight: compactLayout ? nil : 420)
+    .background(SerenityPalette.windowBackground)
+  }
+
+  private var header: some View {
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
+      Label("From Slack", systemImage: "number")
+        .font(SerenityType.sectionTitle)
+        .foregroundStyle(SerenityPalette.textPrimary)
+
+      Spacer()
+
+      if !appState.slackProposals.isEmpty {
+        Button("Dismiss all") {
+          Task { await appState.dismissAllSlackProposals() }
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .hoverCursor(.pointingHand)
+      }
+    }
+  }
+
+  private var emptyState: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("Nothing waiting")
+        .font(SerenityType.bodyLarge)
+        .foregroundStyle(SerenityPalette.textPrimary)
+      Text(lastLookedSummary)
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(20)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  /// A quiet workspace is the normal state, so say when Serenity last looked
+  /// rather than leaving a blank panel that reads as broken.
+  private var lastLookedSummary: String {
+    guard appState.slackIntegrationState.connected else {
+      return "Connect Slack in Integrations to start seeing proposals here."
+    }
+    guard let lastSyncAt = appState.slackIntegrationState.lastSyncAt else {
+      return "Serenity has not checked Slack yet."
+    }
+
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .abbreviated
+    return "Serenity last checked \(formatter.localizedString(for: lastSyncAt, relativeTo: Date()))."
+  }
+
+  private func card(for proposal: SlackProposal) -> some View {
+    let target = proposal.targetTaskID.flatMap { id in appState.tasks.first(where: { $0.id == id }) }
+
+    return VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text(proposal.kind == .create ? "New task" : "Update")
+          .font(SerenityType.caption)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 3)
+          .background(SerenityPalette.headerIconBackground, in: Capsule())
+          .foregroundStyle(SerenityPalette.accent)
+
+        Text(proposal.payload.title ?? target?.title ?? "Untitled")
+          .font(SerenityType.bodyLarge.weight(.semibold))
+          .foregroundStyle(SerenityPalette.textPrimary)
+
+        Spacer(minLength: 8)
+
+        Text("\(Int(proposal.confidence * 100))%")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      let changes = Self.changes(for: proposal, target: target)
+      if !changes.isEmpty {
+        VStack(alignment: .leading, spacing: 4) {
+          ForEach(changes) { change in
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+              Text(change.label)
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
+                .frame(width: 66, alignment: .leading)
+
+              if let before = change.before {
+                Text(before)
+                  .font(SerenityType.body)
+                  .foregroundStyle(SerenityPalette.textSecondary)
+                  .strikethrough()
+                Image(systemName: "arrow.right")
+                  .font(SerenityType.caption)
+                  .foregroundStyle(SerenityPalette.textSecondary)
+              }
+
+              Text(change.after)
+                .font(SerenityType.body)
+                .foregroundStyle(SerenityPalette.textPrimary)
+            }
+          }
+        }
+      }
+
+      if let reason = proposal.reason {
+        Text(reason)
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      sourceLine(for: proposal)
+
+      HStack(spacing: 8) {
+        Spacer()
+
+        Button("Dismiss") {
+          Task { await appState.dismissSlackProposal(id: proposal.id) }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button("Accept") {
+          Task { await appState.acceptSlackProposal(id: proposal.id) }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(16)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  /// The excerpt is what earns trust, and the permalink is the one tap that
+  /// settles any doubt about it.
+  private func sourceLine(for proposal: SlackProposal) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text("\u{201C}\(proposal.source.excerpt)\u{201D}")
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .lineLimit(3)
+        .fixedSize(horizontal: false, vertical: true)
+
+      HStack(spacing: 6) {
+        Text("#\(proposal.source.channelName) · \(proposal.source.author) · \(Self.stamp(proposal.source.sentAt))")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+
+        if let permalink = proposal.source.permalink, let url = URL(string: permalink) {
+          Link("Open in Slack", destination: url)
+            .font(SerenityType.caption)
+            .hoverCursor(.pointingHand)
+        }
+      }
+    }
+    .padding(10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+  }
+
+  static func changes(for proposal: SlackProposal, target: TaskEntity?) -> [SlackProposalChange] {
+    var rows: [SlackProposalChange] = []
+    let payload = proposal.payload
+
+    if proposal.kind == .update, let title = payload.title, title != target?.title {
+      rows.append(SlackProposalChange(label: "Title", before: target?.title, after: title))
+    }
+
+    if let dueDate = payload.dueDate {
+      rows.append(
+        SlackProposalChange(
+          label: "Due",
+          before: target?.dueDate.map(Self.stamp),
+          after: Self.stamp(dueDate)
+        )
+      )
+    }
+
+    if let priority = payload.priority, priority != target?.priority {
+      rows.append(
+        SlackProposalChange(
+          label: "Priority",
+          before: target?.priority.rawValue.capitalized,
+          after: priority.rawValue.capitalized
+        )
+      )
+    }
+
+    switch payload.statusChange {
+    case .completed:
+      rows.append(SlackProposalChange(label: "Status", before: target == nil ? nil : "Open", after: "Done"))
+    case .reopened:
+      rows.append(SlackProposalChange(label: "Status", before: target == nil ? nil : "Done", after: "Open"))
+    case .none:
+      break
+    }
+
+    if !payload.subtasks.isEmpty {
+      rows.append(
+        SlackProposalChange(
+          label: "Subtasks",
+          before: nil,
+          after: payload.subtasks.joined(separator: ", ")
+        )
+      )
+    }
+
+    if let description = payload.description, proposal.kind == .create {
+      rows.append(SlackProposalChange(label: "Notes", before: nil, after: description))
+    }
+
+    return rows
+  }
+
+  static func stamp(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "EEE d MMM yyyy"
+    return formatter.string(from: date)
+  }
+}
+
 private struct ActionHubSectionView: View {
   @EnvironmentObject private var appState: AppState
   @Environment(\.serenityCompactLayout) private var compactLayout
@@ -2573,10 +2958,15 @@ private struct ActionHubSectionView: View {
   @State private var projectPendingDeletion: ProjectEntity?
   @State private var openSwipeTaskID: String?
   @State private var taskPendingDeletion: TaskEntity?
+  @State private var showSlackInbox = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       tabSelector
+
+      if !appState.slackProposals.isEmpty {
+        slackProposalBanner
+      }
 
       switch activeTab {
       case .tasks:
@@ -2587,12 +2977,59 @@ private struct ActionHubSectionView: View {
         calendarView
       }
     }
+    .sheet(isPresented: $showSlackInbox) {
+      SlackProposalInboxView()
+        .environmentObject(appState)
+    }
     .onChange(of: appState.shouldFocusSectionSearch) { _, requested in
       guard requested else { return }
       activeTab = .tasks
       searchFocused = true
       appState.shouldFocusSectionSearch = false
     }
+  }
+
+  private var slackProposalBanner: some View {
+    let count = appState.slackProposals.count
+
+    return Button {
+      showSlackInbox = true
+    } label: {
+      HStack(spacing: 12) {
+        ZStack {
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(SerenityPalette.headerIconBackground)
+            .frame(width: 32, height: 32)
+          Image(systemName: "number")
+            .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
+            .foregroundStyle(SerenityPalette.accent)
+        }
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(count == 1 ? "1 Slack item needs a decision" : "\(count) Slack items need a decision")
+            .font(SerenityType.bodyLarge.weight(.semibold))
+            .foregroundStyle(SerenityPalette.textPrimary)
+          Text("Nothing reaches your tasks until you accept it")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+
+        Spacer(minLength: 8)
+
+        Text("Review")
+          .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.accent)
+      }
+      .padding(12)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .stroke(SerenityPalette.border, lineWidth: 1)
+      )
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
   }
 
   private var tabSelector: some View {
