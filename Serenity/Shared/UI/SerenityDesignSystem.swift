@@ -236,9 +236,9 @@ enum SerenityScreenMetrics {
     let size = CGDisplayScreenSize(displayID)
     guard size.width > 0, size.height > 0 else { return nil }
     return hypot(size.width, size.height) / 25.4
-#elseif os(iOS)
-    return 14.9
 #else
+    // iOS leaves scaling entirely to Dynamic Type. Reporting a diagonal here
+    // shrank every phone to the small-laptop scale before Dynamic Type ran.
     return nil
 #endif
   }
