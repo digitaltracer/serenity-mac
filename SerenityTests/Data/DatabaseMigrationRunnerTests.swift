@@ -10,7 +10,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
 
     let summary = try await runner.bootstrapDatabase(at: databaseURL)
 
-    XCTAssertEqual(summary.appliedMigrations.count, 9)
+    XCTAssertEqual(summary.appliedMigrations.count, 10)
     XCTAssertTrue(summary.skippedMigrations.isEmpty)
 
     let dbQueue = try DatabaseQueue(path: databaseURL.path)
@@ -37,6 +37,9 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     XCTAssertTrue(tables.contains("security_audit_events"))
     XCTAssertTrue(tables.contains("pending_sync_changes"))
     XCTAssertTrue(tables.contains("cloud_sync_state"))
+    XCTAssertTrue(tables.contains("slack_channel_cursors"))
+    XCTAssertTrue(tables.contains("slack_seen_messages"))
+    XCTAssertTrue(tables.contains("slack_proposals"))
     XCTAssertTrue(indexes.contains("idx_tasks_project_id"))
     XCTAssertTrue(indexes.contains("idx_journal_date"))
     XCTAssertTrue(indexes.contains("idx_goals_status"))
@@ -48,6 +51,8 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     XCTAssertTrue(indexes.contains("idx_summaries_type"))
     XCTAssertTrue(indexes.contains("idx_ai_credentials_provider"))
     XCTAssertTrue(indexes.contains("idx_security_audit_created_at"))
+    XCTAssertTrue(indexes.contains("idx_slack_proposals_status"))
+    XCTAssertTrue(indexes.contains("idx_slack_proposals_thread"))
 
     let usageColumns = try await dbQueue.read { db in
       Set(try String.fetchAll(db, sql: "SELECT name FROM pragma_table_info('ai_usage');"))
@@ -66,7 +71,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     let secondRun = try await runner.bootstrapDatabase(at: databaseURL)
 
     XCTAssertTrue(secondRun.appliedMigrations.isEmpty)
-    XCTAssertEqual(secondRun.skippedMigrations.count, 9)
+    XCTAssertEqual(secondRun.skippedMigrations.count, 10)
   }
 
   func testNvidiaIsAcceptedByEveryProviderConstrainedTable() async throws {
@@ -91,12 +96,49 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     }
   }
 
+  func testSlackOperationIsAcceptedByTheUsageTable() async throws {
+    let databaseURL = try makeTemporaryDatabaseURL()
+    _ = try await DatabaseMigrationRunner().bootstrapDatabase(at: databaseURL)
+    let dbQueue = try DatabaseQueue(path: databaseURL.path)
+
+    try await dbQueue.write { db in
+      try db.execute(
+        sql: """
+        INSERT INTO ai_usage (id, timestamp, provider, operation, total_tokens)
+        VALUES ('usage-slack', '2026-09-17T10:00:00Z', 'anthropic', 'slack', 120);
+        """
+      )
+    }
+
+    let stored = try await dbQueue.read { db in
+      try String.fetchOne(db, sql: "SELECT operation FROM ai_usage WHERE id = 'usage-slack';")
+    }
+    XCTAssertEqual(stored, "slack")
+
+    do {
+      try await dbQueue.write { db in
+        try db.execute(
+          sql: """
+          INSERT INTO ai_usage (id, timestamp, provider, operation, total_tokens)
+          VALUES ('usage-bogus', '2026-09-17T10:00:00Z', 'anthropic', 'telepathy', 1);
+          """
+        )
+      }
+      XCTFail("ai_usage accepted an unknown operation value")
+    } catch {
+      // Expected: the widened CHECK still rejects anything outside the enum.
+    }
+  }
+
   func testWideningProviderConstraintPreservesExistingRows() async throws {
     let databaseURL = try makeTemporaryDatabaseURL()
     try seedPreNvidiaDatabase(at: databaseURL)
 
     let summary = try await DatabaseMigrationRunner().bootstrapDatabase(at: databaseURL)
-    XCTAssertEqual(summary.appliedMigrations, ["20260901_008_nvidia_provider", "20260910_010_task_activity"])
+    XCTAssertEqual(
+      summary.appliedMigrations,
+      ["20260901_008_nvidia_provider", "20260910_010_task_activity", "20260917_011_slack_integration"]
+    )
 
     let dbQueue = try DatabaseQueue(path: databaseURL.path)
 

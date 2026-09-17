@@ -610,5 +610,80 @@ actor DatabaseMigrationRunner {
         "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '8');",
       ]
     ),
+    DatabaseMigration(
+      identifier: "20260917_011_slack_integration",
+      statements: [
+        """
+        CREATE TABLE ai_usage_new (
+          id TEXT PRIMARY KEY,
+          timestamp TEXT NOT NULL,
+          provider TEXT NOT NULL CHECK (provider IN ('openai', 'gemini', 'anthropic', 'nvidia')),
+          operation TEXT NOT NULL CHECK (operation IN ('analyze', 'recap', 'quickadd', 'summary', 'slack')),
+          prompt_tokens INTEGER DEFAULT 0,
+          completion_tokens INTEGER DEFAULT 0,
+          total_tokens INTEGER DEFAULT 0,
+          model TEXT,
+          input_cost_usd REAL,
+          output_cost_usd REAL,
+          total_cost_usd REAL
+        );
+        """,
+        """
+        INSERT INTO ai_usage_new (
+          id, timestamp, provider, operation, prompt_tokens, completion_tokens, total_tokens,
+          model, input_cost_usd, output_cost_usd, total_cost_usd
+        )
+        SELECT
+          id, timestamp, provider, operation, prompt_tokens, completion_tokens, total_tokens,
+          model, input_cost_usd, output_cost_usd, total_cost_usd
+        FROM ai_usage;
+        """,
+        "DROP TABLE ai_usage;",
+        "ALTER TABLE ai_usage_new RENAME TO ai_usage;",
+        "CREATE INDEX IF NOT EXISTS idx_ai_usage_timestamp ON ai_usage(timestamp DESC);",
+        "CREATE INDEX IF NOT EXISTS idx_ai_usage_model ON ai_usage(provider, model);",
+        """
+        CREATE TABLE IF NOT EXISTS slack_channel_cursors (
+          channel_id TEXT PRIMARY KEY,
+          channel_name TEXT NOT NULL,
+          last_ts TEXT,
+          participated_thread_ts_json TEXT NOT NULL DEFAULT '[]',
+          updated_at TEXT NOT NULL
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS slack_seen_messages (
+          channel_id TEXT NOT NULL,
+          ts TEXT NOT NULL,
+          outcome TEXT NOT NULL CHECK (outcome IN ('filtered', 'proposed', 'ignored', 'failed')),
+          seen_at TEXT NOT NULL,
+          PRIMARY KEY (channel_id, ts)
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS slack_proposals (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL CHECK (kind IN ('create', 'update')),
+          target_task_id TEXT,
+          payload_json TEXT NOT NULL,
+          confidence REAL NOT NULL DEFAULT 0,
+          reason TEXT,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'dismissed', 'superseded')),
+          source_channel_id TEXT NOT NULL,
+          source_channel_name TEXT NOT NULL,
+          source_message_ts TEXT NOT NULL,
+          source_thread_ts TEXT,
+          source_author TEXT NOT NULL,
+          source_excerpt TEXT NOT NULL,
+          permalink TEXT,
+          created_at TEXT NOT NULL,
+          decided_at TEXT
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_slack_proposals_status ON slack_proposals(status, created_at DESC);",
+        "CREATE INDEX IF NOT EXISTS idx_slack_proposals_thread ON slack_proposals(source_channel_id, source_thread_ts);",
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '9');",
+      ]
+    ),
   ]
 }

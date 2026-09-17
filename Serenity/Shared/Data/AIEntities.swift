@@ -178,6 +178,7 @@ public enum AIUsageOperation: String, Codable, CaseIterable, Sendable {
   case recap
   case quickadd
   case summary
+  case slack
 }
 
 public struct AIUsageEntity: Identifiable, Equatable, Sendable {

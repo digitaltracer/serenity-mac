@@ -43,6 +43,18 @@ final class SQLiteBackendAdapter {
     try GRDBAIRepositorySet.make(databasePath: try requireDatabasePath(), pendingStore: pendingStore)
   }
 
+  /// Slack cursors and proposals are device-local, so they never go through
+  /// the sync-aware decorators the core repositories use.
+  func makeSlackRepositories() throws -> GRDBSlackRepositorySet {
+    var configuration = Configuration()
+    configuration.prepareDatabase { db in
+      try db.execute(sql: "PRAGMA foreign_keys = ON")
+    }
+
+    let dbQueue = try DatabaseQueue(path: try requireDatabasePath(), configuration: configuration)
+    return GRDBSlackRepositorySet(dbQueue: dbQueue)
+  }
+
   func makeSecurityAuditRepository() throws -> GRDBSecurityAuditRepository {
     var configuration = Configuration()
     configuration.prepareDatabase { db in
