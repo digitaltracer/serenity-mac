@@ -35,6 +35,8 @@
   <string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
   <key>LSRequiresIPhoneOS</key>
   <true/>
+  <key>UILaunchScreen</key>
+  <dict/>
   <key>UIApplicationSceneManifest</key>
   <dict>
     <key>UIApplicationSupportsMultipleScenes</key>
