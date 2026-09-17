@@ -9,6 +9,9 @@ import UIKit
 struct SerenityAppScene: View {
   @ObservedObject var appState: AppState
   @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
+#if os(iOS)
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+#endif
 
   var body: some View {
     Group {
@@ -19,6 +22,7 @@ struct SerenityAppScene: View {
       }
     }
     .environmentObject(appState)
+    .environment(\.serenityCompactLayout, isCompactLayout)
     .groupBoxStyle(SerenityPanelGroupBoxStyle())
     .tint(SerenityPalette.accent)
     .foregroundStyle(SerenityPalette.textPrimary)
@@ -40,12 +44,14 @@ struct SerenityAppScene: View {
     }) {
       GlobalSearchSheet()
         .environmentObject(appState)
+        .environment(\.serenityCompactLayout, isCompactLayout)
     }
     .sheet(isPresented: $appState.isHelpCenterPresented, onDismiss: {
       appState.closeHelpCenter()
     }) {
       HelpCenterSheet()
         .environmentObject(appState)
+        .environment(\.serenityCompactLayout, isCompactLayout)
     }
     .task {
       await bootstrap()
@@ -76,7 +82,30 @@ struct SerenityAppScene: View {
 #endif
   }
 
+  /// Only an iPhone-sized surface is compact. Regular-width iPad keeps the
+  /// split view, so this is a size-class question rather than a platform one.
+  private var isCompactLayout: Bool {
+#if os(iOS)
+    horizontalSizeClass == .compact
+#else
+    false
+#endif
+  }
+
+  @ViewBuilder
   private var appContent: some View {
+#if os(iOS)
+    if isCompactLayout {
+      SerenityPhoneTabShell()
+    } else {
+      splitViewContent
+    }
+#else
+    splitViewContent
+#endif
+  }
+
+  private var splitViewContent: some View {
     NavigationSplitView(columnVisibility: $splitViewVisibility) {
       SerenitySidebar(
         selectedSection: Binding(
@@ -168,6 +197,17 @@ private extension AppThemePreference {
       return "sun.max"
     case .dark:
       return "moon"
+    }
+  }
+
+  var moreRowDetail: String {
+    switch self {
+    case .system:
+      return "System"
+    case .light:
+      return "Light"
+    case .dark:
+      return "Dark"
     }
   }
 }
@@ -340,7 +380,240 @@ private struct SerenityTopBar: View {
 }
 #endif
 
+#if os(iOS)
+/// The phone shell. Tabs cover the daily surfaces and everything else is pushed
+/// from More. `AppState.selectedSection` stays the source of truth, so global
+/// search, Help Center destinations and the last-section restore keep working.
+enum SerenityPhoneTab: String, CaseIterable, Identifiable {
+  case home
+  case actionHub
+  case journal
+  case goals
+  case more
+
+  var id: String { rawValue }
+
+  /// The section the tab lands on. More has a list of its own instead.
+  var rootSection: AppSection? {
+    switch self {
+    case .home:
+      return .home
+    case .actionHub:
+      return .actionHub
+    case .journal:
+      return .journal
+    case .goals:
+      return .goals
+    case .more:
+      return nil
+    }
+  }
+
+  var title: String {
+    switch self {
+    case .home:
+      return "Home"
+    case .actionHub:
+      return "Hub"
+    case .journal:
+      return "Journal"
+    case .goals:
+      return "Goals"
+    case .more:
+      return "More"
+    }
+  }
+
+  var systemImage: String {
+    rootSection?.systemImage ?? "ellipsis"
+  }
+
+  /// Projects has no tab of its own but belongs under ActionHub, which is where
+  /// projects are managed. Every other tabless section belongs to More.
+  static func containing(_ section: AppSection?) -> SerenityPhoneTab {
+    switch section {
+    case .home:
+      return .home
+    case .actionHub, .projects:
+      return .actionHub
+    case .journal:
+      return .journal
+    case .goals:
+      return .goals
+    default:
+      return .more
+    }
+  }
+}
+
+private struct SerenityPhoneTabShell: View {
+  @EnvironmentObject private var appState: AppState
+
+  var body: some View {
+    TabView(selection: tabSelection) {
+      ForEach(SerenityPhoneTab.allCases) { tab in
+        tabStack(tab)
+          .tabItem {
+            Label(tab.title, systemImage: tab.systemImage)
+          }
+          .tag(tab)
+      }
+    }
+  }
+
+  private var tabSelection: Binding<SerenityPhoneTab> {
+    Binding(
+      get: { SerenityPhoneTab.containing(appState.selectedSection) },
+      // Re-selecting the active tab clears its push, which is the standard
+      // tap-the-tab-again-to-go-back behaviour.
+      set: { appState.setSection($0.rootSection) }
+    )
+  }
+
+  private func tabStack(_ tab: SerenityPhoneTab) -> some View {
+    NavigationStack {
+      Group {
+        if let root = tab.rootSection {
+          SectionView(section: root)
+        } else {
+          MorePhoneList()
+        }
+      }
+      // A background rather than a ZStack sibling: the backdrop's blur circles
+      // are wider than a phone, and as a sibling they size the stack.
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .background { SerenityDetailBackground() }
+      .toolbar(.hidden, for: .navigationBar)
+      .navigationDestination(isPresented: pushBinding(tab)) {
+        Group {
+          if let pushed = pushedSection(tab) {
+            SectionView(section: pushed)
+          }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { SerenityDetailBackground() }
+        .navigationBarTitleDisplayMode(.inline)
+      }
+    }
+  }
+
+  /// A tab pushes when the selected section is one it owns but is not its own
+  /// root: Projects under ActionHub, and everything under More.
+  private func pushedSection(_ tab: SerenityPhoneTab) -> AppSection? {
+    guard let selected = appState.selectedSection else { return nil }
+    guard SerenityPhoneTab.containing(selected) == tab else { return nil }
+    guard selected != tab.rootSection else { return nil }
+    return selected
+  }
+
+  private func pushBinding(_ tab: SerenityPhoneTab) -> Binding<Bool> {
+    Binding(
+      get: { pushedSection(tab) != nil },
+      set: { presented in
+        guard !presented else { return }
+        appState.setSection(tab.rootSection)
+      }
+    )
+  }
+}
+
+private struct MorePhoneList: View {
+  @EnvironmentObject private var appState: AppState
+
+  private let sections: [AppSection] = [.insights, .aiSummaries, .integrations, .settings]
+
+  var body: some View {
+    SerenityThemedScrollView {
+      VStack(alignment: .leading, spacing: 18) {
+        Text("More")
+          .font(SerenityType.scaledSystem(size: 24, weight: .semibold))
+          .padding(.top, 4)
+
+        VStack(spacing: 8) {
+          ForEach(sections) { section in
+            row(section.title, systemImage: section.systemImage) {
+              appState.setSection(section)
+            }
+          }
+        }
+
+        VStack(spacing: 8) {
+          row("Search", systemImage: "magnifyingglass") {
+            appState.openGlobalSearch()
+          }
+          row("Help Center", systemImage: "questionmark.circle") {
+            appState.openHelpCenter()
+          }
+          row(
+            "Appearance",
+            systemImage: appState.themePreference.topBarSymbol,
+            detail: appState.themePreference.moreRowDetail
+          ) {
+            cycleThemePreference()
+          }
+        }
+      }
+      .padding(16)
+      .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+  }
+
+  private func row(
+    _ title: String,
+    systemImage: String,
+    detail: String? = nil,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      HStack(spacing: 12) {
+        Image(systemName: systemImage)
+          .font(SerenityType.scaledSystem(size: 14, weight: .semibold))
+          .foregroundStyle(SerenityPalette.accent)
+          .frame(width: 28, height: 28)
+          .background(SerenityPalette.headerIconBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+        Text(title)
+          .font(SerenityType.bodyLarge)
+
+        Spacer(minLength: 8)
+
+        if let detail {
+          Text(detail)
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        } else {
+          Image(systemName: "chevron.right")
+            .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+      }
+      .padding(.horizontal, 14)
+      .frame(minHeight: SerenityTouchMetrics.minimumTarget + 12)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private func cycleThemePreference() {
+    let all = AppThemePreference.allCases
+    guard let currentIndex = all.firstIndex(of: appState.themePreference) else {
+      appState.setThemePreference(.system)
+      return
+    }
+
+    appState.setThemePreference(all[(currentIndex + 1) % all.count])
+  }
+}
+#endif
+
 private struct TopBarButton: View {
+  @Environment(\.serenityCompactLayout) private var compactLayout
   @State private var hovered = false
   let symbol: String
   let accessibilityLabel: String
@@ -349,9 +622,9 @@ private struct TopBarButton: View {
   var body: some View {
     Button(action: action) {
       Image(systemName: symbol)
-        .font(SerenityType.scaledSystem(size: SerenityChromeMetrics.buttonIconSize, weight: .semibold))
+        .font(SerenityType.scaledSystem(size: compactLayout ? 17 : SerenityChromeMetrics.buttonIconSize, weight: .semibold))
         .foregroundStyle(SerenityPalette.textSecondary)
-        .frame(width: SerenityChromeMetrics.buttonSize, height: SerenityChromeMetrics.buttonSize)
+        .frame(width: buttonSize, height: buttonSize)
         .contentShape(Rectangle())
         .background(
           RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -368,6 +641,10 @@ private struct TopBarButton: View {
       }
       .buttonStyle(.plain)
       .hoverCursor(.pointingHand)
+  }
+
+  private var buttonSize: CGFloat {
+    compactLayout ? SerenityTouchMetrics.minimumTarget : SerenityChromeMetrics.buttonSize
   }
 }
 
@@ -514,8 +791,15 @@ private enum SerenityContentDensity {
   case regular
   case compact
   case tight
+  case phone
 
   static func from(width: CGFloat) -> SerenityContentDensity {
+    // `.tight` was tuned for a narrow Mac window, not a 390pt screen, so the
+    // phone gets its own tier rather than the bottom of the desktop ramp.
+    if width < 480 {
+      return .phone
+    }
+
     if width < 980 {
       return .tight
     }
@@ -532,6 +816,7 @@ private enum SerenityContentDensity {
     case .regular: return 18
     case .compact: return 14
     case .tight: return 12
+    case .phone: return 14
     }
   }
 
@@ -540,6 +825,7 @@ private enum SerenityContentDensity {
     case .regular: return 22
     case .compact: return 18
     case .tight: return 14
+    case .phone: return 16
     }
   }
 
@@ -548,6 +834,7 @@ private enum SerenityContentDensity {
     case .regular: return 12
     case .compact: return 10
     case .tight: return 8
+    case .phone: return 12
     }
   }
 
@@ -558,6 +845,7 @@ private enum SerenityContentDensity {
     case .regular: return 38
     case .compact: return 34
     case .tight: return 32
+    case .phone: return 20
     }
   }
 
@@ -566,6 +854,7 @@ private enum SerenityContentDensity {
     case .regular: return 50
     case .compact: return 44
     case .tight: return 40
+    case .phone: return 40
     }
   }
 
@@ -574,6 +863,7 @@ private enum SerenityContentDensity {
     case .regular: return 19
     case .compact: return 17
     case .tight: return 15
+    case .phone: return 19
     }
   }
 
@@ -582,6 +872,7 @@ private enum SerenityContentDensity {
     case .regular: return SerenityType.scaledSystem(size: 28, weight: .semibold)
     case .compact: return SerenityType.scaledSystem(size: 24, weight: .semibold)
     case .tight: return SerenityType.scaledSystem(size: 21, weight: .medium)
+    case .phone: return SerenityType.scaledSystem(size: 24, weight: .semibold)
     }
   }
 
@@ -590,6 +881,7 @@ private enum SerenityContentDensity {
     case .regular: return SerenityType.scaledSystem(size: 17, weight: .regular)
     case .compact: return SerenityType.scaledSystem(size: 15, weight: .regular)
     case .tight: return SerenityType.scaledSystem(size: 14, weight: .regular)
+    case .phone: return SerenityType.scaledSystem(size: 14, weight: .regular)
     }
   }
 
@@ -598,6 +890,7 @@ private enum SerenityContentDensity {
     case .regular: return 24
     case .compact: return 18
     case .tight: return 14
+    case .phone: return 14
     }
   }
 
@@ -606,6 +899,7 @@ private enum SerenityContentDensity {
     case .regular: return 22
     case .compact: return 18
     case .tight: return 14
+    case .phone: return 14
     }
   }
 
@@ -614,6 +908,7 @@ private enum SerenityContentDensity {
     case .regular: return 18
     case .compact: return 17
     case .tight: return 16
+    case .phone: return 16
     }
   }
 
@@ -622,6 +917,7 @@ private enum SerenityContentDensity {
     case .regular: return 16
     case .compact: return 14
     case .tight: return 12
+    case .phone: return 12
     }
   }
 
@@ -630,6 +926,7 @@ private enum SerenityContentDensity {
     case .regular: return 156
     case .compact: return 132
     case .tight: return 116
+    case .phone: return 92
     }
   }
 
@@ -638,6 +935,7 @@ private enum SerenityContentDensity {
     case .regular: return 12
     case .compact: return 10
     case .tight: return 8
+    case .phone: return 8
     }
   }
 
@@ -645,6 +943,7 @@ private enum SerenityContentDensity {
 
 private struct SectionView: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.serenityCompactLayout) private var compactLayout
 #if os(iOS)
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 #endif
@@ -710,10 +1009,10 @@ private struct SectionView: View {
         pageHeader(density: density)
           .padding(.top, Self.headerTopPadding(density))
           .padding(.leading, density.contentPadding)
-          .padding(.trailing, density.contentPadding + 14)
+          .padding(.trailing, density.contentPadding + trailingScrollbarGutter)
           .padding(.bottom, Self.headerScrollGap)
 
-        SerenityThemedScrollView {
+        sectionScrollView(density: density) {
           VStack(alignment: .leading, spacing: density.sectionSpacing) {
             switch section {
             case .home:
@@ -739,7 +1038,7 @@ private struct SectionView: View {
           .frame(maxWidth: .infinity, alignment: .topLeading)
           .padding(.top, density.pageHeaderSpacing + density.contentPadding - Self.headerScrollGap)
           .padding(.leading, density.contentPadding)
-          .padding(.trailing, density.contentPadding + 14)
+          .padding(.trailing, density.contentPadding + trailingScrollbarGutter)
           .padding(.bottom, density.contentBottomPadding)
         }
       }
@@ -750,13 +1049,64 @@ private struct SectionView: View {
 #endif
   }
 
+  /// Pull to refresh is a phone gesture; the Mac refreshes on section entry.
+  @ViewBuilder
+  private func sectionScrollView<Content: View>(
+    density: SerenityContentDensity,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    if compactLayout {
+      SerenityThemedScrollView(content: content)
+        .scrollDismissesKeyboard(.interactively)
+        .refreshable {
+          await refreshSection()
+        }
+    } else {
+      SerenityThemedScrollView(content: content)
+    }
+  }
+
+  @MainActor
+  private func refreshSection() async {
+    if section == .insights || section == .aiSummaries || section == .settings {
+      await appState.refreshAIWorkflows()
+    }
+
+    if [.home, .actionHub, .journal, .goals, .projects, .integrations, .settings].contains(section) {
+      await appState.refreshCoreWorkflowData()
+    }
+  }
+
   @ViewBuilder
   private func pageHeader(density: SerenityContentDensity) -> some View {
+    if compactLayout {
+      // The phone has no top bar, so search rides with the page title. Help and
+      // the theme toggle live in More.
+      HStack(alignment: .center, spacing: 8) {
+        headerTitle(density: density)
+
+        TopBarButton(symbol: "magnifyingglass", accessibilityLabel: "Search") {
+          appState.openGlobalSearch()
+        }
+      }
+    } else {
+      headerTitle(density: density)
+    }
+  }
+
+  @ViewBuilder
+  private func headerTitle(density: SerenityContentDensity) -> some View {
     if section == .home {
       HomeSectionHeader()
     } else {
       sectionHeader(density: density)
     }
+  }
+
+  /// Reserves room for the hover scrollbar, which a phone does not draw, so on
+  /// compact the content sits evenly between both edges.
+  private var trailingScrollbarGutter: CGFloat {
+    compactLayout ? 0 : 14
   }
 
   /// Most of the gap under the title belongs *inside* the scroll view. The
@@ -784,9 +1134,15 @@ private struct SectionView: View {
             .inspectorColumnWidth(min: 340, ideal: 400, max: 480)
         }
     } else {
+      // A sheet rather than a push: the list stays behind the editor, a drag
+      // dismisses it, and the tab's own navigationDestination stays free.
       sectionContent
-        .navigationDestination(isPresented: editorIsPresented) {
-          taskEditorContent
+        .sheet(isPresented: editorIsPresented) {
+          NavigationStack {
+            taskEditorContent
+          }
+          .presentationDetents([.medium, .large])
+          .presentationDragIndicator(.visible)
         }
     }
   }
@@ -1073,6 +1429,17 @@ private struct QuickCaptureEditor: View {
       }
       .onChange(of: isFocused) { _, newValue in
         editorFocused = newValue
+      }
+      .toolbar {
+        // Without this the software keyboard has no dismiss affordance: the
+        // editor accepts newlines, so Return cannot close it.
+        ToolbarItemGroup(placement: .keyboard) {
+          Spacer()
+
+          Button("Done") {
+            editorFocused = false
+          }
+        }
       }
   }
 }
@@ -2087,6 +2454,7 @@ private func tagsIncludingPendingInput(_ tags: [String], input: String) -> [Stri
 
 private struct ActionHubSectionView: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.serenityCompactLayout) private var compactLayout
   let onEditTask: (TaskEntity) -> Void
 
   private enum HubTab: String, CaseIterable, Identifiable {
@@ -2203,6 +2571,8 @@ private struct ActionHubSectionView: View {
   @State private var newProjectColor: Color = ProjectColorCodec.fallbackColor
   @State private var editingProject: ProjectEntity?
   @State private var projectPendingDeletion: ProjectEntity?
+  @State private var openSwipeTaskID: String?
+  @State private var taskPendingDeletion: TaskEntity?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -2250,31 +2620,24 @@ private struct ActionHubSectionView: View {
     return VStack(alignment: .leading, spacing: 16) {
       quickAddPanel
 
-      HStack(spacing: 12) {
-        HStack(spacing: 8) {
-          Image(systemName: "magnifyingglass")
-            .foregroundStyle(SerenityPalette.textSecondary)
-          TextField("Search tasks, projects, or tags...", text: $searchQuery)
-            .textFieldStyle(.plain)
-            .font(SerenityType.scaledSystem(size: 17, weight: .regular))
-            .focused($searchFocused)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(SerenityPalette.panelBackgroundRaised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-          RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(SerenityPalette.thinBorder, lineWidth: 1)
-        )
+      if compactLayout {
+        // Side by side these squeeze the field to a few characters and wrap the
+        // pill labels onto two lines, so the phone gets a row each.
+        taskSearchField
 
-        Spacer(minLength: 8)
-
-        ForEach(TaskListFilter.allCases) { filter in
-          Button(filter.title) {
-            taskFilter = filter
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 8) {
+            taskFilterPills
           }
-          .buttonStyle(SerenityPillButtonStyle(selected: taskFilter == filter))
-          .hoverCursor(.pointingHand)
+          .padding(.horizontal, 1)
+        }
+      } else {
+        HStack(spacing: 12) {
+          taskSearchField
+
+          Spacer(minLength: 8)
+
+          taskFilterPills
         }
       }
 
@@ -2290,7 +2653,7 @@ private struct ActionHubSectionView: View {
             bucketHeader(group.bucket, count: group.tasks.count)
 
             ForEach(Array(group.tasks.enumerated()), id: \.element.id) { index, task in
-              taskRow(task)
+              swipeableTaskRow(task)
                 .overlay(alignment: .bottom) {
                   if index < group.tasks.count - 1 {
                     Rectangle()
@@ -2304,7 +2667,106 @@ private struct ActionHubSectionView: View {
         .background(SerenityPalette.panelBackground, in: taskListShape)
         .overlay(taskListShape.stroke(SerenityPalette.border, lineWidth: 1))
         .clipShape(taskListShape)
+        .simultaneousGesture(closeSwipeOnScrollGesture)
       }
+    }
+    .confirmationDialog(
+      "Delete \(taskPendingDeletion?.title ?? "this task")?",
+      isPresented: Binding(
+        get: { taskPendingDeletion != nil },
+        set: { if !$0 { taskPendingDeletion = nil } }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Delete", role: .destructive) {
+        guard let task = taskPendingDeletion else { return }
+        taskPendingDeletion = nil
+        Task { await appState.deleteTask(id: task.id) }
+      }
+      Button("Cancel", role: .cancel) {
+        taskPendingDeletion = nil
+      }
+    } message: {
+      Text("This cannot be undone.")
+    }
+  }
+
+  /// Swipe is a phone gesture; the Mac row keeps its hover affordances.
+  @ViewBuilder
+  private func swipeableTaskRow(_ task: TaskEntity) -> some View {
+#if os(iOS)
+    if compactLayout {
+      taskRow(task)
+        .serenitySwipeActions(
+          rowID: task.id,
+          openRowID: $openSwipeTaskID,
+          actions: [
+            SerenitySwipeAction(
+              id: "complete",
+              title: task.completed ? "Undo" : "Done",
+              systemImage: task.completed ? "arrow.uturn.backward" : "checkmark",
+              tint: .green
+            ) {
+              Task { await appState.toggleTaskCompletion(id: task.id) }
+            },
+            SerenitySwipeAction(
+              id: "delete",
+              title: "Delete",
+              systemImage: "trash",
+              tint: .red
+            ) {
+              taskPendingDeletion = task
+            },
+          ]
+        )
+    } else {
+      taskRow(task)
+    }
+#else
+    taskRow(task)
+#endif
+  }
+
+  /// A vertical drag is a scroll, and a scroll closes whatever is open.
+  private var closeSwipeOnScrollGesture: some Gesture {
+    DragGesture(minimumDistance: 12)
+      .onChanged { value in
+        guard openSwipeTaskID != nil else { return }
+        guard abs(value.translation.height) > abs(value.translation.width) else { return }
+        withAnimation(.easeOut(duration: 0.18)) {
+          openSwipeTaskID = nil
+        }
+      }
+  }
+
+
+  private var taskSearchField: some View {
+    HStack(spacing: 8) {
+      Image(systemName: "magnifyingglass")
+        .foregroundStyle(SerenityPalette.textSecondary)
+      TextField("Search tasks, projects, or tags...", text: $searchQuery)
+        .textFieldStyle(.plain)
+        .font(SerenityType.scaledSystem(size: 17, weight: .regular))
+        .focused($searchFocused)
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 12)
+    .background(SerenityPalette.panelBackgroundRaised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
+  }
+
+  @ViewBuilder
+  private var taskFilterPills: some View {
+    ForEach(TaskListFilter.allCases) { filter in
+      Button(filter.title) {
+        taskFilter = filter
+      }
+      .buttonStyle(SerenityPillButtonStyle(selected: taskFilter == filter))
+      .hoverCursor(.pointingHand)
+      .fixedSize(horizontal: true, vertical: false)
     }
   }
 
@@ -2929,7 +3391,7 @@ private struct ActionHubSectionView: View {
           await appState.updateProject(id: project.id, name: name, description: description, color: color)
         }
       }
-      .frame(minWidth: 420, minHeight: 260)
+      .serenityDesktopSheetSize(minWidth: 420, minHeight: 260)
     }
     .confirmationDialog(
       "Delete \(projectPendingDeletion?.name ?? "this project")?",
@@ -3653,6 +4115,7 @@ private struct TodayOverviewView: View {
 }
 
 private struct SerenityDateRangePicker: View {
+  @Environment(\.serenityCompactLayout) private var compactLayout
   @Binding var isEnabled: Bool
   @Binding var startDate: Date
   @Binding var endDate: Date
@@ -3794,7 +4257,7 @@ private struct SerenityDateRangePicker: View {
             ? SerenityPalette.textOnInteractiveSurface
             : SerenityPalette.textPrimary
         )
-        .frame(maxWidth: .infinity, minHeight: 30)
+        .frame(maxWidth: .infinity, minHeight: compactLayout ? SerenityTouchMetrics.minimumTarget : 30)
         .background(
           dayBackground(isEndpoint: isEndpoint, isInRange: isInRange),
           in: RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -3930,7 +4393,7 @@ private struct JournalSectionView: View {
           )
         }
       }
-      .frame(minWidth: 460, minHeight: 380)
+      .serenityDesktopSheetSize(minWidth: 460, minHeight: 380)
     }
   }
 
@@ -4738,7 +5201,7 @@ private struct ProjectsSectionView: View {
           await appState.updateProject(id: project.id, name: name, description: description, color: color)
         }
       }
-      .frame(minWidth: 420, minHeight: 260)
+      .serenityDesktopSheetSize(minWidth: 420, minHeight: 260)
     }
   }
 }
@@ -5426,6 +5889,7 @@ struct InsightsSectionView: View {
 
 private struct CostCenterSectionView: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.serenityCompactLayout) private var compactLayout
 
   @State private var selectedWindow: CostWindow = .thirtyDays
   @State private var rateProvider: AIUsageProvider = .openai
@@ -5636,6 +6100,8 @@ private struct CostCenterSectionView: View {
         }
         .frame(height: 180)
       } else {
+        let palette = chartPalette(count: rows.count)
+
         Chart(rows) { row in
           SectorMark(
             angle: .value("Cost", row.cost),
@@ -5644,9 +6110,33 @@ private struct CostCenterSectionView: View {
           )
           .foregroundStyle(by: .value("Operation", row.label))
         }
-        .chartForegroundStyleScale(domain: rows.map(\.label), range: chartPalette(count: rows.count))
+        .chartForegroundStyleScale(domain: rows.map(\.label), range: palette)
         .chartLegend(position: .bottom, alignment: .center, spacing: 8)
+        .chartLegend(compactLayout ? .hidden : .visible)
         .frame(height: 180)
+
+        // The built-in legend names the slices but not their size, which is the
+        // one thing worth reading on a phone-width donut.
+        if compactLayout {
+          VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+              HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                  .fill(palette[index % max(palette.count, 1)])
+                  .frame(width: 10, height: 10)
+
+                Text(row.label)
+                  .font(SerenityType.body)
+
+                Spacer(minLength: 8)
+
+                Text(formatUSD(row.cost))
+                  .font(SerenityType.bodyMedium)
+                  .foregroundStyle(SerenityPalette.textSecondary)
+              }
+            }
+          }
+        }
       }
     }
     .padding(16)
@@ -6660,6 +7150,7 @@ private struct AISummariesSectionView: View {
 
 private struct DatabaseSectionView: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.serenityCompactLayout) private var compactLayout
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -6695,81 +7186,19 @@ private struct DatabaseSectionView: View {
 
       DatabaseBackendConfigurationPanel()
 
-      HStack(alignment: .top, spacing: 16) {
-        GroupBox("Database Statistics") {
-          VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-              statMetricCard(title: "Size", value: sqlitePath == nil ? "N/A" : "Local")
-              statMetricCard(title: "Records", value: "\(recordCount)")
-              statMetricCard(title: "Tasks", value: "\(appState.tasks.count)")
-              statMetricCard(title: "Error Rate", value: databaseHealthErrorRate)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-              Text("Record Breakdown")
-                .font(SerenityType.sectionTitle)
-
-              breakdownRow("Tasks", value: "\(appState.tasks.count)")
-              breakdownRow("Projects", value: "\(appState.projects.count)")
-              breakdownRow("Journal Entries", value: "\(appState.journalEntries.count)")
-              breakdownRow("Goals", value: "\(appState.goals.count)")
-            }
-
-            Divider()
-              .overlay(SerenityPalette.thinBorder)
-
-            VStack(alignment: .leading, spacing: 8) {
-              Text("Performance Metrics")
-                .font(SerenityType.sectionTitle)
-
-              breakdownRow("Integrity Check", value: appState.databaseIntegrityCheckResult)
-              breakdownRow("Last Backup", value: appState.lastDatabaseBackupPath == nil ? "Not created" : "Available")
-              breakdownRow("Last Export", value: appState.lastDatabaseExportPath == nil ? "Not exported" : "Available")
-            }
-          }
-          .padding(.top, 4)
+      if compactLayout {
+        VStack(alignment: .leading, spacing: 16) {
+          databaseStatisticsPanel
+          databaseSidePanels
         }
-        .frame(maxWidth: .infinity)
+      } else {
+        HStack(alignment: .top, spacing: 16) {
+          databaseStatisticsPanel
+            .frame(maxWidth: .infinity)
 
-        VStack(spacing: 16) {
-          GroupBox("Quick Actions") {
-            VStack(alignment: .leading, spacing: 10) {
-              Button("Create Backup") {
-                Task { await appState.createDatabaseBackup() }
-              }
-              .buttonStyle(SerenityPrimaryButtonStyle())
-          .hoverCursor(.pointingHand)
-
-              Button("Integrity Check") {
-                Task { await appState.runDatabaseIntegrityCheck() }
-              }
-              .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-
-              Button("Export Snapshot") {
-                Task { await appState.exportCoreDataSnapshot() }
-              }
-              .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-
-              Button("Run Bootstrap") {
-                Task { await appState.bootstrapLocalDatabase() }
-              }
-              .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-            }
-            .padding(.top, 4)
-          }
-
-          GroupBox("Current Configuration") {
-            VStack(alignment: .leading, spacing: 6) {
-              breakdownRow("Database Type", value: appState.backendSelectionState.activeProfile.title)
-              breakdownRow("SQLite Path", value: sqlitePath ?? "Unavailable")
-            }
-            .padding(.top, 4)
-          }
+          databaseSidePanels
+            .frame(width: 320)
         }
-        .frame(width: 320)
       }
 
       GroupBox("Diagnostics") {
@@ -6822,6 +7251,100 @@ private struct DatabaseSectionView: View {
     }
   }
 
+
+  private var databaseStatisticsPanel: some View {
+    GroupBox("Database Statistics") {
+        VStack(alignment: .leading, spacing: 14) {
+          if compactLayout {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+              databaseStatMetricCards
+            }
+          } else {
+            HStack(spacing: 10) {
+              databaseStatMetricCards
+            }
+          }
+
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Record Breakdown")
+              .font(SerenityType.sectionTitle)
+
+            breakdownRow("Tasks", value: "\(appState.tasks.count)")
+            breakdownRow("Projects", value: "\(appState.projects.count)")
+            breakdownRow("Journal Entries", value: "\(appState.journalEntries.count)")
+            breakdownRow("Goals", value: "\(appState.goals.count)")
+          }
+
+          Divider()
+            .overlay(SerenityPalette.thinBorder)
+
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Performance Metrics")
+              .font(SerenityType.sectionTitle)
+
+            breakdownRow("Integrity Check", value: appState.databaseIntegrityCheckResult)
+            breakdownRow("Last Backup", value: appState.lastDatabaseBackupPath == nil ? "Not created" : "Available")
+            breakdownRow("Last Export", value: appState.lastDatabaseExportPath == nil ? "Not exported" : "Available")
+          }
+        }
+        .padding(.top, 4)
+      }
+      .frame(maxWidth: .infinity)
+  }
+
+  @ViewBuilder
+  private var databaseStatMetricCards: some View {
+    statMetricCard(title: "Size", value: sqlitePath == nil ? "N/A" : "Local")
+    statMetricCard(title: "Records", value: "\(recordCount)")
+    statMetricCard(title: "Tasks", value: "\(appState.tasks.count)")
+    statMetricCard(title: "Error Rate", value: databaseHealthErrorRate)
+  }
+
+  private var databaseSidePanels: some View {
+    VStack(spacing: 16) {
+      GroupBox("Quick Actions") {
+        VStack(alignment: .leading, spacing: 10) {
+          Button("Create Backup") {
+            Task { await appState.createDatabaseBackup() }
+          }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .serenityFullWidthOnCompact(compactLayout)
+
+          Button("Integrity Check") {
+            Task { await appState.runDatabaseIntegrityCheck() }
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .serenityFullWidthOnCompact(compactLayout)
+
+          Button("Export Snapshot") {
+            Task { await appState.exportCoreDataSnapshot() }
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .serenityFullWidthOnCompact(compactLayout)
+
+          Button("Run Bootstrap") {
+            Task { await appState.bootstrapLocalDatabase() }
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .serenityFullWidthOnCompact(compactLayout)
+        }
+        .padding(.top, 4)
+      }
+
+      GroupBox("Current Configuration") {
+        VStack(alignment: .leading, spacing: 6) {
+          breakdownRow("Database Type", value: appState.backendSelectionState.activeProfile.title)
+          breakdownRow("SQLite Path", value: sqlitePath ?? "Unavailable")
+        }
+        .padding(.top, 4)
+      }
+    }
+  }
+
   private var recordCount: Int {
     appState.tasks.count + appState.projects.count + appState.journalEntries.count + appState.goals.count
   }
@@ -6868,6 +7391,7 @@ private struct DatabaseSectionView: View {
 
 private struct DatabaseBackendConfigurationPanel: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.serenityCompactLayout) private var compactLayout
   @State private var cloudBaseURL = ""
   @State private var cloudAccessToken = ""
   @State private var postgresHost = ""
@@ -6895,7 +7419,7 @@ private struct DatabaseBackendConfigurationPanel: View {
             selection: $appState.settings.backendProfile,
             options: backendProfileDropdownOptions
           )
-          .frame(maxWidth: 300, alignment: .leading)
+          .frame(maxWidth: compactLayout ? .infinity : 300, alignment: .leading)
         }
 
         statusBanner(
@@ -6913,7 +7437,7 @@ private struct DatabaseBackendConfigurationPanel: View {
             selection: $backendConfigProfile,
             options: backendProfileDropdownOptions
           )
-          .frame(maxWidth: 300, alignment: .leading)
+          .frame(maxWidth: compactLayout ? .infinity : 300, alignment: .leading)
         }
 
         backendConfigurationEditor
@@ -7129,39 +7653,50 @@ private struct DatabaseBackendConfigurationPanel: View {
             .serenityInputField()
         }
 
-        HStack(spacing: 10) {
-          Button {
-            Task {
-              await appState.configureExternalPostgres(
-                host: postgresHost,
-                port: postgresPort,
-                database: postgresDatabase,
-                username: postgresUsername,
-                password: postgresPassword,
-                sslMode: postgresSSLMode
-              )
-              await appState.refreshBackendDiagnostics()
-            }
-          } label: {
-            Label("Save PostgreSQL config", systemImage: "square.and.arrow.down")
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: 10) {
+            postgresConfigurationActions
           }
-          .buttonStyle(SerenityPrimaryButtonStyle())
-          .hoverCursor(.pointingHand)
 
-          Button {
-            Task {
-              await appState.clearExternalPostgresConfiguration()
-              postgresPassword = ""
-              await appState.refreshBackendDiagnostics()
-            }
-          } label: {
-            Label("Clear", systemImage: "xmark")
+          VStack(alignment: .leading, spacing: 10) {
+            postgresConfigurationActions
           }
-          .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
         }
       }
     }
+  }
+
+  @ViewBuilder
+  private var postgresConfigurationActions: some View {
+    Button {
+      Task {
+        await appState.configureExternalPostgres(
+          host: postgresHost,
+          port: postgresPort,
+          database: postgresDatabase,
+          username: postgresUsername,
+          password: postgresPassword,
+          sslMode: postgresSSLMode
+        )
+        await appState.refreshBackendDiagnostics()
+      }
+    } label: {
+      Label("Save PostgreSQL config", systemImage: "square.and.arrow.down")
+    }
+    .buttonStyle(SerenityPrimaryButtonStyle())
+    .hoverCursor(.pointingHand)
+
+    Button {
+      Task {
+        await appState.clearExternalPostgresConfiguration()
+        postgresPassword = ""
+        await appState.refreshBackendDiagnostics()
+      }
+    } label: {
+      Label("Clear", systemImage: "xmark")
+    }
+    .buttonStyle(SerenitySecondaryButtonStyle())
+    .hoverCursor(.pointingHand)
   }
 
   @ViewBuilder
@@ -7341,6 +7876,7 @@ private struct DatabaseBackendConfigurationPanel: View {
 
 private struct SettingsSectionView: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.serenityCompactLayout) private var compactLayout
   @State private var authorizationCode = ""
   @State private var oauthBaseURL = ""
   @State private var oauthClientID = ""
@@ -8050,7 +8586,7 @@ private struct SettingsSectionView: View {
             selection: $appState.settings.backendProfile,
             options: backendProfileDropdownOptions
           )
-          .frame(maxWidth: 300, alignment: .leading)
+          .frame(maxWidth: compactLayout ? .infinity : 300, alignment: .leading)
         }
 
         statusBanner(
@@ -8068,7 +8604,7 @@ private struct SettingsSectionView: View {
             selection: $backendConfigProfile,
             options: backendProfileDropdownOptions
           )
-          .frame(maxWidth: 300, alignment: .leading)
+          .frame(maxWidth: compactLayout ? .infinity : 300, alignment: .leading)
         }
 
         backendConfigurationEditor
@@ -8650,37 +9186,48 @@ private struct SettingsSectionView: View {
             .serenityInputField()
         }
 
-        HStack(spacing: 10) {
-          Button {
-            Task {
-              await appState.configureExternalPostgres(
-                host: postgresHost,
-                port: postgresPort,
-                database: postgresDatabase,
-                username: postgresUsername,
-                password: postgresPassword,
-                sslMode: postgresSSLMode
-              )
-            }
-          } label: {
-            Label("Save PostgreSQL config", systemImage: "square.and.arrow.down")
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: 10) {
+            postgresConfigurationActions
           }
-          .buttonStyle(SerenityPrimaryButtonStyle())
-          .hoverCursor(.pointingHand)
 
-          Button {
-            Task {
-              await appState.clearExternalPostgresConfiguration()
-              postgresPassword = ""
-            }
-          } label: {
-            Label("Clear", systemImage: "xmark")
+          VStack(alignment: .leading, spacing: 10) {
+            postgresConfigurationActions
           }
-          .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
         }
       }
     }
+  }
+
+  @ViewBuilder
+  private var postgresConfigurationActions: some View {
+    Button {
+      Task {
+        await appState.configureExternalPostgres(
+          host: postgresHost,
+          port: postgresPort,
+          database: postgresDatabase,
+          username: postgresUsername,
+          password: postgresPassword,
+          sslMode: postgresSSLMode
+        )
+      }
+    } label: {
+      Label("Save PostgreSQL config", systemImage: "square.and.arrow.down")
+    }
+    .buttonStyle(SerenityPrimaryButtonStyle())
+    .hoverCursor(.pointingHand)
+
+    Button {
+      Task {
+        await appState.clearExternalPostgresConfiguration()
+        postgresPassword = ""
+      }
+    } label: {
+      Label("Clear", systemImage: "xmark")
+    }
+    .buttonStyle(SerenitySecondaryButtonStyle())
+    .hoverCursor(.pointingHand)
   }
 
   @ViewBuilder
@@ -9283,6 +9830,7 @@ private struct MetricTile: View {
 
 private struct GlobalSearchSheet: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.serenityCompactLayout) private var compactLayout
   @FocusState private var queryFocused: Bool
   @State private var highlightedResultID: String?
   @State private var keyMonitor: Any?
@@ -9316,12 +9864,21 @@ private struct GlobalSearchSheet: View {
         Label("Global Search", systemImage: "magnifyingglass")
           .font(SerenityType.sectionTitle)
         Spacer()
-        Text("Cmd+K")
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 4)
-          .background(SerenityPalette.innerCardBackground, in: Capsule())
+        if compactLayout {
+          // The shortcut chip means nothing without a keyboard; a phone sheet
+          // needs a dismiss control instead.
+          Button("Done") {
+            appState.closeGlobalSearch()
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+        } else {
+          Text("Cmd+K")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(SerenityPalette.innerCardBackground, in: Capsule())
+        }
       }
 
       HStack(spacing: 8) {
@@ -9386,7 +9943,7 @@ private struct GlobalSearchSheet: View {
       }
     }
     .padding(20)
-    .frame(minWidth: 760, minHeight: 560)
+    .serenityDesktopSheetSize(minWidth: 760, minHeight: 560)
     .background(SerenityPalette.windowBackground)
     .onAppear {
       queryFocused = true
@@ -9560,6 +10117,7 @@ private struct HelpCenterFAQ: Identifiable {
 
 private struct HelpCenterSheet: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.serenityCompactLayout) private var compactLayout
   @State private var query = ""
 
   private let articles: [HelpCenterArticle] = [
@@ -9691,12 +10249,19 @@ private struct HelpCenterSheet: View {
         Label("Help Center", systemImage: "questionmark.circle")
           .font(SerenityType.sectionTitle)
         Spacer()
-        Text("Cmd+/")
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 4)
-          .background(SerenityPalette.innerCardBackground, in: Capsule())
+        if compactLayout {
+          Button("Done") {
+            appState.closeHelpCenter()
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+        } else {
+          Text("Cmd+/")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(SerenityPalette.innerCardBackground, in: Capsule())
+        }
       }
 
       HStack(spacing: 8) {
@@ -9835,7 +10400,7 @@ private struct HelpCenterSheet: View {
       }
     }
     .padding(20)
-    .frame(minWidth: 760, minHeight: 560)
+    .serenityDesktopSheetSize(minWidth: 760, minHeight: 560)
     .background(SerenityPalette.windowBackground)
   }
 }
@@ -9964,6 +10529,7 @@ private struct DueDateSelectionField: View {
 }
 
 private struct DueDateCalendarPopover: View {
+  @Environment(\.serenityCompactLayout) private var compactLayout
   @Binding var selection: Date
   @Binding var isPresented: Bool
   @State private var visibleMonth: Date
@@ -10086,7 +10652,7 @@ private struct DueDateCalendarPopover: View {
       Text("\(calendar.component(.day, from: day))")
         .font(SerenityType.bodyMedium.weight(isSelected ? .semibold : .regular))
         .foregroundStyle(isSelected ? SerenityPalette.textOnInteractiveSurface : SerenityPalette.textPrimary)
-        .frame(maxWidth: .infinity, minHeight: 30)
+        .frame(maxWidth: .infinity, minHeight: compactLayout ? SerenityTouchMetrics.minimumTarget : 30)
         .background(
           (isSelected ? SerenityPalette.activeItemBackground : SerenityPalette.innerCardBackground.opacity(0.45)),
           in: RoundedRectangle(cornerRadius: 8, style: .continuous)
