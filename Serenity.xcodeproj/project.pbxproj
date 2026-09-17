@@ -92,6 +92,16 @@
 		A000000000000000000000FB /* QuickCaptureDateParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F9 /* QuickCaptureDateParser.swift */; };
 		A000000000000000000000EC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000EF /* Assets.xcassets */; };
 		A000000000000000000000ED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000EF /* Assets.xcassets */; };
+		A00000000000000000000120 /* SlackIntegrationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* SlackIntegrationService.swift */; };
+		A00000000000000000000121 /* SlackMessageReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000111 /* SlackMessageReader.swift */; };
+		A00000000000000000000122 /* SlackRelevanceFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000112 /* SlackRelevanceFilter.swift */; };
+		A00000000000000000000123 /* SlackProposalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000113 /* SlackProposalService.swift */; };
+		A00000000000000000000124 /* SlackRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000114 /* SlackRepositories.swift */; };
+		A00000000000000000000130 /* SlackIntegrationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* SlackIntegrationService.swift */; };
+		A00000000000000000000131 /* SlackMessageReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000111 /* SlackMessageReader.swift */; };
+		A00000000000000000000132 /* SlackRelevanceFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000112 /* SlackRelevanceFilter.swift */; };
+		A00000000000000000000133 /* SlackProposalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000113 /* SlackProposalService.swift */; };
+		A00000000000000000000134 /* SlackRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000114 /* SlackRepositories.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -143,6 +153,11 @@
 		A000000000000000000000F9 /* QuickCaptureDateParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickCaptureDateParser.swift; sourceTree = "<group>"; };
 		A000000000000000000000EF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C73A2CAF2FAA2C2200AB200C /* GoogleAuth.local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = GoogleAuth.local.xcconfig; sourceTree = "<group>"; };
+		A00000000000000000000110 /* SlackIntegrationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackIntegrationService.swift; sourceTree = "<group>"; };
+		A00000000000000000000111 /* SlackMessageReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackMessageReader.swift; sourceTree = "<group>"; };
+		A00000000000000000000112 /* SlackRelevanceFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackRelevanceFilter.swift; sourceTree = "<group>"; };
+		A00000000000000000000113 /* SlackProposalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackProposalService.swift; sourceTree = "<group>"; };
+		A00000000000000000000114 /* SlackRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackRepositories.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -235,6 +250,7 @@
 			children = (
 				A00000000000000000000025 /* AIWorkflowService.swift */,
 				A000000000000000000000F0 /* AIProviderAPIClient.swift */,
+				A00000000000000000000113 /* SlackProposalService.swift */,
 			);
 			path = AI;
 			sourceTree = "<group>";
@@ -266,6 +282,7 @@
 				A00000000000000000000031 /* SerenityCloudAdapter.swift */,
 				A000000000000000000000F6 /* SyncAwareAIRepositories.swift */,
 				A000000000000000000000E3 /* SyncAwareRepositories.swift */,
+				A00000000000000000000114 /* SlackRepositories.swift */,
 			);
 			path = Data;
 			sourceTree = "<group>";
@@ -275,6 +292,9 @@
 			children = (
 				A00000000000000000000032 /* IntegrationModels.swift */,
 				A00000000000000000000033 /* IntegrationServices.swift */,
+				A00000000000000000000110 /* SlackIntegrationService.swift */,
+				A00000000000000000000111 /* SlackMessageReader.swift */,
+				A00000000000000000000112 /* SlackRelevanceFilter.swift */,
 			);
 			path = Integrations;
 			sourceTree = "<group>";
@@ -487,6 +507,11 @@
 				A000000000000000000000FD /* NotificationScheduler.swift in Sources */,
 				A00000000000000000000100 /* RecurrenceEngine.swift in Sources */,
 				A00000000000000000000103 /* MenuBarCaptureView.swift in Sources */,
+				A00000000000000000000120 /* SlackIntegrationService.swift in Sources */,
+				A00000000000000000000121 /* SlackMessageReader.swift in Sources */,
+				A00000000000000000000122 /* SlackRelevanceFilter.swift in Sources */,
+				A00000000000000000000123 /* SlackProposalService.swift in Sources */,
+				A00000000000000000000124 /* SlackRepositories.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -532,6 +557,11 @@
 				A000000000000000000000FB /* QuickCaptureDateParser.swift in Sources */,
 				A000000000000000000000FE /* NotificationScheduler.swift in Sources */,
 				A00000000000000000000101 /* RecurrenceEngine.swift in Sources */,
+				A00000000000000000000130 /* SlackIntegrationService.swift in Sources */,
+				A00000000000000000000131 /* SlackMessageReader.swift in Sources */,
+				A00000000000000000000132 /* SlackRelevanceFilter.swift in Sources */,
+				A00000000000000000000133 /* SlackProposalService.swift in Sources */,
+				A00000000000000000000134 /* SlackRepositories.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -685,6 +715,7 @@
 				DEVELOPMENT_TEAM = N3B962X7RX;
 				GENERATE_INFOPLIST_FILE = NO;
 				GOOGLE_CLIENT_ID = "";
+				SLACK_CLIENT_ID = "";
 				GOOGLE_REVERSED_CLIENT_ID = "";
 				INFOPLIST_FILE = Serenity/Support/iOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -714,6 +745,7 @@
 				DEVELOPMENT_TEAM = N3B962X7RX;
 				GENERATE_INFOPLIST_FILE = NO;
 				GOOGLE_CLIENT_ID = "";
+				SLACK_CLIENT_ID = "";
 				GOOGLE_REVERSED_CLIENT_ID = "";
 				INFOPLIST_FILE = Serenity/Support/iOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

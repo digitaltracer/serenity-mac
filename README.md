@@ -10,6 +10,7 @@ The app combines personal planning, journaling, goals, integrations, AI-assisted
 - Local data storage with SQLite through GRDB
 - Backend switching between local SQLite, Serenity Cloud, and external PostgreSQL
 - Google OAuth and Google Calendar task sync
+- Slack sign-in that proposes tasks from channel conversations for review
 - GitHub token management
 - AI credential management, insights, recaps, summaries, and usage tracking
 - Local lock, biometric auth, security audit logging, and rate guarding
@@ -51,6 +52,31 @@ Google Calendar uses native Google Sign-In on macOS and iOS. Add the non-secret
 `GOOGLE_CLIENT_ID` and `GOOGLE_REVERSED_CLIENT_ID` values to the Xcode build
 settings (or an xcconfig), and make sure the reversed client ID is present as a
 URL scheme in the platform Info.plist.
+
+### Slack
+
+Slack turns channel conversations into task proposals you accept or dismiss in
+ActionHub. It needs a Slack app you create in your own workspace:
+
+1. Create an app at api.slack.com/apps **in your workspace**, and do not
+   activate public distribution. Slack throttles `conversations.history` to one
+   request per minute for distributed non-Marketplace apps; an app that stays
+   internal keeps the usable limits, and that is what makes the feature work.
+2. Under OAuth & Permissions, enable PKCE, add the redirect URL
+   `serenity://slack-oauth`, and add these **user** token scopes:
+   `channels:history`, `groups:history`, `channels:read`, `groups:read`,
+   `users:read`, `usergroups:read`. Do not add `im:history` or `mpim:history` —
+   Serenity never asks for them, so the token it holds cannot read your DMs.
+3. Put the client ID in `SLACK_CLIENT_ID` in the Xcode build settings (or an
+   xcconfig). There is no client secret to store: PKCE public clients do not use
+   one.
+
+Enabling PKCE is irreversible without contacting Slack support, and it forces
+rotating tokens whose refresh token expires after 30 days. Serenity refreshes on
+every sync, so an app left unopened for a month needs signing in again.
+
+Colleagues in the same workspace can connect the same app without affecting its
+rate limits; a different workspace cannot, without public distribution.
 
 ### Xcode workflow
 

@@ -29,6 +29,8 @@
   </array>
   <key>CFBundleVersion</key>
   <string>$(CURRENT_PROJECT_VERSION)</string>
+  <key>SLACK_CLIENT_ID</key>
+  <string>$(SLACK_CLIENT_ID)</string>
   <key>GOOGLE_CLIENT_ID</key>
   <string>$(GOOGLE_CLIENT_ID)</string>
   <key>GOOGLE_REVERSED_CLIENT_ID</key>
