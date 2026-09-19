@@ -5,6 +5,32 @@ enum CaptureCommandKind: String, Equatable, Sendable, CaseIterable {
   case github
 
   var token: String { "/\(rawValue)" }
+
+  var summary: String {
+    switch self {
+    case .slack:
+      return "Draft a task from a Slack thread"
+    case .github:
+      return "Draft a task from one or more pull requests"
+    }
+  }
+
+  var symbolName: String {
+    switch self {
+    case .slack:
+      return "number"
+    case .github:
+      return "chevron.left.forwardslash.chevron.right"
+    }
+  }
+
+  /// The commands a half-typed word could still become. An empty query offers
+  /// all of them, which is what the bare `/` is asking for.
+  static func matching(_ query: String) -> [CaptureCommandKind] {
+    let needle = query.lowercased()
+    guard !needle.isEmpty else { return allCases }
+    return allCases.filter { $0.rawValue.hasPrefix(needle) }
+  }
 }
 
 /// A Slack conversation named by a permalink. `threadRootTS` is what gets
@@ -15,6 +41,17 @@ struct SlackConversationReference: Equatable, Sendable {
   var threadRootTS: String
   var linkedTS: String
   var workspaceHost: String
+}
+
+extension SlackConversationReference {
+  /// All a chip can honestly say before anything is fetched. The channel's name
+  /// costs a round trip; the workspace and whether this is a reply do not.
+  var label: String {
+    let workspace = workspaceHost.hasSuffix(".slack.com")
+      ? String(workspaceHost.dropLast(".slack.com".count))
+      : workspaceHost
+    return "\(workspace.isEmpty ? "slack" : workspace) · \(threadRootTS == linkedTS ? "message" : "thread")"
+  }
 }
 
 struct GitHubPullReference: Equatable, Sendable {
@@ -29,6 +66,15 @@ struct GitHubPullReference: Equatable, Sendable {
 enum CaptureReference: Equatable, Sendable {
   case slack(SlackConversationReference)
   case github(GitHubPullReference)
+
+  var label: String {
+    switch self {
+    case .slack(let reference):
+      return reference.label
+    case .github(let reference):
+      return reference.slug
+    }
+  }
 }
 
 /// One `/slack` or `/github` line, split into what to fetch and what the user
@@ -75,6 +121,75 @@ extension CaptureCommandParseError: LocalizedError {
   }
 }
 
+extension CaptureCommandParseError {
+  /// Two or three words, for a chip that sits beside the link it rejected. The
+  /// whole sentence still gets said once, underneath.
+  var chipLabel: String {
+    switch self {
+    case .noLinks:
+      return "no link yet"
+    case .directMessage:
+      return "direct message"
+    case .channelWithoutMessage:
+      return "no message"
+    case .enterpriseHost:
+      return "not github.com"
+    case .wrongProvider(.slack):
+      return "not a Slack link"
+    case .wrongProvider(.github):
+      return "not a pull request"
+    case .tooManyLinks:
+      return "over the limit"
+    case .malformedLink:
+      return "unreadable link"
+    }
+  }
+}
+
+/// A link the command named and the parser turned down, kept beside the ones it
+/// accepted so a line can show both at once.
+struct CaptureLinkRejection: Equatable, Sendable {
+  var link: String
+  var reason: CaptureCommandParseError
+}
+
+/// Everything the parser can say about a line that is still being typed. It
+/// never throws, and it never treats an unfinished line as a wrong one: a
+/// command whose link has not been pasted yet is waiting, not mistaken.
+struct CaptureCommandPreview: Equatable, Sendable {
+  var kind: CaptureCommandKind
+  var references: [CaptureReference]
+  var rejections: [CaptureLinkRejection]
+  var context: String
+  var foreignLinkCount: Int
+
+  var contextWordCount: Int {
+    context.split(whereSeparator: \.isWhitespace).count
+  }
+
+  var exceedsLimit: Bool {
+    references.count > CaptureCommandParser.referenceLimit
+  }
+
+  /// The refusal this line has already earned, or nil while it could still come
+  /// good. `noLinks` never appears here — that is the state of every command
+  /// one keystroke after it is named.
+  var settledError: CaptureCommandParseError? {
+    if let first = rejections.first { return first.reason }
+    if exceedsLimit { return .tooManyLinks(limit: CaptureCommandParser.referenceLimit) }
+    if references.isEmpty, foreignLinkCount > 0 { return .wrongProvider(expected: kind) }
+    return nil
+  }
+}
+
+/// What the Home input is in the middle of, read fresh on every keystroke.
+enum CaptureCommandInput: Equatable, Sendable {
+  case none
+  /// A slash and a partly typed word: the menu answers this, not a red chip.
+  case menu(query: String)
+  case command(CaptureCommandPreview)
+}
+
 /// Turns a Home-input line into something fetchable, before anything touches
 /// the network. Everything here is pure, which makes it the cheapest place in
 /// the feature to buy confidence — and the only place that can refuse a link
@@ -89,7 +204,35 @@ enum CaptureCommandParser {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let (kind, remainder) = splitCommandWord(trimmed) else { return nil }
 
+    let preview = preview(kind: kind, remainder: remainder)
+    if let settled = preview.settledError { throw settled }
+    guard !preview.references.isEmpty else { throw CaptureCommandParseError.noLinks(kind) }
+
+    return CaptureCommand(
+      kind: kind,
+      references: preview.references,
+      context: preview.context
+    )
+  }
+
+  /// The same reading as `parse`, for a line nobody has finished typing. A bare
+  /// `/`, or a word still being spelled, is a request for the menu rather than
+  /// a command that failed.
+  static func inspect(_ text: String) -> CaptureCommandInput {
+    // Only the leading whitespace goes: the space after the command word is
+    // what ends the choosing and starts the waiting, so it has to survive.
+    let line = String(text.drop(while: \.isWhitespace))
+    guard line.hasPrefix("/") else { return .none }
+    guard line.contains(where: \.isWhitespace) else {
+      return .menu(query: String(line.dropFirst()))
+    }
+    guard let (kind, remainder) = splitCommandWord(line) else { return .none }
+    return .command(preview(kind: kind, remainder: remainder))
+  }
+
+  private static func preview(kind: CaptureCommandKind, remainder: Substring) -> CaptureCommandPreview {
     var references: [CaptureReference] = []
+    var rejections: [CaptureLinkRejection] = []
     var contextWords: [String] = []
     var foreignLinks = 0
 
@@ -100,30 +243,32 @@ enum CaptureCommandParser {
       }
 
       let detected = provider(of: url)
-      if detected == kind {
-        references.append(try reference(from: url, kind: kind))
-      } else {
+      guard detected == kind else {
         // A link to the other provider is only a mistake when it is the only
         // link on the line. Mid-sentence it is far likelier to be something the
         // user wants the draft to mention, so it stays in the context.
         if detected != nil { foreignLinks += 1 }
         contextWords.append(token)
+        continue
+      }
+
+      do {
+        references.append(try reference(from: url, kind: kind))
+      } catch let error as CaptureCommandParseError {
+        rejections.append(CaptureLinkRejection(link: url.absoluteString, reason: error))
+      } catch {
+        rejections.append(
+          CaptureLinkRejection(link: url.absoluteString, reason: .malformedLink(url.absoluteString))
+        )
       }
     }
 
-    guard !references.isEmpty else {
-      throw foreignLinks > 0
-        ? CaptureCommandParseError.wrongProvider(expected: kind)
-        : CaptureCommandParseError.noLinks(kind)
-    }
-    guard references.count <= referenceLimit else {
-      throw CaptureCommandParseError.tooManyLinks(limit: referenceLimit)
-    }
-
-    return CaptureCommand(
+    return CaptureCommandPreview(
       kind: kind,
       references: references,
-      context: contextWords.joined(separator: " ")
+      rejections: rejections,
+      context: contextWords.joined(separator: " "),
+      foreignLinkCount: foreignLinks
     )
   }
 

@@ -267,6 +267,133 @@ final class CaptureCommandParserTests: XCTestCase {
       XCTAssertFalse(message.isEmpty, "\(error) has no message")
     }
   }
+
+  func testEveryRefusalHasAChipLabel() {
+    let errors: [CaptureCommandParseError] = [
+      .noLinks(.slack), .directMessage, .channelWithoutMessage,
+      .enterpriseHost("github.acme-corp.com"), .wrongProvider(expected: .slack),
+      .wrongProvider(expected: .github), .tooManyLinks(limit: 5), .malformedLink("https://x.test"),
+    ]
+
+    for error in errors {
+      XCTAssertFalse(error.chipLabel.isEmpty, "\(error) has no chip label")
+      XCTAssertLessThan(error.chipLabel.count, 24, "\(error) has a chip label too long to sit in a capsule")
+    }
+  }
+
+  // MARK: - Reading a line mid-typing
+
+  func testPlainTextOffersNothing() {
+    XCTAssertEqual(CaptureCommandParser.inspect("call the bank tomorrow"), .none)
+  }
+
+  func testBareSlashAsksForTheWholeMenu() throws {
+    let query = try XCTUnwrap(CaptureCommandParser.inspect("/").menuQuery)
+
+    XCTAssertEqual(query, "")
+    XCTAssertEqual(CaptureCommandKind.matching(query), CaptureCommandKind.allCases)
+  }
+
+  func testHalfTypedWordNarrowsTheMenu() throws {
+    let query = try XCTUnwrap(CaptureCommandParser.inspect("/sl").menuQuery)
+
+    XCTAssertEqual(CaptureCommandKind.matching(query), [.slack])
+  }
+
+  /// Until a space follows it the word is still being chosen, so the menu
+  /// answers rather than a refusal — even though `parse` would throw here.
+  func testFinishedWordWithoutASpaceStaysAMenu() throws {
+    let query = try XCTUnwrap(CaptureCommandParser.inspect("/slack").menuQuery)
+
+    XCTAssertEqual(CaptureCommandKind.matching(query), [.slack])
+    assertThrows(.noLinks(.slack), "/slack")
+  }
+
+  func testAWordThatOnlyStartsWithACommandIsNotOne() {
+    XCTAssertEqual(CaptureCommandParser.inspect("/slackers are people too"), .none)
+  }
+
+  func testACommandAwaitingItsLinkIsNotAMistake() throws {
+    let preview = try XCTUnwrap(CaptureCommandParser.inspect("/slack ").preview)
+
+    XCTAssertTrue(preview.references.isEmpty)
+    XCTAssertNil(preview.settledError)
+  }
+
+  func testRecognisedLinkAndContextAreCountedSeparately() throws {
+    let preview = try XCTUnwrap(CaptureCommandParser.inspect("/slack \(permalink) follow up on it").preview)
+
+    XCTAssertEqual(preview.references.count, 1)
+    XCTAssertEqual(preview.contextWordCount, 4)
+    XCTAssertNil(preview.settledError)
+  }
+
+  func testARefusedLinkIsReportedWithoutThrowing() throws {
+    let dm = "https://acme.slack.com/archives/D05QJ1X2Y/p1726742400123456"
+    let preview = try XCTUnwrap(CaptureCommandParser.inspect("/slack \(dm)").preview)
+
+    XCTAssertEqual(preview.rejections.map(\.reason), [.directMessage])
+    XCTAssertEqual(preview.settledError, .directMessage)
+  }
+
+  /// The point of collecting rejections rather than throwing on the first: a
+  /// line can be part understood and part wrong, and the strip shows both.
+  func testGoodAndBadLinksSurviveTogether() throws {
+    let dm = "https://acme.slack.com/archives/D05QJ1X2Y/p1726742400123456"
+    let preview = try XCTUnwrap(CaptureCommandParser.inspect("/slack \(permalink) \(dm)").preview)
+
+    XCTAssertEqual(preview.references.count, 1)
+    XCTAssertEqual(preview.rejections.count, 1)
+  }
+
+  func testAProviderMismatchSettlesOnlyWhenItIsTheOnlyLink() throws {
+    let mismatched = try XCTUnwrap(CaptureCommandParser.inspect("/github \(permalink)").preview)
+    XCTAssertEqual(mismatched.settledError, .wrongProvider(expected: .github))
+
+    let alongside = try XCTUnwrap(CaptureCommandParser.inspect("/github \(prLink) \(permalink)").preview)
+    XCTAssertNil(alongside.settledError)
+    XCTAssertEqual(alongside.references.count, 1)
+  }
+
+  func testTooManyLinksSettlesBeforeSubmitting() throws {
+    let links = (1...(CaptureCommandParser.referenceLimit + 1))
+      .map { "https://github.com/acme/api/pull/\($0)" }
+      .joined(separator: " ")
+    let preview = try XCTUnwrap(CaptureCommandParser.inspect("/github \(links)").preview)
+
+    XCTAssertTrue(preview.exceedsLimit)
+    XCTAssertEqual(preview.settledError, .tooManyLinks(limit: CaptureCommandParser.referenceLimit))
+  }
+
+  // MARK: - Chip labels
+
+  func testASlackChipNamesTheWorkspaceAndWhetherItIsAReply() throws {
+    let message = try slackReference(try CaptureCommandParser.parse("/slack \(permalink)"))
+    XCTAssertEqual(message.label, "acme · message")
+
+    let reply = try slackReference(
+      try CaptureCommandParser.parse("/slack \(permalink)?thread_ts=1726742000.000100")
+    )
+    XCTAssertEqual(reply.label, "acme · thread")
+  }
+
+  func testAGitHubChipNamesTheRepositoryAndNumber() throws {
+    let command = try CaptureCommandParser.parse("/github \(prLink)")
+
+    XCTAssertEqual(command?.references.first?.label, "acme/api#812")
+  }
+}
+
+private extension CaptureCommandInput {
+  var preview: CaptureCommandPreview? {
+    guard case .command(let preview) = self else { return nil }
+    return preview
+  }
+
+  var menuQuery: String? {
+    guard case .menu(let query) = self else { return nil }
+    return query
+  }
 }
 
 private extension CaptureReference {
