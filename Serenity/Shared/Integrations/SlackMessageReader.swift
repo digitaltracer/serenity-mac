@@ -69,6 +69,59 @@ struct SlackActivityBatch: Sendable {
   var reachedDeadline: Bool
 }
 
+/// One conversation the user named by pasting its link. Deliberately not a
+/// `SlackSignal`: nothing here was filtered, deduped or checked against the
+/// seen table, because the user asked for this exact conversation.
+struct SlackConversationExcerpt: Equatable, Sendable {
+  var channelID: String
+  var channelName: String
+  var messages: [SlackMessage]
+  var anchor: SlackMessage
+  var names: [String: String]
+  var permalink: String?
+}
+
+/// Slack's `ok: false` codes, turned into something a person can act on. A raw
+/// `not_in_channel` in a toast tells the user nothing they can do about it.
+enum SlackConversationFetchError: Error, Equatable, LocalizedError {
+  case notInChannel(String)
+  case channelNotFound
+  case missingScope
+  case messageNotFound
+
+  var errorDescription: String? {
+    switch self {
+    case .notInChannel:
+      return "You are not in that channel, so Serenity cannot read it. Join the channel and try again."
+    case .channelNotFound:
+      return "Serenity cannot see that channel — it may be private to other people, or the link may be from a different workspace."
+    case .missingScope:
+      return "Your Slack connection is missing permission to read that conversation. Reconnect Slack in Integrations."
+    case .messageNotFound:
+      return "That message no longer exists — it was probably deleted."
+    }
+  }
+
+  /// Slack answers with a code string; only a handful mean something the user
+  /// can fix, and the rest are better left as the underlying error.
+  static func mapping(_ error: Error, channelID: String) -> Error {
+    guard case IntegrationServiceError.slackAPIError(let code) = error else { return error }
+
+    switch code {
+    case "not_in_channel", "is_archived":
+      return SlackConversationFetchError.notInChannel(channelID)
+    case "channel_not_found":
+      return SlackConversationFetchError.channelNotFound
+    case "missing_scope", "not_allowed_token_type":
+      return SlackConversationFetchError.missingScope
+    case "thread_not_found", "message_not_found":
+      return SlackConversationFetchError.messageNotFound
+    default:
+      return error
+    }
+  }
+}
+
 /// Reads forward from a per-channel cursor. Nothing here decides what matters —
 /// it returns everything new in the channels the user belongs to, and the
 /// relevance filter narrows it before any of it costs an AI token.
@@ -177,6 +230,126 @@ actor SlackMessageReader {
       channelsScanned: scanned,
       reachedDeadline: reachedDeadline
     )
+  }
+
+  /// Reads one conversation named by a link. This lives on the reader rather
+  /// than in its own type because the client, the name cache and the raw-message
+  /// mapping are all here already — a second actor would duplicate all three and
+  /// refresh `users.list` twice.
+  func fetchConversation(
+    session: SlackIntegrationSession,
+    reference: SlackConversationReference,
+    contextRadius: Int = 3,
+    now: Date = Date()
+  ) async throws -> SlackConversationExcerpt {
+    let token = session.accessToken
+    try await refreshUserNamesIfStale(token: token, now: now)
+
+    do {
+      let channel = try await channelInfo(id: reference.channelID, token: token)
+      var messages = try await fetchReplies(
+        channel: channel,
+        threadTS: reference.threadRootTS,
+        token: token,
+        oldest: "0",
+        ownUserID: session.userID
+      )
+
+      // A link to a message that was never threaded comes back as a thread of
+      // one, which reads as a fragment. Top it up with its neighbours instead.
+      if messages.count <= 1 {
+        messages = try await window(
+          around: reference.linkedTS,
+          channel: channel,
+          radius: contextRadius,
+          token: token,
+          ownUserID: session.userID
+        )
+      }
+
+      guard
+        let anchor = messages.first(where: { $0.ts == reference.linkedTS })
+          ?? messages.first(where: { $0.ts == reference.threadRootTS })
+          ?? messages.last
+      else {
+        throw SlackConversationFetchError.messageNotFound
+      }
+
+      return SlackConversationExcerpt(
+        channelID: channel.id,
+        channelName: channel.name,
+        messages: messages.sorted { SlackTimestamp.isAfter($1.ts, $0.ts) },
+        anchor: anchor,
+        names: userNames,
+        permalink: SlackMessage.permalink(
+          workspaceURL: session.teamURL,
+          channelID: channel.id,
+          ts: reference.linkedTS
+        )
+      )
+    } catch {
+      throw SlackConversationFetchError.mapping(error, channelID: reference.channelID)
+    }
+  }
+
+  private func channelInfo(id: String, token: String) async throws -> SlackChannel {
+    let response: SlackConversationInfoResponse = try await client.get(
+      "conversations.info",
+      token: token,
+      query: ["channel": id]
+    )
+
+    guard let channel = response.channel else {
+      throw SlackConversationFetchError.channelNotFound
+    }
+    return channel
+  }
+
+  /// Two calls, because `conversations.history` reads backwards from `latest`:
+  /// one for the messages before the anchor and one for those after it. The
+  /// replies that follow an ask are usually the half that matters.
+  private func window(
+    around ts: String,
+    channel: SlackChannel,
+    radius: Int,
+    token: String,
+    ownUserID: String
+  ) async throws -> [SlackMessage] {
+    let before = try await historyPage(
+      channel: channel,
+      token: token,
+      ownUserID: ownUserID,
+      query: ["latest": ts, "inclusive": "true", "limit": String(radius + 1)]
+    )
+    let after = try await historyPage(
+      channel: channel,
+      token: token,
+      ownUserID: ownUserID,
+      query: ["oldest": ts, "inclusive": "true", "limit": String(radius + 1)]
+    )
+
+    var merged: [String: SlackMessage] = [:]
+    for message in before + after {
+      merged[message.ts] = message
+    }
+    return merged.values.sorted { SlackTimestamp.isAfter($1.ts, $0.ts) }
+  }
+
+  private func historyPage(
+    channel: SlackChannel,
+    token: String,
+    ownUserID: String,
+    query: [String: String]
+  ) async throws -> [SlackMessage] {
+    var query = query
+    query["channel"] = channel.id
+
+    let page: SlackHistoryResponse = try await client.get(
+      "conversations.history",
+      token: token,
+      query: query
+    )
+    return page.messages.compactMap { message(from: $0, channel: channel, ownUserID: ownUserID) }
   }
 
   func displayName(for userID: String) -> String? {
@@ -396,6 +569,12 @@ private struct SlackConversationsListResponse: Decodable, SlackAPIResponse {
     case payload = "channels"
     case responseMetadata = "response_metadata"
   }
+}
+
+private struct SlackConversationInfoResponse: Decodable, SlackAPIResponse {
+  let ok: Bool
+  let error: String?
+  let channel: SlackChannel?
 }
 
 /// Slack omits `messages` entirely when it answers `ok: false`, so decoding it

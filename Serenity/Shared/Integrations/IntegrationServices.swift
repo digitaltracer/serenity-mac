@@ -385,6 +385,92 @@ final class GoogleIntegrationService {
   }
 }
 
+/// One reviewer's standing verdict on a pull request. This is where "requested
+/// changes" lives, which is most of the reason a pull request becomes a task.
+struct GitHubReviewSummary: Equatable, Sendable {
+  var reviewer: String
+  var state: String
+  var body: String?
+  var submittedAt: Date?
+  var isBot: Bool = false
+
+  var requestsChanges: Bool { state.uppercased() == "CHANGES_REQUESTED" }
+  var approves: Bool { state.uppercased() == "APPROVED" }
+}
+
+struct GitHubCommentSummary: Equatable, Sendable {
+  var author: String
+  var body: String
+  var createdAt: Date?
+  var isBot: Bool = false
+}
+
+/// A review bot posts a walkthrough on every pull request. Left indistinguishable
+/// from a person, it crowds a human's one-line ask out of the prompt purely by
+/// being longer — the same reason the Slack filter drops bot messages by default.
+enum GitHubAuthor {
+  static func isBot(login: String?, type: String?) -> Bool {
+    guard let login else { return type?.caseInsensitiveCompare("Bot") == .orderedSame }
+    return login.hasSuffix("[bot]") || type?.caseInsensitiveCompare("Bot") == .orderedSame
+  }
+}
+
+/// Everything read from a pull request link, in the shape a draft needs. The
+/// diff is deliberately absent: it is the most expensive thing to read and the
+/// least useful for deciding what the work is.
+struct GitHubPullSnapshot: Equatable, Sendable {
+  /// The **issue** id, not the pull id. `syncGitHubPullRequests` tags with the
+  /// search API's id, which is an issue id, so anything else would fail to
+  /// collide with a task the sync already created — and silently duplicate it.
+  var issueID: Int64
+  var owner: String
+  var repo: String
+  var number: Int
+  var title: String
+  var body: String?
+  var state: String
+  var isPullRequest: Bool
+  var isDraft: Bool
+  var isMerged: Bool
+  var labels: [String]
+  var assignees: [String]
+  var requestedReviewers: [String]
+  var milestoneTitle: String?
+  var milestoneDueOn: Date?
+  var changedFileNames: [String]
+  var changedFileCount: Int
+  var reviews: [GitHubReviewSummary]
+  var comments: [GitHubCommentSummary]
+  var htmlURL: String
+  var createdAt: Date?
+  var updatedAt: Date?
+
+  var slug: String { "\(owner)/\(repo)#\(number)" }
+
+  /// The tag that links a task back to this pull request, matching the one the
+  /// background sync writes.
+  var originTag: String { "github-pr-\(issueID)" }
+}
+
+enum GitHubFetchError: Error, Equatable, LocalizedError {
+  case noActiveToken
+  case noAccess(String)
+  case rateLimited
+
+  var errorDescription: String? {
+    switch self {
+    case .noActiveToken:
+      return "Add a GitHub token in Integrations first."
+    case .noAccess(let slug):
+      // GitHub answers 404 for a repository a token cannot see, exactly as it
+      // does for one that is not there, so the message has to allow for both.
+      return "No access to \(slug) — either it does not exist, or none of your GitHub tokens can reach it."
+    case .rateLimited:
+      return "GitHub's rate limit is spent. Try again in a few minutes."
+    }
+  }
+}
+
 actor GitHubIntegrationService {
   private let secretStore: KeychainSecretStore
   private let requestHandler: IntegrationRequestHandler
@@ -561,6 +647,206 @@ actor GitHubIntegrationService {
     )
   }
 
+
+  /// A PR with eighty comments is mostly "LGTM" and resolved chatter; the
+  /// prompt budget is better spent on the body and the review verdicts.
+  static let commentLimit = 30
+  static let fileNameLimit = 30
+
+  /// Reads one pull request or issue named by a link. Four calls, all cheap
+  /// against the 5000/hour authenticated budget, and none of them the diff.
+  func fetchPullRequest(
+    _ reference: GitHubPullReference,
+    includeFiles: Bool = true
+  ) async throws -> GitHubPullSnapshot {
+    let tokens = try loadTokens().filter(\.isActive)
+    guard !tokens.isEmpty else { throw GitHubFetchError.noActiveToken }
+
+    // A repository a token cannot see answers 404, identically to one that does
+    // not exist, so the only way to tell them apart is to try every token.
+    var sawRateLimit = false
+
+    for record in tokens {
+      let issue: GitHubIssueDetail?
+      do {
+        issue = try await fetch(
+          GitHubIssueDetail.self,
+          path: "/repos/\(reference.owner)/\(reference.repo)/issues/\(reference.number)",
+          token: record.token
+        )
+      } catch GitHubFetchError.rateLimited {
+        sawRateLimit = true
+        continue
+      }
+
+      guard let issue else { continue }
+      return try await snapshot(for: reference, issue: issue, token: record.token, includeFiles: includeFiles)
+    }
+
+    throw sawRateLimit ? GitHubFetchError.rateLimited : GitHubFetchError.noAccess(reference.slug)
+  }
+
+  private func snapshot(
+    for reference: GitHubPullReference,
+    issue: GitHubIssueDetail,
+    token: String,
+    includeFiles: Bool
+  ) async throws -> GitHubPullSnapshot {
+    let base = "/repos/\(reference.owner)/\(reference.repo)"
+    var pull: GitHubPullDetail?
+    var reviews: [GitHubReviewSummary] = []
+    var fileNames: [String] = []
+
+    // An issue link has no pulls endpoint, and a pull request whose reviews are
+    // unreadable is still worth drafting from.
+    if reference.isPullRequest {
+      pull = try await fetch(GitHubPullDetail.self, path: "\(base)/pulls/\(reference.number)", token: token)
+      let raw = try await fetch(
+        [GitHubReviewDetail].self,
+        path: "\(base)/pulls/\(reference.number)/reviews",
+        token: token,
+        query: [URLQueryItem(name: "per_page", value: "100")]
+      )
+      reviews = Self.standingVerdicts(from: raw ?? [])
+
+      if includeFiles {
+        let files = try await fetch(
+          [GitHubFileDetail].self,
+          path: "\(base)/pulls/\(reference.number)/files",
+          token: token,
+          query: [URLQueryItem(name: "per_page", value: String(Self.fileNameLimit))]
+        )
+        fileNames = (files ?? []).map(\.filename)
+      }
+    }
+
+    let comments = try await fetch(
+      [GitHubCommentDetail].self,
+      path: "\(base)/issues/\(reference.number)/comments",
+      token: token,
+      query: [URLQueryItem(name: "per_page", value: "100")]
+    )
+
+    return GitHubPullSnapshot(
+      issueID: issue.id,
+      owner: reference.owner,
+      repo: reference.repo,
+      number: reference.number,
+      title: issue.title,
+      body: issue.body?.nilIfBlank,
+      state: issue.state,
+      isPullRequest: reference.isPullRequest,
+      isDraft: pull?.draft ?? false,
+      isMerged: pull?.merged ?? false,
+      labels: (issue.labels ?? []).map(\.name),
+      assignees: (issue.assignees ?? []).map(\.login),
+      requestedReviewers: (pull?.requestedReviewers ?? []).map(\.login),
+      milestoneTitle: issue.milestone?.title,
+      // The only real deadline a pull request has. Without it a drafted due date
+      // would be a guess, and a guessed deadline is one the user learns to
+      // delete.
+      milestoneDueOn: issue.milestone?.dueOn,
+      changedFileNames: fileNames,
+      changedFileCount: pull?.changedFiles ?? fileNames.count,
+      reviews: reviews,
+      comments: Self.trailing(of: comments ?? [], limit: Self.commentLimit),
+      htmlURL: issue.htmlURL,
+      createdAt: issue.createdAt,
+      updatedAt: issue.updatedAt
+    )
+  }
+
+  /// GitHub's own review decision counts the latest *verdict* per reviewer, not
+  /// the latest review: a reviewer who requested changes and then left a plain
+  /// comment is still blocking.
+  private static func standingVerdicts(from reviews: [GitHubReviewDetail]) -> [GitHubReviewSummary] {
+    var byReviewer: [String: GitHubReviewSummary] = [:]
+
+    for review in reviews {
+      guard let reviewer = review.user?.login else { continue }
+      let summary = GitHubReviewSummary(
+        reviewer: reviewer,
+        state: review.state,
+        body: review.body?.nilIfBlank,
+        submittedAt: review.submittedAt,
+        isBot: GitHubAuthor.isBot(login: reviewer, type: review.user?.type)
+      )
+
+      guard let held = byReviewer[reviewer] else {
+        byReviewer[reviewer] = summary
+        continue
+      }
+      let heldIsVerdict = held.state.uppercased() != "COMMENTED"
+      let newIsVerdict = summary.state.uppercased() != "COMMENTED"
+      if newIsVerdict || !heldIsVerdict {
+        byReviewer[reviewer] = summary
+      }
+    }
+
+    return byReviewer.values.sorted { lhs, rhs in
+      (lhs.submittedAt ?? .distantPast) < (rhs.submittedAt ?? .distantPast)
+    }
+  }
+
+  private static func trailing(of comments: [GitHubCommentDetail], limit: Int) -> [GitHubCommentSummary] {
+    comments
+      .suffix(limit)
+      .compactMap { comment in
+        guard let body = comment.body?.nilIfBlank else { return nil }
+        return GitHubCommentSummary(
+          author: comment.user?.login ?? "someone",
+          body: body,
+          createdAt: comment.createdAt,
+          isBot: GitHubAuthor.isBot(login: comment.user?.login, type: comment.user?.type)
+        )
+      }
+  }
+
+  /// Returns `nil` for anything the token cannot see, so the caller can move on
+  /// to the next token or carry on without an optional part of the picture.
+  private func fetch<T: Decodable>(
+    _ type: T.Type,
+    path: String,
+    token: String,
+    query: [URLQueryItem] = []
+  ) async throws -> T? {
+    var components = URLComponents(string: "https://api.github.com\(path)")
+    if !query.isEmpty {
+      components?.queryItems = query
+    }
+    guard let url = components?.url else {
+      throw IntegrationServiceError.invalidResponse
+    }
+
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+    request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
+
+    let (data, response) = try await requestHandler(request)
+
+    // A spent rate limit and a permission problem share a status code; the
+    // remaining-count header is the only thing that separates them.
+    if response.statusCode == 403 || response.statusCode == 429 {
+      guard response.value(forHTTPHeaderField: "x-ratelimit-remaining") != "0" else {
+        throw GitHubFetchError.rateLimited
+      }
+      return nil
+    }
+    if response.statusCode == 401 || response.statusCode == 404 {
+      return nil
+    }
+    guard 200..<300 ~= response.statusCode else {
+      throw IntegrationServiceError.unsupportedResponseStatus(
+        response.statusCode,
+        String(data: data, encoding: .utf8) ?? ""
+      )
+    }
+
+    return try decoder.decode(T.self, from: data)
+  }
+
   private func validateTokenAndFetchUsername(_ token: String) async throws -> String {
     var request = URLRequest(url: URL(string: "https://api.github.com/user")!)
     request.httpMethod = "GET"
@@ -659,6 +945,95 @@ private struct GitHubIssue: Codable {
     case htmlURL = "html_url"
     case createdAt = "created_at"
   }
+}
+
+private struct GitHubUserRef: Codable {
+  let login: String
+  let type: String?
+}
+
+private struct GitHubLabelRef: Codable {
+  let name: String
+}
+
+private struct GitHubMilestoneRef: Codable {
+  let title: String
+  let dueOn: Date?
+
+  enum CodingKeys: String, CodingKey {
+    case title
+    case dueOn = "due_on"
+  }
+}
+
+private struct GitHubIssueDetail: Codable {
+  let id: Int64
+  let title: String
+  let body: String?
+  let state: String
+  let htmlURL: String
+  let createdAt: Date?
+  let updatedAt: Date?
+  let labels: [GitHubLabelRef]?
+  let assignees: [GitHubUserRef]?
+  let milestone: GitHubMilestoneRef?
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case title
+    case body
+    case state
+    case htmlURL = "html_url"
+    case createdAt = "created_at"
+    case updatedAt = "updated_at"
+    case labels
+    case assignees
+    case milestone
+  }
+}
+
+private struct GitHubPullDetail: Codable {
+  let draft: Bool?
+  let merged: Bool?
+  let changedFiles: Int?
+  let requestedReviewers: [GitHubUserRef]?
+
+  enum CodingKeys: String, CodingKey {
+    case draft
+    case merged
+    case changedFiles = "changed_files"
+    case requestedReviewers = "requested_reviewers"
+  }
+}
+
+private struct GitHubReviewDetail: Codable {
+  let user: GitHubUserRef?
+  let state: String
+  let body: String?
+  let submittedAt: Date?
+
+  enum CodingKeys: String, CodingKey {
+    case user
+    case state
+    case body
+    case submittedAt = "submitted_at"
+  }
+}
+
+private struct GitHubCommentDetail: Codable {
+  let user: GitHubUserRef?
+  let body: String?
+  let createdAt: Date?
+
+  enum CodingKeys: String, CodingKey {
+    case user
+    case body
+    case createdAt = "created_at"
+  }
+}
+
+private struct GitHubFileDetail: Codable {
+  let filename: String
 }
 
 private extension String {

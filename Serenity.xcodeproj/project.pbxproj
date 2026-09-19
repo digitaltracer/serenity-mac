@@ -97,11 +97,13 @@
 		A00000000000000000000122 /* SlackRelevanceFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000112 /* SlackRelevanceFilter.swift */; };
 		A00000000000000000000123 /* SlackProposalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000113 /* SlackProposalService.swift */; };
 		A00000000000000000000124 /* SlackRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000114 /* SlackRepositories.swift */; };
+		A00000000000000000000125 /* CaptureCommandParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000115 /* CaptureCommandParser.swift */; };
 		A00000000000000000000130 /* SlackIntegrationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* SlackIntegrationService.swift */; };
 		A00000000000000000000131 /* SlackMessageReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000111 /* SlackMessageReader.swift */; };
 		A00000000000000000000132 /* SlackRelevanceFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000112 /* SlackRelevanceFilter.swift */; };
 		A00000000000000000000133 /* SlackProposalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000113 /* SlackProposalService.swift */; };
 		A00000000000000000000134 /* SlackRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000114 /* SlackRepositories.swift */; };
+		A00000000000000000000135 /* CaptureCommandParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000115 /* CaptureCommandParser.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -158,6 +160,7 @@
 		A00000000000000000000112 /* SlackRelevanceFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackRelevanceFilter.swift; sourceTree = "<group>"; };
 		A00000000000000000000113 /* SlackProposalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackProposalService.swift; sourceTree = "<group>"; };
 		A00000000000000000000114 /* SlackRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackRepositories.swift; sourceTree = "<group>"; };
+		A00000000000000000000115 /* CaptureCommandParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureCommandParser.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -234,6 +237,7 @@
 				A00000000000000000000020 /* AppLogger.swift */,
 				A00000000000000000000021 /* AppSection.swift */,
 				A00000000000000000000022 /* AppState.swift */,
+				A00000000000000000000115 /* CaptureCommandParser.swift */,
 				A00000000000000000000023 /* CoreWorkflowModels.swift */,
 				A00000000000000000000040 /* DotEnv.swift */,
 				A000000000000000000000FC /* NotificationScheduler.swift */,
@@ -512,6 +516,7 @@
 				A00000000000000000000122 /* SlackRelevanceFilter.swift in Sources */,
 				A00000000000000000000123 /* SlackProposalService.swift in Sources */,
 				A00000000000000000000124 /* SlackRepositories.swift in Sources */,
+				A00000000000000000000125 /* CaptureCommandParser.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -562,6 +567,7 @@
 				A00000000000000000000132 /* SlackRelevanceFilter.swift in Sources */,
 				A00000000000000000000133 /* SlackProposalService.swift in Sources */,
 				A00000000000000000000134 /* SlackRepositories.swift in Sources */,
+				A00000000000000000000135 /* CaptureCommandParser.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
