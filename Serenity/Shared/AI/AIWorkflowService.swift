@@ -7,6 +7,7 @@ enum AIWorkflowError: Error, LocalizedError, Equatable {
   case summaryNotFound(String)
   case invalidQuickCaptureResponse(String)
   case invalidSlackResponse(String)
+  case invalidCaptureDraftResponse(String)
 
   var errorDescription: String? {
     switch self {
@@ -22,6 +23,8 @@ enum AIWorkflowError: Error, LocalizedError, Equatable {
       return "AI quick capture response was invalid: \(reason)"
     case .invalidSlackResponse(let reason):
       return "AI Slack response was invalid: \(reason)"
+    case .invalidCaptureDraftResponse(let reason):
+      return "The drafted task came back unreadable: \(reason)"
     }
   }
 }
@@ -345,6 +348,215 @@ actor AIWorkflowService {
         reason: rawDecision.reason?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       )
     }
+  }
+
+  /// Drafts the task behind a `/slack` or `/github` command. One call, through
+  /// the same provider plumbing quick capture uses, including its repair shot
+  /// when the JSON comes back malformed.
+  func draftCaptureCommand(
+    sources: [CaptureSource],
+    context: String,
+    credentialID: String,
+    openTasks: [TaskEntity],
+    projects: [AIQuickCaptureProjectContext],
+    availableTags: [String],
+    now: Date = Date()
+  ) async throws -> [CaptureDraft] {
+    guard !sources.isEmpty else { return [] }
+
+    let repositories = try await requireRepositories()
+    let selection = try chooseCredential(id: credentialID)
+    let schema = CaptureCommandDrafter.schema()
+    let systemPrompt = CaptureCommandDrafter.systemPrompt()
+
+    var candidates: [String: [TaskEntity]] = [:]
+    for (index, source) in sources.enumerated() {
+      candidates[CaptureCommandDrafter.key(for: index)] = CaptureCommandDrafter.candidates(
+        for: source,
+        tasks: openTasks
+      )
+    }
+
+    let userPrompt = CaptureCommandDrafter.userPrompt(
+      sources: sources,
+      context: context,
+      candidates: candidates,
+      projects: projects,
+      availableTags: availableTags,
+      now: now
+    )
+    let validTaskIDs = Set(openTasks.map(\.id))
+
+    do {
+      let response = try await quickCaptureGenerator(
+        selection.credential.provider,
+        selection.apiKey,
+        selection.model,
+        systemPrompt,
+        userPrompt,
+        schema
+      )
+
+      var promptTokens = response.promptTokens
+      var completionTokens = response.completionTokens
+      var drafts: [CaptureDraft]
+
+      do {
+        drafts = try decodeCaptureDrafts(
+          response.text,
+          sources: sources,
+          projects: projects,
+          validTaskIDs: validTaskIDs
+        )
+      } catch {
+        let repaired = try await quickCaptureGenerator(
+          selection.credential.provider,
+          selection.apiKey,
+          selection.model,
+          systemPrompt,
+          quickCaptureRepairPrompt(
+            invalidResponse: response.text,
+            validationError: Self.describeDecodingFailure(error),
+            schema: schema
+          ),
+          schema
+        )
+        promptTokens += repaired.promptTokens
+        completionTokens += repaired.completionTokens
+        drafts = try decodeCaptureDrafts(
+          repaired.text,
+          sources: sources,
+          projects: projects,
+          validTaskIDs: validTaskIDs
+        )
+      }
+
+      // Logged as quickadd deliberately: `ai_usage.operation` is behind a CHECK
+      // constraint that SQLite cannot widen in place, and a Cost Center row
+      // label is not worth a table rebuild.
+      try recordUsage(
+        repositories: repositories,
+        selection: selection,
+        operation: .quickadd,
+        promptTokens: promptTokens,
+        completionTokens: completionTokens
+      )
+
+      return CaptureCommandDrafter.redirectingDuplicates(drafts, sources: sources, tasks: openTasks)
+    } catch {
+      try? repositories.credentials.recordError(
+        id: selection.credential.id,
+        message: error.localizedDescription,
+        at: Date()
+      )
+      throw error
+    }
+  }
+
+  private func decodeCaptureDrafts(
+    _ text: String,
+    sources: [CaptureSource],
+    projects: [AIQuickCaptureProjectContext],
+    validTaskIDs: Set<String>
+  ) throws -> [CaptureDraft] {
+    let jsonText = extractJSONObject(from: text)
+    guard let data = jsonText.data(using: .utf8) else {
+      throw AIWorkflowError.invalidCaptureDraftResponse("Response was not UTF-8 text")
+    }
+
+    let raw: RawCaptureDrafts
+    do {
+      raw = try JSONDecoder().decode(RawCaptureDrafts.self, from: data)
+    } catch {
+      let reason = Self.describeDecodingFailure(error)
+      AppLogger.error(
+        """
+        AI capture-command decode failed: \(reason). \
+        Payload keys: \(Self.topLevelKeys(of: data)), \(data.count) bytes. \
+        Starts with: \(jsonText.prefix(200))
+        """
+      )
+      throw AIWorkflowError.invalidCaptureDraftResponse(reason)
+    }
+
+    let activeProjectIDs = Set(projects.filter { !$0.archived }.map(\.id))
+
+    let drafts = (raw.tasks ?? []).compactMap { rawTask -> CaptureDraft? in
+      var kind = CaptureDraftKind(rawValue: (rawTask.action ?? "create").lowercased()) ?? .create
+      let title = rawTask.title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      var targetTaskID = rawTask.targetTaskId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+
+      // A model that invents a task id has told us it wants a change, not which
+      // one — so draft new work rather than editing somebody else's task.
+      if kind == .update, targetTaskID.map({ !validTaskIDs.contains($0) }) ?? true {
+        targetTaskID = nil
+        kind = .create
+      }
+      // Unlike the Slack sync, there is no "ignore" here: the user asked for a
+      // task. A draft with nothing to call it is the one thing we cannot use.
+      if kind == .create, title == nil {
+        return nil
+      }
+
+      let draft = CaptureDraft(
+        kind: kind,
+        targetTaskID: targetTaskID,
+        payload: SlackProposalPayload(
+          title: title,
+          description: rawTask.description?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+          priority: rawTask.priority
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .flatMap(TaskPriority.init(rawValue:)),
+          dueDate: parseQuickCaptureDueDate(rawTask.dueDate),
+          projectId: rawTask.projectId.flatMap { activeProjectIDs.contains($0) ? $0 : nil },
+          projectName: rawTask.projectName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+          tags: normalizeTags(rawTask.tags ?? []),
+          subtasks: normalizeList(rawTask.subtasks ?? []),
+          statusChange: SlackStatusChange(rawValue: (rawTask.statusChange ?? "none").lowercased()) ?? .none
+        ),
+        confidence: min(1, max(0, rawTask.confidence ?? 0.5)),
+        reason: rawTask.reason?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+        sourceLabel: ""
+      )
+
+      return CaptureCommandDrafter.tagged(draft, sources: sources, coveringKeys: rawTask.sourceKeys ?? [])
+    }
+
+    guard drafts.count > CaptureCommandDrafter.maxDrafts else { return drafts }
+
+    // Splitting this far means the model found no common thread. Collapsing to
+    // the most confident draft beats writing six tasks from one paste; its tags
+    // still cover every source, so nothing loses its origin.
+    AppLogger.info("Capture command returned \(drafts.count) tasks; collapsing to the most confident one")
+    let best = drafts.max { $0.confidence < $1.confidence } ?? drafts[0]
+    return [
+      CaptureCommandDrafter.tagged(
+        best,
+        sources: sources,
+        coveringKeys: sources.indices.map(CaptureCommandDrafter.key(for:))
+      )
+    ]
+  }
+
+  private struct RawCaptureDrafts: Decodable {
+    struct Draft: Decodable {
+      let sourceKeys: [String]?
+      let action: String?
+      let targetTaskId: String?
+      let title: String?
+      let description: String?
+      let priority: String?
+      let dueDate: String?
+      let projectId: String?
+      let projectName: String?
+      let tags: [String]?
+      let subtasks: [String]?
+      let statusChange: String?
+      let confidence: Double?
+      let reason: String?
+    }
+
+    let tasks: [Draft]?
   }
 
   func fetchSnapshot(limit: Int = 200) async throws -> AIWorkflowSnapshot {
