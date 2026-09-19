@@ -385,27 +385,34 @@ struct SlackThreadParent: Equatable, Sendable {
 private struct SlackConversationsListResponse: Decodable, SlackAPIResponse {
   let ok: Bool
   let error: String?
-  let channels: [SlackChannel]
   let responseMetadata: SlackResponseMetadata?
+  private let payload: [SlackChannel]?
+
+  var channels: [SlackChannel] { payload ?? [] }
 
   enum CodingKeys: String, CodingKey {
     case ok
     case error
-    case channels
+    case payload = "channels"
     case responseMetadata = "response_metadata"
   }
 }
 
+/// Slack omits `messages` entirely when it answers `ok: false`, so decoding it
+/// as required throws a decoding error before the transport can read the real
+/// code — turning every `not_in_channel` into "the data couldn't be read".
 private struct SlackHistoryResponse: Decodable, SlackAPIResponse {
   let ok: Bool
   let error: String?
-  let messages: [SlackRawMessage]
   let responseMetadata: SlackResponseMetadata?
+  private let payload: [SlackRawMessage]?
+
+  var messages: [SlackRawMessage] { payload ?? [] }
 
   enum CodingKeys: String, CodingKey {
     case ok
     case error
-    case messages
+    case payload = "messages"
     case responseMetadata = "response_metadata"
   }
 }
@@ -453,13 +460,15 @@ private struct SlackUsersListResponse: Decodable, SlackAPIResponse {
 
   let ok: Bool
   let error: String?
-  let members: [Member]
   let responseMetadata: SlackResponseMetadata?
+  private let payload: [Member]?
+
+  var members: [Member] { payload ?? [] }
 
   enum CodingKeys: String, CodingKey {
     case ok
     case error
-    case members
+    case payload = "members"
     case responseMetadata = "response_metadata"
   }
 }
@@ -472,7 +481,15 @@ private struct SlackUserGroupsResponse: Decodable, SlackAPIResponse {
 
   let ok: Bool
   let error: String?
-  let usergroups: [UserGroup]
+  private let payload: [UserGroup]?
+
+  var usergroups: [UserGroup] { payload ?? [] }
+
+  enum CodingKeys: String, CodingKey {
+    case ok
+    case error
+    case payload = "usergroups"
+  }
 }
 
 struct SlackResponseMetadata: Decodable, Sendable {
