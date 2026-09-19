@@ -467,6 +467,12 @@ enum SerenityDateText {
   }
 }
 
+/// The leading marker on a row — an icon, or a bare dot when only a tint is set.
+struct SerenityDropdownGlyph: Hashable {
+  let systemImage: String?
+  let tint: Color?
+}
+
 struct SerenityDropdownOption<Value: Hashable>: Identifiable {
   let value: Value
   let title: String
@@ -475,6 +481,11 @@ struct SerenityDropdownOption<Value: Hashable>: Identifiable {
   let tint: Color?
 
   var id: Value { value }
+
+  var glyph: SerenityDropdownGlyph? {
+    guard systemImage != nil || tint != nil else { return nil }
+    return SerenityDropdownGlyph(systemImage: systemImage, tint: tint)
+  }
 
   init(
     value: Value,
@@ -748,8 +759,25 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
     options.first { $0.value == selection }
   }
 
+  /// Long enough that scrolling, not reading, is how the list gets used.
+  private var isLongList: Bool { options.count > 8 }
+
   /// A search field only earns its space once scrolling becomes the alternative.
-  private var showsSearchField: Bool { searchable && options.count > 8 }
+  private var showsSearchField: Bool { searchable && isLongList }
+
+  /// The glyph most rows share tells you nothing about any one of them, so a
+  /// long list drops it and keeps only the markers that set a row apart.
+  private var repeatedRowGlyph: SerenityDropdownGlyph? {
+    guard isLongList else { return nil }
+    let tally = options.reduce(into: [SerenityDropdownGlyph: Int]()) { counts, option in
+      guard let glyph = option.glyph else { return }
+      counts[glyph, default: 0] += 1
+    }
+    guard let winner = tally.max(by: { $0.value < $1.value }), winner.value * 2 > options.count else {
+      return nil
+    }
+    return winner.key
+  }
 
   private var visibleOptions: [SerenityDropdownOption<Value>] {
     let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -909,13 +937,17 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
         .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
         .foregroundStyle(SerenityPalette.textSecondary)
 
-      TextField("Filter \(options.count) options", text: $searchText)
+      TextField("Filter", text: $searchText)
         .textFieldStyle(.plain)
-        .font(SerenityType.bodyMedium)
+        .font(SerenityType.scaledSystem(size: 13, weight: .medium))
         .foregroundStyle(SerenityPalette.textPrimary)
         .focused($searchFocused)
 
-      if !searchText.isEmpty {
+      if searchText.isEmpty {
+        Text("\(options.count)")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      } else {
         Button {
           searchText = ""
           searchFocused = true
@@ -981,7 +1013,7 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
 
   private var dropdownOptionsList: some View {
     let shown = visibleOptions
-    return VStack(alignment: .leading, spacing: 4) {
+    return VStack(alignment: .leading, spacing: 2) {
       if shown.isEmpty {
         Text(options.isEmpty ? "No options" : "No matches")
           .font(SerenityType.caption)
@@ -990,14 +1022,18 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
           .padding(.horizontal, 10)
           .padding(.vertical, 8)
       } else {
+        let repeated = repeatedRowGlyph
         ForEach(shown) { option in
-          dropdownRow(option)
+          dropdownRow(option, suppressing: repeated)
         }
       }
     }
   }
 
-  private func dropdownRow(_ option: SerenityDropdownOption<Value>) -> some View {
+  private func dropdownRow(
+    _ option: SerenityDropdownOption<Value>,
+    suppressing repeated: SerenityDropdownGlyph?
+  ) -> some View {
     let isSelected = option.value == selection
     let isHovered = hoveredOption == option.value
 
@@ -1005,20 +1041,22 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
       selection = option.value
       showingPopover = false
     } label: {
-      HStack(spacing: 9) {
-        if let systemImage = option.systemImage {
-          Image(systemName: systemImage)
-            .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
-            .foregroundStyle(option.tint ?? SerenityPalette.accent)
-        } else if let tint = option.tint {
-          Circle()
-            .fill(tint)
-            .frame(width: 9, height: 9)
+      HStack(spacing: 8) {
+        if repeated == nil || option.glyph != repeated {
+          if let systemImage = option.systemImage {
+            Image(systemName: systemImage)
+              .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+              .foregroundStyle(option.tint ?? SerenityPalette.accent)
+          } else if let tint = option.tint {
+            Circle()
+              .fill(tint)
+              .frame(width: 9, height: 9)
+          }
         }
 
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 1) {
           Text(option.title)
-            .font(SerenityType.bodyMedium)
+            .font(SerenityType.scaledSystem(size: 13, weight: .medium))
             .foregroundStyle(SerenityPalette.textPrimary)
             .lineLimit(1)
 
@@ -1039,10 +1077,10 @@ struct SerenityDropdownField<Value: Hashable, Footer: View>: View {
         }
       }
       .padding(.horizontal, 10)
-      .padding(.vertical, 8)
+      .padding(.vertical, 5)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
           .fill(isSelected ? SerenityPalette.activeItemBackground.opacity(0.72) : SerenityPalette.panelBackgroundRaised.opacity(isHovered ? 0.48 : 0))
       )
     }
@@ -1058,7 +1096,7 @@ extension SerenityDropdownField where Footer == EmptyView {
     placeholder: String,
     selection: Binding<Value>,
     options: [SerenityDropdownOption<Value>],
-    maxMenuHeight: CGFloat = 240,
+    maxMenuHeight: CGFloat = 320,
     style: SerenityDropdownStyle = .field,
     searchable: Bool = false
   ) {
@@ -1078,7 +1116,7 @@ extension SerenityDropdownField {
     placeholder: String,
     selection: Binding<Value>,
     options: [SerenityDropdownOption<Value>],
-    maxMenuHeight: CGFloat = 240,
+    maxMenuHeight: CGFloat = 320,
     footerDismissesOnTap: Bool = true,
     style: SerenityDropdownStyle = .field,
     searchable: Bool = false,
