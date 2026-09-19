@@ -2462,22 +2462,44 @@ private struct HomeSectionView: View {
 /// down the page.
 struct IntegrationsSectionView: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.serenityCompactLayout) private var compactLayout
+
+  private enum Service: String, CaseIterable, Identifiable {
+    case google
+    case github
+    case slack
+    case iCloud
+
+    var id: String { rawValue }
+  }
 
   @State private var githubToken = ""
   @State private var githubDisplayName = ""
   @State private var isConnectingGoogle = false
+  /// One panel at a time — two open rows stop reading as a table.
+  @State private var expandedService: Service?
   @State private var showDiagnostics = false
+
+  private static let accountColumn: CGFloat = 170
+  private static let lastSyncColumn: CGFloat = 104
+  private static let controlColumn: CGFloat = 116
+  private static let rowIcon: CGFloat = 32
+  private static let settingsLabelColumn: CGFloat = 118
+  /// Settings line up under the service name, not under its icon.
+  private static let panelIndent: CGFloat = 16 + rowIcon + 12
 
   private var isGoogleConfigured: Bool {
     appState.googleCalendarConfigured
   }
 
+  private var rowDetailFont: Font {
+    SerenityType.scaledSystem(size: 13)
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
-      syncStatusCard
-      connectedServicesCard
-      githubTokensCard
-      iCloudSyncStatusCard
+      summaryBar
+      registryCard
       diagnosticsCard
     }
     .task {
@@ -2485,88 +2507,101 @@ struct IntegrationsSectionView: View {
     }
   }
 
-  /// These lines were being computed on every sync and shown nowhere. When an
-  /// integration quietly does nothing, they are the difference between a bug
-  /// and a workspace that simply had nothing to say.
-  private var diagnosticsCard: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      Button {
-        showDiagnostics.toggle()
-        if showDiagnostics {
-          Task { await appState.refreshIntegrationDiagnostics() }
-        }
-      } label: {
-        HStack(spacing: 8) {
-          Text("Diagnostics")
-            .font(SerenityType.sectionTitle)
-          Spacer()
-          Image(systemName: showDiagnostics ? "chevron.down" : "chevron.right")
-            .font(SerenityType.caption)
-            .foregroundStyle(SerenityPalette.textSecondary)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .contentShape(Rectangle())
+  // MARK: - Summary
+
+  @ViewBuilder
+  private var summaryBar: some View {
+    if compactLayout {
+      VStack(alignment: .leading, spacing: 10) {
+        summaryLine
+        syncAllButton
       }
-      .buttonStyle(.plain)
-      .hoverCursor(.pointingHand)
-
-      if showDiagnostics {
-        Divider().overlay(SerenityPalette.thinBorder)
-
-        VStack(alignment: .leading, spacing: 4) {
-          ForEach(appState.integrationDiagnosticsLines, id: \.self) { line in
-            Text(line)
-              .font(SerenityType.body.monospaced())
-              .foregroundStyle(SerenityPalette.textSecondary)
-              .textSelection(.enabled)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
-        }
-        .padding(16)
+    } else {
+      HStack(spacing: 12) {
+        summaryLine
+        Spacer(minLength: 12)
+        syncAllButton
       }
     }
-    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .stroke(SerenityPalette.border, lineWidth: 1)
-    )
   }
 
-  private var syncStatusCard: some View {
-    HStack(alignment: .center, spacing: 12) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .fill(SerenityPalette.headerIconBackground)
-          .frame(width: 40, height: 40)
-        Image(systemName: "arrow.triangle.2.circlepath")
-          .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
-          .foregroundStyle(SerenityPalette.accent)
-      }
+  private var summaryLine: some View {
+    HStack(spacing: 8) {
+      Circle()
+        .fill(overallTint)
+        .frame(width: 7, height: 7)
 
-      VStack(alignment: .leading, spacing: 2) {
-        Text(appState.integrationSyncInProgress ? "Syncing..." : "All integrations ready")
-          .font(SerenityType.sectionTitle)
-        Text(lastSyncSummary)
-          .font(SerenityType.body)
-          .foregroundStyle(SerenityPalette.textSecondary)
-      }
+      Text("\(activeServiceCount) of \(Service.allCases.count) services active")
+        .font(SerenityType.body.weight(.medium))
+        .foregroundStyle(SerenityPalette.textPrimary)
 
-      Spacer()
+      Text("·")
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary.opacity(0.5))
 
-      Button("Sync Now") {
-        Task { await appState.syncIntegrationsNow() }
-      }
-      .buttonStyle(SerenityPrimaryButtonStyle())
-      .hoverCursor(.pointingHand)
-      .disabled(appState.integrationSyncInProgress)
+      Text(lastSyncSummary)
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .lineLimit(1)
     }
-    .padding(16)
-    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .stroke(SerenityPalette.border, lineWidth: 1)
-    )
+  }
+
+  private var syncAllButton: some View {
+    Button {
+      Task { await appState.syncIntegrationsNow() }
+    } label: {
+      HStack(spacing: 6) {
+        if appState.integrationSyncInProgress {
+          ProgressView().controlSize(.small)
+        } else {
+          Image(systemName: "arrow.triangle.2.circlepath")
+        }
+        Text(appState.integrationSyncInProgress ? "Syncing" : "Sync all")
+      }
+    }
+    .buttonStyle(SerenitySecondaryButtonStyle())
+    .hoverCursor(.pointingHand)
+    .disabled(appState.integrationSyncInProgress)
+  }
+
+  private var activeServiceCount: Int {
+    var count = 0
+    if appState.googleIntegrationState.connected, appState.googleIntegrationState.syncEnabled {
+      count += 1
+    }
+    if !appState.githubIntegrationState.tokens.isEmpty, appState.githubIntegrationState.syncEnabled {
+      count += 1
+    }
+    if appState.slackIntegrationState.connected, appState.slackIntegrationState.syncEnabled {
+      count += 1
+    }
+    if iCloudIsAvailable {
+      count += 1
+    }
+    return count
+  }
+
+  private var iCloudIsAvailable: Bool {
+    switch appState.iCloudSyncState {
+    case .unavailable, .failed:
+      return false
+    default:
+      return true
+    }
+  }
+
+  private var needsAttention: Bool {
+    if appState.googleIntegrationState.lastError != nil { return true }
+    if appState.githubIntegrationState.lastError != nil { return true }
+    if appState.slackIntegrationState.lastError != nil { return true }
+    return !iCloudIsAvailable
+  }
+
+  private var overallTint: Color {
+    if needsAttention {
+      return .orange
+    }
+    return activeServiceCount > 0 ? .green : SerenityPalette.textSecondary
   }
 
   private var lastSyncSummary: String {
@@ -2580,358 +2615,322 @@ struct IntegrationsSectionView: View {
       return "Syncing now..."
     }
     if let mostRecent = recents.max() {
-      let formatter = RelativeDateTimeFormatter()
-      formatter.unitsStyle = .abbreviated
-      return "Last synced \(formatter.localizedString(for: mostRecent, relativeTo: Date()))"
+      if abs(mostRecent.timeIntervalSinceNow) < 60 {
+        return "Last synced just now"
+      }
+      return "Last synced \(relativeSync(mostRecent))"
     }
-    return "Manual sync available"
+    return "Never synced"
   }
 
-  private var connectedServicesCard: some View {
+  /// A sync that finished seconds ago formats as "in 0s", which reads as a
+  /// scheduled future pass rather than one that just landed.
+  private func relativeSync(_ date: Date?) -> String {
+    guard let date else { return "Never" }
+    let now = Date()
+    guard abs(date.timeIntervalSince(now)) >= 60 else { return "Just now" }
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .abbreviated
+    return formatter.localizedString(for: date, relativeTo: now)
+  }
+
+  // MARK: - Registry
+
+  private var registryCard: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Text("Connected Services")
-        .font(SerenityType.sectionTitle)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+      if !compactLayout {
+        columnHeader
+        Divider().overlay(SerenityPalette.thinBorder)
+      }
 
-      Divider().overlay(SerenityPalette.thinBorder)
-
-      googleServiceRow
-
-      Divider().overlay(SerenityPalette.thinBorder).padding(.leading, 16)
-
-      githubServiceRow
-
-      Divider().overlay(SerenityPalette.thinBorder).padding(.leading, 16)
-
-      slackServiceRow
+      googleRow
+      rowDivider
+      githubRow
+      rowDivider
+      slackRow
+      rowDivider
+      iCloudRow
     }
-    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .background(SerenityPalette.panelBackground)
+    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 14, style: .continuous)
         .stroke(SerenityPalette.border, lineWidth: 1)
     )
   }
 
-  private var slackServiceRow: some View {
-    let connected = appState.slackIntegrationState.connected
+  private var columnHeader: some View {
+    HStack(spacing: 12) {
+      Text("Service")
+        .frame(maxWidth: .infinity, alignment: .leading)
+      Text("Account")
+        .frame(width: Self.accountColumn, alignment: .leading)
+      Text("Last sync")
+        .frame(width: Self.lastSyncColumn, alignment: .leading)
+      Color.clear
+        .frame(width: Self.controlColumn, height: 1)
+    }
+    .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
+    .tracking(0.6)
+    .textCase(.uppercase)
+    .foregroundStyle(SerenityPalette.textSecondary)
+    .padding(.horizontal, 16)
+    .frame(height: 36)
+  }
 
-    return VStack(alignment: .leading, spacing: 0) {
-      HStack(alignment: .center, spacing: 14) {
-        serviceIcon(systemName: "number", accent: Color(red: 0.36, green: 0.19, blue: 0.56))
+  private var rowDivider: some View {
+    Divider()
+      .overlay(SerenityPalette.thinBorder)
+      .padding(.leading, 16)
+  }
 
-        VStack(alignment: .leading, spacing: 3) {
-          HStack(spacing: 8) {
-            Text("Slack")
-              .font(SerenityType.bodyLarge.weight(.semibold))
-            statusPill(connected: connected)
-          }
-          Text(slackStatusDetail)
-            .font(SerenityType.body)
+  private func serviceRow<Trailing: View>(
+    service: Service,
+    name: String,
+    icon: String,
+    tint: Color,
+    detail: String,
+    detailIsProblem: Bool = false,
+    account: String,
+    lastSync: String,
+    canExpand: Bool,
+    @ViewBuilder trailing: () -> Trailing
+  ) -> some View {
+    HStack(spacing: 12) {
+      serviceIcon(systemName: icon, accent: tint)
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text(name)
+          .font(SerenityType.bodyLarge.weight(.semibold))
+          .foregroundStyle(SerenityPalette.textPrimary)
+
+        Text(detail)
+          .font(rowDetailFont)
+          .foregroundStyle(detailIsProblem ? Color.red.opacity(0.85) : SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+
+        if compactLayout {
+          Text("\(account) · \(lastSync)")
+            .font(rowDetailFont)
             .foregroundStyle(SerenityPalette.textSecondary)
         }
-
-        Spacer()
-
-        if connected {
-          Toggle("", isOn: Binding(
-            get: { appState.slackIntegrationState.syncEnabled },
-            set: { enabled in
-              Task { await appState.setSlackIntegrationSyncEnabled(enabled) }
-            }
-          ))
-          .toggleStyle(.switch)
-          .labelsHidden()
-
-          Button("Disconnect") {
-            Task { await appState.disconnectSlackIntegration() }
-          }
-          .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-        } else {
-          Button("Connect") {
-            Task { await appState.connectSlackIntegration() }
-          }
-          .buttonStyle(SerenityPrimaryButtonStyle())
-          .hoverCursor(.pointingHand)
-          .disabled(!appState.slackConfigured)
-        }
       }
-      .padding(16)
 
-      if connected {
-        VStack(alignment: .leading, spacing: 8) {
-          Toggle("Include @here and @channel", isOn: Binding(
-            get: { appState.slackRelevanceSettings.includeBroadcastMentions },
-            set: { value in
-              var settings = appState.slackRelevanceSettings
-              settings.includeBroadcastMentions = value
-              appState.setSlackRelevanceSettings(settings)
-            }
-          ))
+      Spacer(minLength: 12)
 
-          Toggle("Include messages from bots", isOn: Binding(
-            get: { appState.slackRelevanceSettings.includeBotMessages },
-            set: { value in
-              var settings = appState.slackRelevanceSettings
-              settings.includeBotMessages = value
-              appState.setSlackRelevanceSettings(settings)
-            }
-          ))
-
-          HStack(spacing: 8) {
-            Text("Check every")
-            Picker("", selection: Binding(
-              get: { appState.slackPollIntervalMinutes },
-              set: { appState.setSlackPollIntervalMinutes($0) }
-            )) {
-              Text("5 min").tag(5)
-              Text("15 min").tag(15)
-              Text("30 min").tag(30)
-              Text("1 hour").tag(60)
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(width: 110)
-          }
-
-          Text("Serenity reads the channels you belong to while the app is open, and never asks for permission to read your DMs.")
-            .font(SerenityType.caption)
-            .foregroundStyle(SerenityPalette.textSecondary)
-        }
-        .font(SerenityType.body)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
-      }
-    }
-  }
-
-  private var slackStatusDetail: String {
-    if !appState.slackConfigured {
-      return "Add SLACK_CLIENT_ID to the app configuration to enable Slack"
-    }
-    if let error = appState.slackIntegrationState.lastError {
-      return error
-    }
-    guard appState.slackIntegrationState.connected else {
-      return "Turn channel conversations into reviewable task proposals"
-    }
-
-    var parts: [String] = []
-    if let team = appState.slackIntegrationState.teamName {
-      parts.append(team)
-    }
-    if appState.slackChannelsWatched > 0 {
-      parts.append("\(appState.slackChannelsWatched) channel(s) watched")
-    }
-    let pending = appState.slackProposals.count
-    if pending > 0 {
-      parts.append("\(pending) waiting to review")
-    }
-    return parts.isEmpty ? "Connected" : parts.joined(separator: " · ")
-  }
-
-  private var googleServiceRow: some View {
-    let connected = appState.googleIntegrationState.connected
-    return HStack(alignment: .center, spacing: 14) {
-      serviceIcon(systemName: "calendar", accent: Color(red: 0.26, green: 0.52, blue: 0.96))
-
-      VStack(alignment: .leading, spacing: 3) {
-        HStack(spacing: 8) {
-          Text("Google Calendar")
-            .font(SerenityType.bodyLarge.weight(.semibold))
-          statusPill(connected: connected)
-        }
-        Text(googleStatusDetail)
-          .font(SerenityType.body)
+      if !compactLayout {
+        Text(account)
+          .font(SerenityType.bodyMedium)
           .foregroundStyle(SerenityPalette.textSecondary)
-      }
+          .lineLimit(1)
+          .truncationMode(.middle)
+          .frame(width: Self.accountColumn, alignment: .leading)
 
-      Spacer()
-
-      if connected {
-        Toggle("", isOn: Binding(
-          get: { appState.googleIntegrationState.syncEnabled },
-          set: { enabled in
-            Task { await appState.setGoogleIntegrationSyncEnabled(enabled) }
-          }
-        ))
-        .toggleStyle(.switch)
-        .labelsHidden()
-
-        Button("Disconnect") {
-          Task { await appState.disconnectGoogleIntegration() }
-        }
-        .buttonStyle(SerenitySecondaryButtonStyle())
-        .hoverCursor(.pointingHand)
-      } else {
-        Button {
-          Task { await connectGoogle() }
-        } label: {
-          HStack(spacing: 6) {
-            if isConnectingGoogle {
-              ProgressView().controlSize(.small)
-            }
-            Text(isConnectingGoogle ? "Connecting..." : "Connect")
-          }
-        }
-        .buttonStyle(SerenityPrimaryButtonStyle())
-        .hoverCursor(.pointingHand)
-        .disabled(!isGoogleConfigured || isConnectingGoogle)
-      }
-    }
-    .padding(16)
-  }
-
-  private var githubServiceRow: some View {
-    let tokenCount = appState.githubIntegrationState.tokens.count
-    let connected = tokenCount > 0
-    return HStack(alignment: .center, spacing: 14) {
-      serviceIcon(systemName: "chevron.left.forwardslash.chevron.right", accent: Color(red: 0.55, green: 0.55, blue: 0.60))
-
-      VStack(alignment: .leading, spacing: 3) {
-        HStack(spacing: 8) {
-          Text("GitHub")
-            .font(SerenityType.bodyLarge.weight(.semibold))
-          statusPill(connected: connected)
-        }
-        Text(connected
-          ? "\(tokenCount) token\(tokenCount == 1 ? "" : "s") configured"
-          : "Add a personal access token below to connect")
-          .font(SerenityType.body)
+        Text(lastSync)
+          .font(SerenityType.bodyMedium)
           .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(1)
+          .frame(width: Self.lastSyncColumn, alignment: .leading)
       }
 
-      Spacer()
-
-      if connected {
-        Toggle("", isOn: Binding(
-          get: { appState.githubIntegrationState.syncEnabled },
-          set: { enabled in
-            Task { await appState.setGitHubIntegrationSyncEnabled(enabled) }
-          }
-        ))
-        .toggleStyle(.switch)
-        .labelsHidden()
+      HStack(spacing: 10) {
+        trailing()
+        disclosureButton(for: service, name: name, enabled: canExpand)
       }
+      .frame(width: compactLayout ? nil : Self.controlColumn, alignment: .trailing)
     }
-    .padding(16)
+    .padding(.horizontal, 16)
+    .padding(.vertical, 12)
+    .frame(minHeight: 66)
   }
 
-  private var googleStatusDetail: String {
-    if appState.googleIntegrationState.connected {
-      return appState.googleIntegrationState.userEmail.map { "Connected as \($0)" } ?? "Connected"
+  @ViewBuilder
+  private func disclosureButton(for service: Service, name: String, enabled: Bool) -> some View {
+    if enabled {
+      let isOpen = expandedService == service
+      Button {
+        withAnimation(.easeOut(duration: 0.16)) {
+          expandedService = isOpen ? nil : service
+        }
+      } label: {
+        Image(systemName: "chevron.right")
+          .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .rotationEffect(.degrees(isOpen ? 90 : 0))
+          .frame(width: 26, height: 26)
+          .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+              .fill(isOpen ? SerenityPalette.inputBackgroundHover : Color.clear)
+          )
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+      .accessibilityLabel(Text(isOpen ? "Hide \(name) settings" : "Show \(name) settings"))
     }
-    if !isGoogleConfigured {
-      return "Google Sign-In is not configured for this build."
-    }
-    return "Sync your calendar events as tasks"
   }
 
   private func serviceIcon(systemName: String, accent: Color) -> some View {
     ZStack {
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
+      RoundedRectangle(cornerRadius: 9, style: .continuous)
         .fill(accent.opacity(0.18))
-        .frame(width: 36, height: 36)
+        .frame(width: Self.rowIcon, height: Self.rowIcon)
       Image(systemName: systemName)
-        .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
+        .font(SerenityType.scaledSystem(size: 14, weight: .semibold))
         .foregroundStyle(accent)
     }
   }
 
-  private func statusPill(connected: Bool) -> some View {
-    Text(connected ? "Connected" : "Not connected")
-      .font(SerenityType.caption)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 3)
-      .foregroundStyle(connected ? Color.green : SerenityPalette.textSecondary)
-      .background((connected ? Color.green : SerenityPalette.textSecondary).opacity(0.15), in: Capsule())
+  private func syncToggle(_ label: String, isOn: Binding<Bool>) -> some View {
+    Toggle(label, isOn: isOn)
+      .toggleStyle(.switch)
+      .labelsHidden()
   }
 
-  private var githubTokensCard: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      Text("GitHub Access Tokens")
-        .font(SerenityType.sectionTitle)
+  // MARK: - Settings panels
 
-      Text("Generate a personal access token with the repo scope at github.com/settings/tokens, then paste it below.")
-        .font(SerenityType.body)
-        .foregroundStyle(SerenityPalette.textSecondary)
+  private func settingsPanel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Divider().overlay(SerenityPalette.thinBorder)
 
-      VStack(alignment: .leading, spacing: 8) {
-        SecureField("Personal access token", text: $githubToken)
-          .textFieldStyle(.plain)
-          .serenityInputField()
+      VStack(alignment: .leading, spacing: 14) {
+        content()
+      }
+      .padding(.vertical, 16)
+      .padding(.trailing, 16)
+      .padding(.leading, compactLayout ? 16 : Self.panelIndent)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(SerenityPalette.innerCardBackground)
+    }
+  }
 
-        TextField("Display name (optional)", text: $githubDisplayName)
-          .textFieldStyle(.plain)
-          .serenityInputField()
+  @ViewBuilder
+  private func settingsRow<Content: View>(
+    _ label: String,
+    alignment: VerticalAlignment = .center,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    if compactLayout {
+      VStack(alignment: .leading, spacing: 6) {
+        Text(label)
+          .font(rowDetailFont)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        content()
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    } else {
+      HStack(alignment: alignment, spacing: 16) {
+        Text(label)
+          .font(rowDetailFont)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .frame(width: Self.settingsLabelColumn, alignment: .trailing)
+        content()
+        Spacer(minLength: 0)
+      }
+    }
+  }
 
-        HStack {
-          Spacer()
-          Button("Add Token") {
-            Task {
-              await appState.addGitHubIntegrationToken(
-                token: githubToken,
-                displayName: githubDisplayName.isEmpty ? nil : githubDisplayName
-              )
-              githubToken = ""
-              githubDisplayName = ""
+  /// A disconnect is the one action here that loses data, so it sits below a
+  /// rule at the end of the panel rather than beside the row's switch.
+  private func panelFooter(title: String, action: @escaping () -> Void) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Divider().overlay(SerenityPalette.thinBorder)
+
+      HStack {
+        Spacer(minLength: 0)
+        Button(role: .destructive, action: action) {
+          Text(title)
+            .font(SerenityType.bodyMedium)
+            .foregroundStyle(Color.red.opacity(0.85))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .frame(minHeight: compactLayout ? SerenityTouchMetrics.minimumTarget : 0)
+            .background(
+              RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.red.opacity(0.35), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(.top, 2)
+  }
+
+  // MARK: - Google Calendar
+
+  private var googleRow: some View {
+    let state = appState.googleIntegrationState
+
+    return VStack(alignment: .leading, spacing: 0) {
+      serviceRow(
+        service: .google,
+        name: "Google Calendar",
+        icon: "calendar",
+        tint: Color(red: 0.26, green: 0.52, blue: 0.96),
+        detail: googleDetail,
+        detailIsProblem: state.lastError != nil || !isGoogleConfigured,
+        account: state.connected ? (state.userEmail ?? "Connected") : "Not connected",
+        lastSync: relativeSync(state.lastSyncAt),
+        canExpand: state.connected
+      ) {
+        if state.connected {
+          syncToggle("Google Calendar sync", isOn: Binding(
+            get: { appState.googleIntegrationState.syncEnabled },
+            set: { enabled in
+              Task { await appState.setGoogleIntegrationSyncEnabled(enabled) }
+            }
+          ))
+        } else {
+          Button {
+            Task { await connectGoogle() }
+          } label: {
+            HStack(spacing: 6) {
+              if isConnectingGoogle {
+                ProgressView().controlSize(.small)
+              }
+              Text(isConnectingGoogle ? "Connecting" : "Connect")
             }
           }
           .buttonStyle(SerenityPrimaryButtonStyle())
           .hoverCursor(.pointingHand)
-          .disabled(githubToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          .disabled(!isGoogleConfigured || isConnectingGoogle)
         }
       }
 
-      if !appState.githubIntegrationState.tokens.isEmpty {
-        Divider().overlay(SerenityPalette.thinBorder)
+      if expandedService == .google {
+        settingsPanel {
+          settingsRow("Account") {
+            Text(state.userEmail ?? "Connected")
+              .font(SerenityType.bodyMedium)
+              .foregroundStyle(SerenityPalette.textPrimary)
+          }
 
-        VStack(alignment: .leading, spacing: 8) {
-          ForEach(appState.githubIntegrationState.tokens) { token in
-            HStack {
-              VStack(alignment: .leading, spacing: 2) {
-                Text(token.displayName)
-                  .font(SerenityType.bodyMedium)
-                Text("@\(token.username) • \(token.maskedToken)")
-                  .font(SerenityType.caption)
-                  .foregroundStyle(SerenityPalette.textSecondary)
-              }
+          settingsRow("Imports", alignment: .top) {
+            Text("Events on your primary calendar become tasks on the day they happen.")
+              .font(rowDetailFont)
+              .foregroundStyle(SerenityPalette.textSecondary)
+              .fixedSize(horizontal: false, vertical: true)
+              .frame(maxWidth: 460, alignment: .leading)
+          }
 
-              Spacer()
-
-              Toggle("Active", isOn: Binding(
-                get: { token.isActive },
-                set: { _ in
-                  Task {
-                    await appState.toggleGitHubIntegrationToken(id: token.id)
-                  }
-                }
-              ))
-              .toggleStyle(.switch)
-              .labelsHidden()
-
-              Button("Remove", role: .destructive) {
-                Task {
-                  await appState.removeGitHubIntegrationToken(id: token.id)
-                }
-              }
-              .buttonStyle(.borderless)
-              .foregroundStyle(Color.red.opacity(0.85))
-              .hoverCursor(.pointingHand)
-            }
-            .padding(12)
-            .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+          panelFooter(title: "Disconnect Google Calendar") {
+            Task { await appState.disconnectGoogleIntegration() }
           }
         }
       }
     }
-    .padding(16)
-    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .stroke(SerenityPalette.border, lineWidth: 1)
-    )
+  }
+
+  private var googleDetail: String {
+    if let error = appState.googleIntegrationState.lastError {
+      return error
+    }
+    if !isGoogleConfigured {
+      return "Google Sign-In is not configured for this build"
+    }
+    return "Calendar events become tasks"
   }
 
   @MainActor
@@ -2956,66 +2955,328 @@ struct IntegrationsSectionView: View {
     AppLogger.info("connectGoogle: connectGoogleIntegration returned")
   }
 
-  private var iCloudSyncStatusCard: some View {
-    HStack(alignment: .center, spacing: 14) {
-      serviceIcon(systemName: iCloudSyncIcon, accent: iCloudSyncTint)
+  // MARK: - GitHub
 
-      VStack(alignment: .leading, spacing: 4) {
-        HStack(spacing: 8) {
-          Text("iCloud Sync")
-            .font(SerenityType.bodyLarge.weight(.semibold))
-          Text(iCloudSyncBadge)
-            .font(SerenityType.caption)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .foregroundStyle(iCloudSyncTint)
-            .background(iCloudSyncTint.opacity(0.15), in: Capsule())
+  private var githubRow: some View {
+    let state = appState.githubIntegrationState
+
+    return VStack(alignment: .leading, spacing: 0) {
+      serviceRow(
+        service: .github,
+        name: "GitHub",
+        icon: "chevron.left.forwardslash.chevron.right",
+        tint: Color(red: 0.55, green: 0.55, blue: 0.60),
+        detail: githubDetail,
+        detailIsProblem: state.lastError != nil,
+        account: githubAccount,
+        lastSync: relativeSync(state.lastSyncAt),
+        canExpand: true
+      ) {
+        if !state.tokens.isEmpty {
+          syncToggle("GitHub sync", isOn: Binding(
+            get: { appState.githubIntegrationState.syncEnabled },
+            set: { enabled in
+              Task { await appState.setGitHubIntegrationSyncEnabled(enabled) }
+            }
+          ))
         }
+      }
 
-        Text(iCloudSyncDetail)
-          .font(SerenityType.body)
+      if expandedService == .github {
+        settingsPanel { githubSettings }
+      }
+    }
+  }
+
+  private var githubDetail: String {
+    if let error = appState.githubIntegrationState.lastError {
+      return error
+    }
+    let count = appState.githubIntegrationState.tokens.count
+    guard count > 0 else {
+      return "Add a personal access token to connect"
+    }
+    return "Pull requests and issues become tasks"
+  }
+
+  private var githubAccount: String {
+    let tokens = appState.githubIntegrationState.tokens
+    guard let leading = tokens.first(where: { $0.isActive }) ?? tokens.first else {
+      return "No token"
+    }
+    if tokens.count > 1 {
+      return "@\(leading.username) +\(tokens.count - 1)"
+    }
+    return "@\(leading.username)"
+  }
+
+  @ViewBuilder
+  private var githubSettings: some View {
+    settingsRow("New token", alignment: .top) {
+      VStack(alignment: .leading, spacing: 8) {
+        SecureField("Personal access token", text: $githubToken)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        TextField("Display name (optional)", text: $githubDisplayName)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        Text("Needs the repo scope, generated at github.com/settings/tokens.")
+          .font(rowDetailFont)
           .foregroundStyle(SerenityPalette.textSecondary)
           .fixedSize(horizontal: false, vertical: true)
+
+        Button("Add Token") {
+          Task {
+            await appState.addGitHubIntegrationToken(
+              token: githubToken,
+              displayName: githubDisplayName.isEmpty ? nil : githubDisplayName
+            )
+            githubToken = ""
+            githubDisplayName = ""
+          }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .disabled(githubToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+      .frame(maxWidth: 420, alignment: .leading)
+    }
+
+    if !appState.githubIntegrationState.tokens.isEmpty {
+      settingsRow("Tokens", alignment: .top) {
+        VStack(alignment: .leading, spacing: 8) {
+          ForEach(appState.githubIntegrationState.tokens) { token in
+            githubTokenRow(token)
+          }
+        }
+        .frame(maxWidth: 420, alignment: .leading)
+      }
+    }
+  }
+
+  private func githubTokenRow(_ token: GitHubTokenRecord) -> some View {
+    HStack(spacing: 12) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(token.displayName)
+          .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.textPrimary)
+        Text("@\(token.username) • \(token.maskedToken)")
+          .font(rowDetailFont)
+          .foregroundStyle(SerenityPalette.textSecondary)
       }
 
       Spacer(minLength: 12)
 
-      Button {
-        appState.triggerICloudSync()
-      } label: {
-        if case .syncing = appState.iCloudSyncState {
-          HStack(spacing: 6) {
-            ProgressView().controlSize(.small)
-            Text("Syncing")
-          }
-        } else {
-          Label(iCloudSyncButtonTitle, systemImage: iCloudSyncButtonIcon)
+      syncToggle("\(token.displayName) active", isOn: Binding(
+        get: { token.isActive },
+        set: { _ in
+          Task { await appState.toggleGitHubIntegrationToken(id: token.id) }
         }
+      ))
+
+      Button("Remove", role: .destructive) {
+        Task { await appState.removeGitHubIntegrationToken(id: token.id) }
       }
-      .buttonStyle(SerenityPrimaryButtonStyle())
+      .buttonStyle(.borderless)
+      .foregroundStyle(Color.red.opacity(0.85))
       .hoverCursor(.pointingHand)
-      .disabled(isICloudSyncing)
     }
-    .padding(16)
-    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .stroke(SerenityPalette.border, lineWidth: 1)
-    )
+    .padding(12)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
   }
 
-  private var iCloudSyncBadge: String {
+  // MARK: - Slack
+
+  private var slackRow: some View {
+    let state = appState.slackIntegrationState
+
+    return VStack(alignment: .leading, spacing: 0) {
+      serviceRow(
+        service: .slack,
+        name: "Slack",
+        icon: "number",
+        tint: Color(red: 0.36, green: 0.19, blue: 0.56),
+        detail: slackDetail,
+        detailIsProblem: state.lastError != nil || !appState.slackConfigured,
+        account: state.teamName ?? (state.connected ? "Connected" : "Not connected"),
+        lastSync: relativeSync(state.lastSyncAt),
+        canExpand: state.connected
+      ) {
+        if state.connected {
+          syncToggle("Slack sync", isOn: Binding(
+            get: { appState.slackIntegrationState.syncEnabled },
+            set: { enabled in
+              Task { await appState.setSlackIntegrationSyncEnabled(enabled) }
+            }
+          ))
+        } else {
+          Button("Connect") {
+            Task { await appState.connectSlackIntegration() }
+          }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .disabled(!appState.slackConfigured)
+        }
+      }
+
+      if expandedService == .slack {
+        settingsPanel { slackSettings }
+      }
+    }
+  }
+
+  private var slackDetail: String {
+    if !appState.slackConfigured {
+      return "Add SLACK_CLIENT_ID to the app configuration to enable Slack"
+    }
+    if let error = appState.slackIntegrationState.lastError {
+      return error
+    }
+    guard appState.slackIntegrationState.connected else {
+      return "Channel messages become task proposals"
+    }
+    let pending = appState.slackProposals.count
+    if pending > 0 {
+      return "\(pending) proposal\(pending == 1 ? "" : "s") waiting to review"
+    }
+    let watched = appState.slackChannelsWatched
+    if watched > 0 {
+      return "Watching \(watched) channel\(watched == 1 ? "" : "s")"
+    }
+    return "Channel messages become task proposals"
+  }
+
+  @ViewBuilder
+  private var slackSettings: some View {
+    settingsRow("Include", alignment: .top) {
+      VStack(alignment: .leading, spacing: 8) {
+        Toggle("Messages sent with @here or @channel", isOn: Binding(
+          get: { appState.slackRelevanceSettings.includeBroadcastMentions },
+          set: { value in
+            var settings = appState.slackRelevanceSettings
+            settings.includeBroadcastMentions = value
+            appState.setSlackRelevanceSettings(settings)
+          }
+        ))
+
+        Toggle("Messages from bots and apps", isOn: Binding(
+          get: { appState.slackRelevanceSettings.includeBotMessages },
+          set: { value in
+            var settings = appState.slackRelevanceSettings
+            settings.includeBotMessages = value
+            appState.setSlackRelevanceSettings(settings)
+          }
+        ))
+      }
+      .font(SerenityType.bodyMedium)
+    }
+
+    settingsRow("Check every") {
+      Picker("", selection: Binding(
+        get: { appState.slackPollIntervalMinutes },
+        set: { appState.setSlackPollIntervalMinutes($0) }
+      )) {
+        Text("5 minutes").tag(5)
+        Text("15 minutes").tag(15)
+        Text("30 minutes").tag(30)
+        Text("1 hour").tag(60)
+      }
+      .labelsHidden()
+      .pickerStyle(.menu)
+      .frame(width: 140)
+    }
+
+    settingsRow("Privacy", alignment: .top) {
+      HStack(alignment: .top, spacing: 9) {
+        Image(systemName: "lock.fill")
+          .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+          .foregroundStyle(SerenityPalette.accent)
+        Text("Serenity reads the channels you belong to, and only while the app is open. It never requests access to your direct messages.")
+          .font(rowDetailFont)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      .frame(maxWidth: 460, alignment: .leading)
+    }
+
+    panelFooter(title: "Disconnect Slack") {
+      Task { await appState.disconnectSlackIntegration() }
+    }
+  }
+
+  // MARK: - iCloud
+
+  private var iCloudRow: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      serviceRow(
+        service: .iCloud,
+        name: "iCloud Sync",
+        icon: iCloudSyncIcon,
+        tint: iCloudSyncTint,
+        detail: iCloudRowDetail,
+        detailIsProblem: !iCloudIsAvailable,
+        account: "iCloud",
+        lastSync: iCloudLastSync,
+        canExpand: true
+      ) {
+        EmptyView()
+      }
+
+      if expandedService == .iCloud {
+        settingsPanel {
+          settingsRow("Status", alignment: .top) {
+            Text(iCloudSyncDetail)
+              .font(rowDetailFont)
+              .foregroundStyle(SerenityPalette.textSecondary)
+              .fixedSize(horizontal: false, vertical: true)
+              .frame(maxWidth: 460, alignment: .leading)
+          }
+
+          settingsRow("Sync") {
+            Button {
+              appState.triggerICloudSync()
+            } label: {
+              if isICloudSyncing {
+                HStack(spacing: 6) {
+                  ProgressView().controlSize(.small)
+                  Text("Syncing")
+                }
+              } else {
+                Label(iCloudSyncButtonTitle, systemImage: iCloudSyncButtonIcon)
+              }
+            }
+            .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
+            .disabled(isICloudSyncing)
+          }
+        }
+      }
+    }
+  }
+
+  private var iCloudRowDetail: String {
     switch appState.iCloudSyncState {
-    case .idle:
-      return "Idle"
+    case .idle, .succeeded:
+      return "Tasks, projects, journal entries, goals and recaps across devices"
+    case .syncing:
+      return "Uploading local changes and checking for updates"
+    case .unavailable(let reason):
+      return reason
+    case .failed(let message):
+      return message
+    }
+  }
+
+  private var iCloudLastSync: String {
+    switch appState.iCloudSyncState {
+    case .succeeded(let syncedAt, _):
+      return relativeSync(syncedAt)
     case .syncing:
       return "Syncing"
-    case .succeeded:
-      return "Synced"
-    case .unavailable:
-      return "Unavailable"
-    case .failed:
-      return "Needs attention"
+    default:
+      return "—"
     }
   }
 
@@ -3026,10 +3287,7 @@ struct IntegrationsSectionView: View {
     case .syncing:
       return "Uploading local changes and checking for updates from iCloud."
     case .succeeded(let syncedAt, let pending):
-      let formatter = RelativeDateTimeFormatter()
-      formatter.unitsStyle = .abbreviated
-      let syncedText = formatter.localizedString(for: syncedAt, relativeTo: Date())
-      return "Last synced \(syncedText). Pending changes: \(pending)."
+      return "Last synced \(relativeSync(syncedAt)). Pending changes: \(pending)."
     case .unavailable(let reason):
       return reason
     case .failed(let message):
@@ -3090,6 +3348,62 @@ struct IntegrationsSectionView: View {
       return true
     }
     return false
+  }
+
+  // MARK: - Diagnostics
+
+  /// These lines were being computed on every sync and shown nowhere. When an
+  /// integration quietly does nothing, they are the difference between a bug
+  /// and a workspace that simply had nothing to say.
+  private var diagnosticsCard: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Button {
+        showDiagnostics.toggle()
+        if showDiagnostics {
+          Task { await appState.refreshIntegrationDiagnostics() }
+        }
+      } label: {
+        HStack(spacing: 10) {
+          Text("Diagnostics")
+            .font(SerenityType.bodyMedium)
+            .foregroundStyle(SerenityPalette.textPrimary)
+          Text("Last pass, per service")
+            .font(rowDetailFont)
+            .foregroundStyle(SerenityPalette.textSecondary)
+          Spacer(minLength: 8)
+          Image(systemName: "chevron.right")
+            .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .rotationEffect(.degrees(showDiagnostics ? 90 : 0))
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 52)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+
+      if showDiagnostics {
+        Divider().overlay(SerenityPalette.thinBorder)
+
+        VStack(alignment: .leading, spacing: 4) {
+          ForEach(appState.integrationDiagnosticsLines, id: \.self) { line in
+            Text(line)
+              .font(SerenityType.body.monospaced())
+              .foregroundStyle(SerenityPalette.textSecondary)
+              .textSelection(.enabled)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+        }
+        .padding(16)
+      }
+    }
+    .background(SerenityPalette.panelBackground)
+    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
   }
 }
 
