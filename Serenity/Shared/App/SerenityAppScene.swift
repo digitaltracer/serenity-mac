@@ -1259,6 +1259,15 @@ private struct SectionView: View {
   }
 }
 
+/// The keys the command menu takes over while it is open. The editor asks
+/// before acting on them, so nothing is intercepted when no menu is showing.
+enum CaptureCommandMenuKey: Equatable, Sendable {
+  case up
+  case down
+  case complete
+  case dismiss
+}
+
 #if os(macOS)
 private final class QuickCaptureTextView: NSTextView {
   var focusChanged: ((Bool) -> Void)?
@@ -1305,6 +1314,7 @@ private struct QuickCaptureEditor: NSViewRepresentable {
   @Binding var text: String
   @Binding var isFocused: Bool
   let fontSize: CGFloat
+  var commandKey: (CaptureCommandMenuKey) -> Bool = { _ in false }
 
   func makeCoordinator() -> Coordinator {
     Coordinator(text: $text, isFocused: $isFocused)
@@ -1358,6 +1368,8 @@ private struct QuickCaptureEditor: NSViewRepresentable {
   func updateNSView(_ nsView: NSScrollView, context: Context) {
     guard let textView = nsView.documentView as? QuickCaptureTextView else { return }
 
+    context.coordinator.commandKey = commandKey
+
     let contentSize = nsView.contentView.bounds.size
     let targetHeight = max(contentSize.height, textView.frame.height)
     if textView.frame.width != contentSize.width || textView.frame.height < contentSize.height {
@@ -1386,11 +1398,32 @@ private struct QuickCaptureEditor: NSViewRepresentable {
   final class Coordinator: NSObject, NSTextViewDelegate {
     @Binding var text: String
     @Binding var isFocused: Bool
+    var commandKey: (CaptureCommandMenuKey) -> Bool = { _ in false }
     weak var textView: QuickCaptureTextView?
 
     init(text: Binding<String>, isFocused: Binding<Bool>) {
       _text = text
       _isFocused = isFocused
+    }
+
+    /// Return completes a highlighted command rather than breaking the line,
+    /// which is why the menu closes on Escape the moment it is unwanted.
+    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+      let key: CaptureCommandMenuKey?
+      switch selector {
+      case #selector(NSResponder.moveUp(_:)):
+        key = .up
+      case #selector(NSResponder.moveDown(_:)):
+        key = .down
+      case #selector(NSResponder.insertTab(_:)), #selector(NSResponder.insertNewline(_:)):
+        key = .complete
+      case #selector(NSResponder.cancelOperation(_:)):
+        key = .dismiss
+      default:
+        key = nil
+      }
+      guard let key else { return false }
+      return commandKey(key)
     }
 
     func textDidChange(_ notification: Notification) {
@@ -1412,6 +1445,8 @@ private struct QuickCaptureEditor: View {
   @Binding var text: String
   @Binding var isFocused: Bool
   let fontSize: CGFloat
+  /// Unread here: the command menu is tapped on iPhone, never keyed.
+  var commandKey: (CaptureCommandMenuKey) -> Bool = { _ in false }
 
   @FocusState private var editorFocused: Bool
 
@@ -1484,6 +1519,9 @@ private struct HomeSectionView: View {
   @State private var submitting = false
   @State private var quickCaptureFocused = false
   @State private var selectedQuickCaptureCredentialID = ""
+  @State private var commandInput: CaptureCommandInput = .none
+  @State private var commandMenuSelection = 0
+  @State private var commandMenuDismissed = false
 
   private let nativeQuickCaptureProviderID = "native"
   private static let quickCapturePreviewDateFormatter: DateFormatter = {
@@ -1509,6 +1547,25 @@ private struct HomeSectionView: View {
       quickCaptureFocused = true
       appState.shouldFocusQuickCapture = false
     }
+    .onChange(of: quickCapture) { _, text in
+      commandInput = CaptureCommandParser.inspect(text)
+      commandMenuSelection = 0
+      commandMenuDismissed = false
+    }
+  }
+
+  private var commandPreview: CaptureCommandPreview? {
+    guard case .command(let preview) = commandInput else { return nil }
+    return preview
+  }
+
+  /// The menu is only ever offered for a slash still being spelled, and only
+  /// while the field has focus — it is an aid to typing, not a panel.
+  private var commandMenuMatches: [CaptureCommandKind] {
+    guard case .menu(let query) = commandInput, quickCaptureFocused, !commandMenuDismissed else {
+      return []
+    }
+    return CaptureCommandKind.matching(query)
   }
 
   private var quickCaptureCard: some View {
@@ -1538,10 +1595,15 @@ private struct HomeSectionView: View {
         QuickCaptureEditor(
           text: $quickCapture,
           isFocused: $quickCaptureFocused,
-          fontSize: density.quickCaptureEditorFontSize
+          fontSize: density.quickCaptureEditorFontSize,
+          commandKey: handleCommandMenuKey
         )
           .padding(density.quickCaptureEditorPadding)
           .frame(height: density.quickCaptureEditorHeight)
+      }
+
+      if let preview = commandPreview {
+        captureChipStrip(preview)
       }
 
       ViewThatFits(in: .horizontal) {
@@ -1594,7 +1656,237 @@ private struct HomeSectionView: View {
         .blur(radius: 4)
         .allowsHitTesting(false)
     }
+    .overlay(alignment: .topLeading) {
+      let matches = commandMenuMatches
+      if !matches.isEmpty {
+        commandMenu(matches)
+          .offset(x: 18, y: 58)
+      }
+    }
+    // The menu hangs past the card, so the card has to outrank the rows below.
+    .zIndex(commandMenuMatches.isEmpty ? 0 : 1)
     .animation(.easeInOut(duration: 0.18), value: quickCaptureFocused)
+  }
+
+  private func commandMenu(_ matches: [CaptureCommandKind]) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      ForEach(Array(matches.enumerated()), id: \.element) { index, kind in
+        Button {
+          completeCommand(kind)
+        } label: {
+          HStack(spacing: 10) {
+            Image(systemName: kind.symbolName)
+              .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+              .foregroundStyle(SerenityPalette.accent)
+              .frame(width: 26, height: 26)
+              .background(SerenityPalette.headerIconBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+              Text(kind.token)
+                .font(SerenityType.body.weight(.semibold))
+                .foregroundStyle(SerenityPalette.textPrimary)
+              Text(kind.summary)
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
+            }
+
+            Spacer(minLength: 0)
+          }
+          .padding(.horizontal, 10)
+          .padding(.vertical, 8)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(
+            index == commandMenuSelection ? SerenityPalette.activeItemBackground : Color.clear,
+            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+          )
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverCursor(.pointingHand)
+      }
+
+#if os(macOS)
+      Text("↑↓ choose · Tab complete · Esc dismiss")
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .padding(.horizontal, 10)
+        .padding(.top, 7)
+        .padding(.bottom, 2)
+        .overlay(alignment: .top) {
+          Rectangle()
+            .fill(SerenityPalette.thinBorder)
+            .frame(height: 1)
+        }
+#endif
+    }
+    .padding(6)
+    .frame(width: 340, alignment: .leading)
+    .background(SerenityPalette.panelBackgroundRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+    .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
+  }
+
+  /// Returns true when the menu took the key, which is what stops it reaching
+  /// the text. With no menu open every key falls through untouched.
+  private func handleCommandMenuKey(_ key: CaptureCommandMenuKey) -> Bool {
+    let matches = commandMenuMatches
+    guard !matches.isEmpty else { return false }
+
+    switch key {
+    case .up:
+      commandMenuSelection = (commandMenuSelection - 1 + matches.count) % matches.count
+    case .down:
+      commandMenuSelection = (commandMenuSelection + 1) % matches.count
+    case .complete:
+      completeCommand(matches[min(commandMenuSelection, matches.count - 1)])
+    case .dismiss:
+      commandMenuDismissed = true
+    }
+    return true
+  }
+
+  /// The trailing space matters: it closes the menu and leaves the caret where
+  /// a link is about to be pasted.
+  private func completeCommand(_ kind: CaptureCommandKind) {
+    quickCapture = "\(kind.token) "
+    quickCaptureFocused = true
+  }
+
+  private enum CaptureChipTone {
+    case command
+    case resolved
+    case refused
+    case waiting
+  }
+
+  private struct CaptureChip: Identifiable {
+    var id: Int
+    var text: String
+    var tone: CaptureChipTone
+    var symbol: String?
+  }
+
+  private func captureChips(_ preview: CaptureCommandPreview) -> [CaptureChip] {
+    var entries: [(String, CaptureChipTone, String?)] = [
+      (preview.kind.token, .command, preview.kind.symbolName)
+    ]
+
+    // Past the limit the links stop being worth naming one by one — how many
+    // there are is the whole problem.
+    if preview.exceedsLimit {
+      entries.append(("\(preview.references.count) links", .refused, nil))
+    } else {
+      entries.append(contentsOf: preview.references.map { ($0.label, .resolved, nil) })
+    }
+    entries.append(contentsOf: preview.rejections.map { ($0.reason.chipLabel, .refused, nil) })
+
+    if preview.references.isEmpty, preview.rejections.isEmpty, !preview.exceedsLimit {
+      if let settled = preview.settledError {
+        entries.append((settled.chipLabel, .refused, nil))
+      } else {
+        entries.append(
+          (preview.kind == .slack ? "paste a message link" : "paste a pull request link", .waiting, nil)
+        )
+      }
+    }
+
+    return entries.enumerated().map {
+      CaptureChip(id: $0.offset, text: $0.element.0, tone: $0.element.1, symbol: $0.element.2)
+    }
+  }
+
+  /// What the command was understood to mean, shown while it is still editable.
+  /// Every refusal here is one the parser already knew how to make — this is
+  /// only the difference between hearing it now and hearing it after a submit.
+  private func captureChipStrip(_ preview: CaptureCommandPreview) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      SerenityFlowLayout(spacing: 8) {
+        ForEach(captureChips(preview)) { chip in
+          captureChipView(chip)
+        }
+
+        if preview.contextWordCount > 0 {
+          Text("plus \(preview.contextWordCount) word\(preview.contextWordCount == 1 ? "" : "s") of context")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .padding(.vertical, 4)
+        }
+      }
+
+      if let message = preview.settledError?.errorDescription {
+        Text(message)
+          .font(SerenityType.caption)
+          .foregroundStyle(Color.red.opacity(0.9))
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .padding(.horizontal, 18)
+    .padding(.vertical, 10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.panelBackgroundRaised.opacity(0.55))
+    .overlay(alignment: .top) {
+      Rectangle()
+        .fill(SerenityPalette.thinBorder)
+        .frame(height: 1)
+    }
+  }
+
+  private func captureChipView(_ chip: CaptureChip) -> some View {
+    HStack(spacing: 5) {
+      if let symbol = chip.symbol {
+        Image(systemName: symbol)
+          .font(SerenityType.scaledSystem(size: 10, weight: .semibold))
+      }
+      Text(chip.text)
+        .font(SerenityType.caption)
+    }
+    .padding(.horizontal, 9)
+    .padding(.vertical, 4)
+    .foregroundStyle(chipForeground(chip.tone))
+    .background(chipBackground(chip.tone), in: Capsule())
+    .overlay(Capsule().stroke(chipBorder(chip.tone), lineWidth: 1))
+  }
+
+  private func chipForeground(_ tone: CaptureChipTone) -> Color {
+    switch tone {
+    case .command:
+      return SerenityPalette.accent
+    case .resolved:
+      return SerenityPalette.textPrimary
+    case .refused:
+      return Color.red.opacity(0.9)
+    case .waiting:
+      return SerenityPalette.textSecondary
+    }
+  }
+
+  private func chipBackground(_ tone: CaptureChipTone) -> Color {
+    switch tone {
+    case .command:
+      return SerenityPalette.headerIconBackground
+    case .resolved:
+      return SerenityPalette.panelBackgroundRaised
+    case .refused:
+      return Color.red.opacity(0.14)
+    case .waiting:
+      return Color.clear
+    }
+  }
+
+  private func chipBorder(_ tone: CaptureChipTone) -> Color {
+    switch tone {
+    case .command:
+      return SerenityPalette.accent.opacity(0.35)
+    case .resolved:
+      return SerenityPalette.thinBorder
+    case .refused:
+      return Color.red.opacity(0.38)
+    case .waiting:
+      return SerenityPalette.thinBorder
+    }
   }
 
   private var quickCaptureProviderDropdown: some View {
@@ -1636,7 +1928,11 @@ private struct HomeSectionView: View {
   }
 
   private var canSubmitQuickCapture: Bool {
-    !submitting && !quickCapture.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    guard !submitting, !quickCapture.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      return false
+    }
+    guard let preview = commandPreview else { return true }
+    return preview.settledError == nil && !preview.references.isEmpty
   }
 
   private var submitButton: some View {
@@ -2016,11 +2312,30 @@ private struct HomeSectionView: View {
     if let progress = appState.captureCommandProgress {
       return progress.message
     }
+    if let preview = commandPreview {
+      return commandHelperText(preview)
+    }
     if selectedQuickCaptureCredential != nil {
       return "Write naturally, or paste a link after /slack or /github — Cmd-Return to capture."
     }
 
     return "Prefix with journal:, or paste a link after /slack or /github — Cmd-Return to capture."
+  }
+
+  /// The chips name each link; this line only has to say what pressing send
+  /// would set going.
+  private func commandHelperText(_ preview: CaptureCommandPreview) -> String {
+    guard preview.settledError == nil else { return "Fix the link to capture." }
+
+    let count = preview.references.count
+    guard count > 0 else {
+      return preview.kind == .slack
+        ? "Paste a Slack message link."
+        : "Paste a pull request link."
+    }
+
+    let noun = preview.kind == .slack ? "Slack thread" : "pull request"
+    return "Reads \(count) \(noun)\(count == 1 ? "" : "s") — Cmd-Return to capture."
   }
 
   private var selectedQuickCaptureCredential: AICredentialEntity? {
