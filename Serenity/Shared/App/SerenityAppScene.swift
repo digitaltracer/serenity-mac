@@ -1496,6 +1496,9 @@ private struct HomeSectionView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: density.sectionSpacing) {
       quickCaptureCard
+      if let preview = appState.pendingCaptureDraft {
+        captureDraftPreview(preview)
+      }
       if let preview = appState.pendingAIQuickCapturePreview {
         aiQuickCapturePreview(preview)
       }
@@ -1678,6 +1681,19 @@ private struct HomeSectionView: View {
     submitting = true
     defer { submitting = false }
 
+    do {
+      if let command = try CaptureCommandParser.parse(text) {
+        appState.discardPendingAIQuickCapturePreview()
+        if await appState.submitCaptureCommand(command, typedText: text) {
+          quickCapture = ""
+        }
+        return
+      }
+    } catch {
+      appState.showError(title: "That command could not run", message: error.localizedDescription)
+      return
+    }
+
     if let credential = selectedQuickCaptureCredential {
       let saved = await appState.submitAIQuickCapture(input: text, credentialID: credential.id)
       if saved {
@@ -1710,6 +1726,141 @@ private struct HomeSectionView: View {
 
     quickCapture = ""
     await appState.refreshCoreWorkflowData()
+  }
+
+  /// The confirmation surface for a command. Always shown, whatever the
+  /// confidence: a drafted task is six lines long and cost a round trip, so
+  /// reading it before it is written is the point.
+  private func captureDraftPreview(_ preview: CaptureDraftPreview) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .firstTextBaseline) {
+        Label(
+          preview.drafts.count == 1 ? "Drafted task" : "\(preview.drafts.count) drafted tasks",
+          systemImage: preview.kind == .slack ? "number" : "chevron.left.forwardslash.chevron.right"
+        )
+        .font(SerenityType.sectionTitle)
+        .foregroundStyle(SerenityPalette.textPrimary)
+
+        Spacer()
+
+        if !preview.draftedByModel {
+          Text("No AI key")
+            .font(SerenityType.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(SerenityPalette.panelBackgroundRaised, in: Capsule())
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+      }
+
+      ForEach(preview.drafts) { draft in
+        captureDraftRow(draft)
+      }
+
+      HStack(spacing: 8) {
+        Spacer()
+
+        Button("Discard") {
+          appState.discardPendingCaptureDraft()
+          // The typed line comes back so a near miss can be re-run with one word
+          // changed rather than pasted again.
+          quickCapture = preview.typedText
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button(saveButtonTitle(for: preview)) {
+          Task { await appState.savePendingCaptureDraft() }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(16)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(SerenityPalette.border, lineWidth: 1)
+    )
+  }
+
+  private func saveButtonTitle(for preview: CaptureDraftPreview) -> String {
+    guard preview.drafts.count > 1 else {
+      return preview.drafts.first?.kind == .update ? "Apply update" : "Save task"
+    }
+    return "Save \(preview.drafts.count) tasks"
+  }
+
+  private func captureDraftRow(_ draft: CaptureDraft) -> some View {
+    let target = draft.targetTaskID.flatMap { id in appState.tasks.first { $0.id == id } }
+
+    return VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        // One paste can be part-new and part-already-tracked, so the badge sits
+        // on every row rather than on the card.
+        Text(draft.kind == .create ? "New task" : "Update")
+          .font(SerenityType.caption)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 3)
+          .background(SerenityPalette.headerIconBackground, in: Capsule())
+          .foregroundStyle(SerenityPalette.accent)
+
+        Text(draft.payload.title ?? target?.title ?? "Untitled")
+          .font(SerenityType.bodyLarge.weight(.semibold))
+          .foregroundStyle(SerenityPalette.textPrimary)
+          .fixedSize(horizontal: false, vertical: true)
+
+        Spacer(minLength: 8)
+
+        if draft.confidence > 0 {
+          Text("\(Int(draft.confidence * 100))%")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+      }
+
+      let changes = DraftChanges.rows(
+        payload: draft.payload,
+        isUpdate: draft.kind == .update,
+        target: target
+      )
+      if !changes.isEmpty {
+        DraftChangeRowsView(rows: changes)
+      }
+
+      if let reason = draft.reason {
+        Text(reason)
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      if !draft.sourceLabel.isEmpty {
+        HStack(spacing: 6) {
+          Text("from \(draft.sourceLabel)")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+
+          ForEach(Array(draft.sourceLinks.enumerated()), id: \.offset) { index, link in
+            if let url = URL(string: link) {
+              Link(destination: url) {
+                Text("open\(draft.sourceLinks.count > 1 ? " \(index + 1)" : "")")
+                  .font(SerenityType.caption)
+                  .foregroundStyle(SerenityPalette.accent)
+              }
+              .hoverCursor(.pointingHand)
+            }
+          }
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(12)
+    .background(SerenityPalette.panelBackgroundRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(SerenityPalette.thinBorder, lineWidth: 1)
+    )
   }
 
   private func aiQuickCapturePreview(_ preview: AIQuickCapturePreview) -> some View {
@@ -1862,11 +2013,14 @@ private struct HomeSectionView: View {
   }
 
   private var quickCaptureHelperText: String {
+    if let progress = appState.captureCommandProgress {
+      return progress.message
+    }
     if selectedQuickCaptureCredential != nil {
-      return "Write naturally — Cmd-Return to capture."
+      return "Write naturally, or paste a link after /slack or /github — Cmd-Return to capture."
     }
 
-    return "Prefix with journal: for a journal entry — Cmd-Return to capture."
+    return "Prefix with journal:, or paste a link after /slack or /github — Cmd-Return to capture."
   }
 
   private var selectedQuickCaptureCredential: AICredentialEntity? {
@@ -1988,6 +2142,9 @@ private struct HomeSectionView: View {
   }
 }
 
+/// The integrations page is a registry: one table, one row per service, and a
+/// service's settings open in place rather than in a card of their own further
+/// down the page.
 struct IntegrationsSectionView: View {
   @EnvironmentObject private var appState: AppState
 
@@ -2628,13 +2785,110 @@ private func tagsIncludingPendingInput(_ tags: [String], input: String) -> [Stri
   return tags + [pendingTag]
 }
 
-/// One field a proposal would change, rendered as before → after so a
-/// mis-targeted update is visible before it is applied rather than after.
-struct SlackProposalChange: Identifiable {
+/// One field a draft would change, rendered as before → after so a mis-targeted
+/// update is visible before it is applied rather than after.
+struct DraftChangeRow: Identifiable {
   let id = UUID()
   let label: String
   let before: String?
   let after: String
+}
+
+/// Shared by the Slack review inbox and the Home draft card. A second, subtly
+/// different diff renderer is how two surfaces start disagreeing about what a
+/// change looks like.
+enum DraftChanges {
+  static func rows(
+    payload: SlackProposalPayload,
+    isUpdate: Bool,
+    target: TaskEntity?
+  ) -> [DraftChangeRow] {
+    var rows: [DraftChangeRow] = []
+
+    if isUpdate, let title = payload.title, title != target?.title {
+      rows.append(DraftChangeRow(label: "Title", before: target?.title, after: title))
+    }
+
+    if let dueDate = payload.dueDate {
+      rows.append(
+        DraftChangeRow(label: "Due", before: target?.dueDate.map(stamp), after: stamp(dueDate))
+      )
+    }
+
+    if let priority = payload.priority, priority != target?.priority {
+      rows.append(
+        DraftChangeRow(
+          label: "Priority",
+          before: target?.priority.rawValue.capitalized,
+          after: priority.rawValue.capitalized
+        )
+      )
+    }
+
+    switch payload.statusChange {
+    case .completed:
+      rows.append(DraftChangeRow(label: "Status", before: target == nil ? nil : "Open", after: "Done"))
+    case .reopened:
+      rows.append(DraftChangeRow(label: "Status", before: target == nil ? nil : "Done", after: "Open"))
+    case .none:
+      break
+    }
+
+    if !payload.subtasks.isEmpty {
+      rows.append(
+        DraftChangeRow(
+          label: "Subtasks",
+          before: nil,
+          after: payload.subtasks.joined(separator: ", ")
+        )
+      )
+    }
+
+    if let description = payload.description, !isUpdate {
+      rows.append(DraftChangeRow(label: "Notes", before: nil, after: description))
+    }
+
+    return rows
+  }
+
+  static func stamp(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "EEE d MMM yyyy"
+    return formatter.string(from: date)
+  }
+}
+
+struct DraftChangeRowsView: View {
+  let rows: [DraftChangeRow]
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      ForEach(rows) { row in
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Text(row.label)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .frame(width: 66, alignment: .leading)
+
+          if let before = row.before {
+            Text(before)
+              .font(SerenityType.body)
+              .foregroundStyle(SerenityPalette.textSecondary)
+              .strikethrough()
+            Image(systemName: "arrow.right")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+          }
+
+          Text(row.after)
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+    }
+  }
 }
 
 /// The review queue. Nothing Slack proposes reaches a task until a card here
@@ -2740,32 +2994,13 @@ struct SlackProposalInboxView: View {
           .foregroundStyle(SerenityPalette.textSecondary)
       }
 
-      let changes = Self.changes(for: proposal, target: target)
+      let changes = DraftChanges.rows(
+        payload: proposal.payload,
+        isUpdate: proposal.kind == .update,
+        target: target
+      )
       if !changes.isEmpty {
-        VStack(alignment: .leading, spacing: 4) {
-          ForEach(changes) { change in
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-              Text(change.label)
-                .font(SerenityType.caption)
-                .foregroundStyle(SerenityPalette.textSecondary)
-                .frame(width: 66, alignment: .leading)
-
-              if let before = change.before {
-                Text(before)
-                  .font(SerenityType.body)
-                  .foregroundStyle(SerenityPalette.textSecondary)
-                  .strikethrough()
-                Image(systemName: "arrow.right")
-                  .font(SerenityType.caption)
-                  .foregroundStyle(SerenityPalette.textSecondary)
-              }
-
-              Text(change.after)
-                .font(SerenityType.body)
-                .foregroundStyle(SerenityPalette.textPrimary)
-            }
-          }
-        }
+        DraftChangeRowsView(rows: changes)
       }
 
       if let reason = proposal.reason {
@@ -2812,7 +3047,7 @@ struct SlackProposalInboxView: View {
         .fixedSize(horizontal: false, vertical: true)
 
       HStack(spacing: 6) {
-        Text("#\(proposal.source.channelName) · \(proposal.source.author) · \(Self.stamp(proposal.source.sentAt))")
+        Text("#\(proposal.source.channelName) · \(proposal.source.author) · \(DraftChanges.stamp(proposal.source.sentAt))")
           .font(SerenityType.caption)
           .foregroundStyle(SerenityPalette.textSecondary)
 
@@ -2828,66 +3063,6 @@ struct SlackProposalInboxView: View {
     .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
   }
 
-  static func changes(for proposal: SlackProposal, target: TaskEntity?) -> [SlackProposalChange] {
-    var rows: [SlackProposalChange] = []
-    let payload = proposal.payload
-
-    if proposal.kind == .update, let title = payload.title, title != target?.title {
-      rows.append(SlackProposalChange(label: "Title", before: target?.title, after: title))
-    }
-
-    if let dueDate = payload.dueDate {
-      rows.append(
-        SlackProposalChange(
-          label: "Due",
-          before: target?.dueDate.map(Self.stamp),
-          after: Self.stamp(dueDate)
-        )
-      )
-    }
-
-    if let priority = payload.priority, priority != target?.priority {
-      rows.append(
-        SlackProposalChange(
-          label: "Priority",
-          before: target?.priority.rawValue.capitalized,
-          after: priority.rawValue.capitalized
-        )
-      )
-    }
-
-    switch payload.statusChange {
-    case .completed:
-      rows.append(SlackProposalChange(label: "Status", before: target == nil ? nil : "Open", after: "Done"))
-    case .reopened:
-      rows.append(SlackProposalChange(label: "Status", before: target == nil ? nil : "Done", after: "Open"))
-    case .none:
-      break
-    }
-
-    if !payload.subtasks.isEmpty {
-      rows.append(
-        SlackProposalChange(
-          label: "Subtasks",
-          before: nil,
-          after: payload.subtasks.joined(separator: ", ")
-        )
-      )
-    }
-
-    if let description = payload.description, proposal.kind == .create {
-      rows.append(SlackProposalChange(label: "Notes", before: nil, after: description))
-    }
-
-    return rows
-  }
-
-  static func stamp(_ date: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.dateFormat = "EEE d MMM yyyy"
-    return formatter.string(from: date)
-  }
 }
 
 private struct ActionHubSectionView: View {

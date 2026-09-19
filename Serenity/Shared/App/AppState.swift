@@ -167,6 +167,8 @@ final class AppState: ObservableObject {
   @Published var githubIntegrationState: GitHubIntegrationState = .empty
   @Published var slackIntegrationState: SlackIntegrationState = .disconnected
   @Published var slackProposals: [SlackProposal] = []
+  @Published var pendingCaptureDraft: CaptureDraftPreview?
+  @Published var captureCommandProgress: CaptureCommandProgress?
   @Published var slackRelevanceSettings: SlackRelevanceSettings = .default
   @Published var slackConfigured = false
   @Published var slackChannelsWatched = 0
@@ -1478,8 +1480,246 @@ final class AppState: ObservableObject {
     }
   }
 
+  // MARK: - Capture commands
+
+  /// Runs a `/slack` or `/github` line: fetch the source material, draft the
+  /// task, and hold it for confirmation. Nothing is written here.
+  @discardableResult
+  func submitCaptureCommand(_ command: CaptureCommand, typedText: String, now: Date = Date()) async -> Bool {
+    pendingCaptureDraft = nil
+
+    do {
+      let sources = try await captureSources(for: command)
+      guard !sources.isEmpty else {
+        captureCommandProgress = nil
+        showToast("Nothing to read from that link")
+        return false
+      }
+
+      let labels = sources.map(CaptureCommandDrafter.label(for:)).joined(separator: ", ")
+
+      // No credential is not a dead end: the material is already in hand, so
+      // assemble what can be assembled and say it was done without a model.
+      guard let credential = defaultSlackCredential() else {
+        captureCommandProgress = nil
+        pendingCaptureDraft = CaptureDraftPreview(
+          typedText: typedText,
+          kind: command.kind,
+          drafts: fallbackDrafts(for: sources, context: command.context, now: now),
+          draftedByModel: false
+        )
+        showToast("Drafted from \(labels) without a model — add an AI key in Insights for more detail")
+        return true
+      }
+
+      captureCommandProgress = .drafting
+      let drafts = try await aiWorkflowService.draftCaptureCommand(
+        sources: sources,
+        context: command.context,
+        credentialID: credential.id,
+        openTasks: tasks,
+        projects: quickCaptureProjectContext,
+        availableTags: quickCaptureAvailableTags,
+        now: now
+      )
+      captureCommandProgress = nil
+
+      guard !drafts.isEmpty else {
+        showToast("Could not draft a task from \(labels) — try adding what you want in your own words")
+        return false
+      }
+
+      pendingCaptureDraft = CaptureDraftPreview(
+        typedText: typedText,
+        kind: command.kind,
+        drafts: drafts,
+        draftedByModel: true
+      )
+      return true
+    } catch {
+      captureCommandProgress = nil
+      showError(title: "Could not read that link", message: error.localizedDescription)
+      return false
+    }
+  }
+
+  /// A command is an explicit instruction about one conversation, so it reads
+  /// straight past the relevance filter, the seen table and the channel cursors
+  /// the background sync relies on. Routing it through any of those would make
+  /// it silently do nothing for a message the sync had already handled.
+  private func captureSources(for command: CaptureCommand) async throws -> [CaptureSource] {
+    var sources: [CaptureSource] = []
+
+    for reference in command.references {
+      switch reference {
+      case .slack(let slackReference):
+        guard slackIntegrationState.connected else {
+          throw CaptureCommandError.slackNotConnected
+        }
+        let session = try await slackIntegrationService.activeSession()
+        slackIntegrationState.expiresAt = session.expiresAt
+
+        captureCommandProgress = .reading("#\(slackReference.channelID)")
+        let excerpt = try await slackReader().fetchConversation(
+          session: session,
+          reference: slackReference
+        )
+        captureCommandProgress = .reading("#\(excerpt.channelName)")
+        sources.append(.slack(excerpt))
+
+      case .github(let githubReference):
+        guard !githubIntegrationState.tokens.filter(\.isActive).isEmpty else {
+          throw CaptureCommandError.githubNotConnected
+        }
+
+        captureCommandProgress = .reading(githubReference.slug)
+        let snapshot = try await githubIntegrationService.fetchPullRequest(githubReference)
+        sources.append(.github(snapshot))
+      }
+    }
+
+    return sources
+  }
+
+  /// What a command produces with no AI credential configured: the title and
+  /// the links, a date only if the user's own words carried one, and the origin
+  /// tag so a later paste still recognises it.
+  private func fallbackDrafts(for sources: [CaptureSource], context: String, now: Date) -> [CaptureDraft] {
+    let parsedContext = QuickCaptureDateParser.parse(context)
+    let links = sources.compactMap(CaptureCommandDrafter.link(for:))
+    let labels = sources.map(CaptureCommandDrafter.label(for:))
+
+    let title: String
+    if let first = sources.first, case .github(let snapshot) = first, sources.count == 1 {
+      title = snapshot.title
+    } else if !parsedContext.title.isEmpty {
+      title = parsedContext.title
+    } else {
+      title = "Follow up on \(labels.joined(separator: ", "))"
+    }
+
+    let description = ([context.trimmingCharacters(in: .whitespacesAndNewlines)] + links)
+      .filter { !$0.isEmpty }
+      .joined(separator: "\n\n")
+
+    let draft = CaptureDraft(
+      kind: .create,
+      payload: SlackProposalPayload(
+        title: title,
+        description: description.isEmpty ? nil : description,
+        dueDate: parsedContext.dueDate
+      ),
+      confidence: 0,
+      reason: "Assembled without a model — no AI credential is configured.",
+      sourceLabel: labels.joined(separator: ", ")
+    )
+
+    return CaptureCommandDrafter.redirectingDuplicates(
+      [
+        CaptureCommandDrafter.tagged(
+          draft,
+          sources: sources,
+          coveringKeys: sources.indices.map(CaptureCommandDrafter.key(for:))
+        )
+      ],
+      sources: sources,
+      tasks: tasks
+    )
+  }
+
+  /// Writes every draft in the held preview. One Save, because the user issued
+  /// one command.
+  @discardableResult
+  func savePendingCaptureDraft(now: Date = Date()) async -> Bool {
+    guard let preview = pendingCaptureDraft, !preview.drafts.isEmpty else { return false }
+
+    var created = 0
+    var updated = 0
+
+    do {
+      for draft in preview.drafts {
+        let attribution = captureAttribution(for: draft, at: now)
+
+        switch draft.kind {
+        case .create:
+          try await applyDraftCreate(draft.payload, attribution: attribution, at: now)
+          created += 1
+        case .update:
+          // The task can have been deleted between the draft and the Save.
+          guard let taskID = draft.targetTaskID, tasks.contains(where: { $0.id == taskID }) else {
+            try await applyDraftCreate(draft.payload, attribution: attribution, at: now)
+            created += 1
+            continue
+          }
+          try await applyDraftUpdate(draft.payload, taskID: taskID, attribution: attribution, at: now)
+          updated += 1
+        }
+      }
+
+      pendingCaptureDraft = nil
+      showToast(captureSaveSummary(created: created, updated: updated))
+      await refreshCoreWorkflowData()
+      return true
+    } catch {
+      showError(title: "Could not save the drafted task", message: error.localizedDescription)
+      return false
+    }
+  }
+
+  func discardPendingCaptureDraft() {
+    pendingCaptureDraft = nil
+  }
+
+  private func captureSaveSummary(created: Int, updated: Int) -> String {
+    switch (created, updated) {
+    case (0, 0):
+      return "Nothing to save"
+    case (let created, 0):
+      return "Created \(created) task\(created == 1 ? "" : "s")"
+    case (0, let updated):
+      return "Updated \(updated) task\(updated == 1 ? "" : "s")"
+    default:
+      return "Created \(created), updated \(updated)"
+    }
+  }
+
+  private func captureAttribution(for draft: CaptureDraft, at now: Date) -> TaskActivityEntry {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "d MMM yyyy"
+
+    return TaskActivityEntry(
+      id: UUID().uuidString,
+      kind: .event,
+      text: "Drafted from \(draft.sourceLabel), \(formatter.string(from: now))",
+      createdAt: now
+    )
+  }
+
   private func applySlackCreate(_ proposal: SlackProposal, at now: Date) async throws {
-    let payload = proposal.payload
+    try await applyDraftCreate(
+      proposal.payload,
+      attribution: slackAttribution(for: proposal, at: now),
+      at: now
+    )
+  }
+
+  private func applySlackUpdate(_ proposal: SlackProposal, taskID: String, at now: Date) async throws {
+    try await applyDraftUpdate(
+      proposal.payload,
+      taskID: taskID,
+      attribution: slackAttribution(for: proposal, at: now),
+      at: now
+    )
+  }
+
+  /// Writes a drafted task, whoever drafted it. The attribution line is the
+  /// only thing that differs between a Slack proposal and a capture command.
+  func applyDraftCreate(
+    _ payload: SlackProposalPayload,
+    attribution: TaskActivityEntry,
+    at now: Date
+  ) async throws {
     let completed = payload.statusChange == .completed
 
     let task = TaskEntity(
@@ -1499,18 +1739,22 @@ final class AppState: ObservableObject {
       },
       recurring: nil,
       userId: nil,
-      activity: [slackAttribution(for: proposal, at: now)]
+      activity: [attribution]
     )
 
     try await saveTask(task)
   }
 
-  /// Writes only the fields the proposal actually changes. `saveTask` diffs the
+  /// Writes only the fields the draft actually changes. `saveTask` diffs the
   /// result and logs what moved, so this adds just the line saying where it
   /// came from.
-  private func applySlackUpdate(_ proposal: SlackProposal, taskID: String, at now: Date) async throws {
+  func applyDraftUpdate(
+    _ payload: SlackProposalPayload,
+    taskID: String,
+    attribution: TaskActivityEntry,
+    at now: Date
+  ) async throws {
     guard var task = tasks.first(where: { $0.id == taskID }) else { return }
-    let payload = proposal.payload
 
     if let title = payload.title { task.title = title }
     if let description = payload.description { task.description = description }
@@ -1547,7 +1791,7 @@ final class AppState: ObservableObject {
     }
 
     task.updatedAt = now
-    task.activity.append(slackAttribution(for: proposal, at: now))
+    task.activity.append(attribution)
     try await saveTask(task)
   }
 
