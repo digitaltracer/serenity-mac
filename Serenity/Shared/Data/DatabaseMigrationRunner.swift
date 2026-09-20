@@ -893,5 +893,37 @@ actor DatabaseMigrationRunner {
         "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '10');",
       ]
     ),
+    DatabaseMigration(
+      identifier: "20260921_013_standups",
+      statements: [
+        // No CHECK on `provider` or `length`, deliberately. SQLite cannot alter
+        // a CHECK in place, and the three rebuilds of `ai_usage` above are what
+        // that costs every time a new case is added. These two columns are
+        // validated where they are decoded instead.
+        """
+        CREATE TABLE IF NOT EXISTS standups (
+          id TEXT PRIMARY KEY,
+          generated_at TEXT NOT NULL,
+          window_start TEXT NOT NULL,
+          window_end TEXT NOT NULL,
+          spoken TEXT NOT NULL,
+          paste TEXT NOT NULL,
+          folded TEXT NOT NULL DEFAULT '[]',
+          items TEXT NOT NULL DEFAULT '[]',
+          format_instruction TEXT NOT NULL DEFAULT '',
+          length TEXT NOT NULL DEFAULT 'standard',
+          written_by_model INTEGER NOT NULL DEFAULT 0,
+          provider TEXT NOT NULL DEFAULT 'local',
+          prompt_tokens INTEGER DEFAULT 0,
+          completion_tokens INTEGER DEFAULT 0,
+          total_tokens INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_standups_generated ON standups(generated_at DESC);",
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '11');",
+      ]
+    ),
   ]
 }

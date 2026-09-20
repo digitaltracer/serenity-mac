@@ -42,5 +42,8 @@ struct CloudSyncInitialExporter {
     for summary in try aiRepositories.summaries.fetchAll() {
       try pendingStore.enqueue(entityType: SyncEntityType.summary, entityId: summary.id, operation: .upsert)
     }
+    for standup in try aiRepositories.standups.fetchAll(limit: Int.max) {
+      try pendingStore.enqueue(entityType: SyncEntityType.standup, entityId: standup.id, operation: .upsert)
+    }
   }
 }

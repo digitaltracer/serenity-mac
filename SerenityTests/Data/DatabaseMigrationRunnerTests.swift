@@ -10,7 +10,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
 
     let summary = try await runner.bootstrapDatabase(at: databaseURL)
 
-    XCTAssertEqual(summary.appliedMigrations.count, 11)
+    XCTAssertEqual(summary.appliedMigrations.count, 12)
     XCTAssertTrue(summary.skippedMigrations.isEmpty)
 
     let dbQueue = try DatabaseQueue(path: databaseURL.path)
@@ -40,6 +40,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     XCTAssertTrue(tables.contains("slack_channel_cursors"))
     XCTAssertTrue(tables.contains("slack_seen_messages"))
     XCTAssertTrue(tables.contains("slack_proposals"))
+    XCTAssertTrue(tables.contains("standups"))
     XCTAssertTrue(indexes.contains("idx_tasks_project_id"))
     XCTAssertTrue(indexes.contains("idx_journal_date"))
     XCTAssertTrue(indexes.contains("idx_goals_status"))
@@ -48,6 +49,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     XCTAssertTrue(indexes.contains("idx_ai_usage_timestamp"))
     XCTAssertTrue(indexes.contains("idx_ai_usage_model"))
     XCTAssertTrue(indexes.contains("idx_ai_model_rates_provider_model"))
+    XCTAssertTrue(indexes.contains("idx_standups_generated"))
     XCTAssertTrue(indexes.contains("idx_summaries_type"))
     XCTAssertTrue(indexes.contains("idx_ai_credentials_provider"))
     XCTAssertTrue(indexes.contains("idx_security_audit_created_at"))
@@ -71,7 +73,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     let secondRun = try await runner.bootstrapDatabase(at: databaseURL)
 
     XCTAssertTrue(secondRun.appliedMigrations.isEmpty)
-    XCTAssertEqual(secondRun.skippedMigrations.count, 11)
+    XCTAssertEqual(secondRun.skippedMigrations.count, 12)
   }
 
   func testNvidiaIsAcceptedByEveryProviderConstrainedTable() async throws {
@@ -182,6 +184,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
         "20260910_010_task_activity",
         "20260917_011_slack_integration",
         "20260919_012_custom_provider",
+        "20260921_013_standups",
       ]
     )
 

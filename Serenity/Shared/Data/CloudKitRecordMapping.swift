@@ -502,6 +502,82 @@ struct AIRecapSyncRecordKind: SyncRecordKind {
 
 // MARK: - Summaries
 
+// MARK: - Stand-ups
+
+struct StandupSyncRecordKind: SyncRecordKind {
+  let repository: SyncAwareStandupRepository
+
+  let entityType = SyncEntityType.standup
+
+  func makeRecord(forID id: String) throws -> CKRecord? {
+    guard let standup = try repository.fetchByID(id) else { return nil }
+    let recordID = CKRecord.ID(recordName: standup.id, zoneID: SerenityCloudKit.zoneID)
+    let record = CKRecord(recordType: entityType, recordID: recordID)
+    try Self.encode(standup, into: record)
+    return record
+  }
+
+  func applyPulled(_ record: CKRecord) throws {
+    let standup = try Self.decode(record)
+    try repository.applyRemoteUpsert(standup)
+  }
+
+  func applyPulledDelete(recordName: String) throws {
+    try repository.applyRemoteDelete(id: recordName)
+  }
+
+  static func encode(_ standup: StandupEntity, into record: CKRecord) throws {
+    record["generatedAt"] = standup.generatedAt as CKRecordValue
+    record["windowStart"] = standup.windowStart as CKRecordValue
+    record["windowEnd"] = standup.windowEnd as CKRecordValue
+    record["spoken"] = standup.spoken as CKRecordValue
+    record["paste"] = standup.paste as CKRecordValue
+    record["foldedJSON"] = try CloudKitJSONCodec.encode(standup.folded) as CKRecordValue
+    record["itemsJSON"] = try CloudKitJSONCodec.encode(standup.items) as CKRecordValue
+    record["formatInstruction"] = standup.formatInstruction as CKRecordValue
+    record["length"] = standup.length.rawValue as CKRecordValue
+    record["writtenByModel"] = (standup.writtenByModel ? 1 : 0) as CKRecordValue
+    record["provider"] = standup.provider.rawValue as CKRecordValue
+    record["promptTokens"] = standup.promptTokens as CKRecordValue
+    record["completionTokens"] = standup.completionTokens as CKRecordValue
+    record["totalTokens"] = standup.totalTokens as CKRecordValue
+    record["createdAt"] = standup.createdAt as CKRecordValue
+    record["updatedAt"] = standup.updatedAt as CKRecordValue
+  }
+
+  static func decode(_ record: CKRecord) throws -> StandupEntity {
+    let id = record.recordID.recordName
+    let generatedAt: Date = try requireField(record, "generatedAt")
+    let windowStart: Date = try requireField(record, "windowStart")
+    let windowEnd: Date = try requireField(record, "windowEnd")
+    let spoken: String = try requireField(record, "spoken")
+    let createdAt: Date = try requireField(record, "createdAt")
+    let updatedAt: Date = try requireField(record, "updatedAt")
+    let providerRaw: String = (record["provider"] as? String) ?? AIProvider.local.rawValue
+    let lengthRaw: String = (record["length"] as? String) ?? StandupLength.standard.rawValue
+
+    return StandupEntity(
+      id: id,
+      generatedAt: generatedAt,
+      windowStart: windowStart,
+      windowEnd: windowEnd,
+      spoken: spoken,
+      paste: (record["paste"] as? String) ?? spoken,
+      folded: try (record["foldedJSON"] as? String).map { try CloudKitJSONCodec.decode($0) as [String] } ?? [],
+      items: try (record["itemsJSON"] as? String).map { try CloudKitJSONCodec.decode($0) as [StandupItem] } ?? [],
+      formatInstruction: (record["formatInstruction"] as? String) ?? "",
+      length: StandupLength(rawValue: lengthRaw) ?? .standard,
+      writtenByModel: (record["writtenByModel"] as? Int ?? 0) == 1,
+      provider: AIProvider(rawValue: providerRaw) ?? .local,
+      promptTokens: record["promptTokens"] as? Int ?? 0,
+      completionTokens: record["completionTokens"] as? Int ?? 0,
+      totalTokens: record["totalTokens"] as? Int ?? 0,
+      createdAt: createdAt,
+      updatedAt: updatedAt
+    )
+  }
+}
+
 struct SummarySyncRecordKind: SyncRecordKind {
   let repository: SyncAwareSummaryRepository
 

@@ -31,6 +31,14 @@ protocol AIRecapRepository {
   func delete(id: String) throws
 }
 
+protocol StandupRepository {
+  func fetchAll(limit: Int) throws -> [StandupEntity]
+  func fetchLatest() throws -> StandupEntity?
+  func fetchByID(_ id: String) throws -> StandupEntity?
+  func save(_ standup: StandupEntity) throws
+  func delete(id: String) throws
+}
+
 protocol AIUsageRepository {
   func fetchAll(limit: Int) throws -> [AIUsageEntity]
   func save(_ entry: AIUsageEntity) throws
@@ -1001,12 +1009,155 @@ final class GRDBAISettingsRepository: AISettingsRepository {
   }
 }
 
+final class GRDBStandupRepository: StandupRepository {
+  private let dbQueue: DatabaseQueue
+
+  init(dbQueue: DatabaseQueue) {
+    self.dbQueue = dbQueue
+  }
+
+  func fetchAll(limit: Int = 50) throws -> [StandupEntity] {
+    try dbQueue.read { db in
+      let rows = try Row.fetchAll(
+        db,
+        sql: "SELECT * FROM standups ORDER BY generated_at DESC LIMIT ?;",
+        arguments: [limit]
+      )
+      return try rows.map(Self.makeStandup(from:))
+    }
+  }
+
+  /// What the window anchors to, and where carry-over comes from. Ordered by
+  /// when it was generated rather than by row age, so a backfilled or pulled
+  /// record cannot masquerade as the most recent one.
+  func fetchLatest() throws -> StandupEntity? {
+    try dbQueue.read { db in
+      guard let row = try Row.fetchOne(
+        db,
+        sql: "SELECT * FROM standups ORDER BY generated_at DESC LIMIT 1;"
+      ) else {
+        return nil
+      }
+
+      return try Self.makeStandup(from: row)
+    }
+  }
+
+  func fetchByID(_ id: String) throws -> StandupEntity? {
+    try dbQueue.read { db in
+      guard let row = try Row.fetchOne(db, sql: "SELECT * FROM standups WHERE id = ?;", arguments: [id]) else {
+        return nil
+      }
+
+      return try Self.makeStandup(from: row)
+    }
+  }
+
+  func save(_ standup: StandupEntity) throws {
+    let folded = try CoreRepositoryCodec.encodeJSON(standup.folded)
+    let items = try CoreRepositoryCodec.encodeJSON(standup.items)
+
+    try dbQueue.write { db in
+      try db.execute(
+        sql: """
+        INSERT INTO standups (
+          id,
+          generated_at,
+          window_start,
+          window_end,
+          spoken,
+          paste,
+          folded,
+          items,
+          format_instruction,
+          length,
+          written_by_model,
+          provider,
+          prompt_tokens,
+          completion_tokens,
+          total_tokens,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          generated_at = excluded.generated_at,
+          window_start = excluded.window_start,
+          window_end = excluded.window_end,
+          spoken = excluded.spoken,
+          paste = excluded.paste,
+          folded = excluded.folded,
+          items = excluded.items,
+          format_instruction = excluded.format_instruction,
+          length = excluded.length,
+          written_by_model = excluded.written_by_model,
+          provider = excluded.provider,
+          prompt_tokens = excluded.prompt_tokens,
+          completion_tokens = excluded.completion_tokens,
+          total_tokens = excluded.total_tokens,
+          updated_at = excluded.updated_at;
+        """,
+        arguments: [
+          standup.id,
+          CoreRepositoryCodec.encodeDate(standup.generatedAt),
+          CoreRepositoryCodec.encodeDate(standup.windowStart),
+          CoreRepositoryCodec.encodeDate(standup.windowEnd),
+          standup.spoken,
+          standup.paste,
+          folded,
+          items,
+          standup.formatInstruction,
+          standup.length.rawValue,
+          standup.writtenByModel ? 1 : 0,
+          standup.provider.rawValue,
+          standup.promptTokens,
+          standup.completionTokens,
+          standup.totalTokens,
+          CoreRepositoryCodec.encodeDate(standup.createdAt),
+          CoreRepositoryCodec.encodeDate(standup.updatedAt),
+        ]
+      )
+    }
+  }
+
+  func delete(id: String) throws {
+    try dbQueue.write { db in
+      try db.execute(sql: "DELETE FROM standups WHERE id = ?;", arguments: [id])
+    }
+  }
+
+  private static func makeStandup(from row: Row) throws -> StandupEntity {
+    let folded: [String] = try CoreRepositoryCodec.decodeJSONOrDefault([String].self, from: row["folded"], default: [])
+    let items: [StandupItem] = try CoreRepositoryCodec.decodeJSONOrDefault([StandupItem].self, from: row["items"], default: [])
+
+    return StandupEntity(
+      id: row["id"],
+      generatedAt: try CoreRepositoryCodec.decodeDate(row["generated_at"]),
+      windowStart: try CoreRepositoryCodec.decodeDate(row["window_start"]),
+      windowEnd: try CoreRepositoryCodec.decodeDate(row["window_end"]),
+      spoken: row["spoken"],
+      paste: row["paste"],
+      folded: folded,
+      items: items,
+      formatInstruction: (row["format_instruction"] as String?) ?? "",
+      length: StandupLength(rawValue: (row["length"] as String?) ?? StandupLength.standard.rawValue) ?? .standard,
+      writtenByModel: (row["written_by_model"] as Int? ?? 0) == 1,
+      provider: AIProvider(rawValue: (row["provider"] as String?) ?? AIProvider.local.rawValue) ?? .local,
+      promptTokens: row["prompt_tokens"] as Int? ?? 0,
+      completionTokens: row["completion_tokens"] as Int? ?? 0,
+      totalTokens: row["total_tokens"] as Int? ?? 0,
+      createdAt: try CoreRepositoryCodec.decodeDate(row["created_at"]),
+      updatedAt: try CoreRepositoryCodec.decodeDate(row["updated_at"])
+    )
+  }
+}
+
 struct GRDBAIRepositorySet {
   let insights: AIInsightRepository
   let recaps: AIRecapRepository
   let usage: GRDBAIUsageRepository
   let modelRates: GRDBAIModelRateRepository
   let summaries: SummaryRepository
+  let standups: StandupRepository
   let credentials: GRDBAICredentialRepository
   let settings: GRDBAISettingsRepository
 
@@ -1021,6 +1172,7 @@ struct GRDBAIRepositorySet {
     let insights = GRDBAIInsightRepository(dbQueue: dbQueue)
     let recaps = GRDBAIRecapRepository(dbQueue: dbQueue)
     let summaries = GRDBSummaryRepository(dbQueue: dbQueue)
+    let standups = GRDBStandupRepository(dbQueue: dbQueue)
     let syncAwareInsights: AIInsightRepository = pendingStore.map {
       SyncAwareAIInsightRepository(underlying: insights, pendingStore: $0) as AIInsightRepository
     } ?? insights
@@ -1030,6 +1182,9 @@ struct GRDBAIRepositorySet {
     let syncAwareSummaries: SummaryRepository = pendingStore.map {
       SyncAwareSummaryRepository(underlying: summaries, pendingStore: $0) as SummaryRepository
     } ?? summaries
+    let syncAwareStandups: StandupRepository = pendingStore.map {
+      SyncAwareStandupRepository(underlying: standups, pendingStore: $0) as StandupRepository
+    } ?? standups
 
     return GRDBAIRepositorySet(
       insights: syncAwareInsights,
@@ -1037,6 +1192,7 @@ struct GRDBAIRepositorySet {
       usage: GRDBAIUsageRepository(dbQueue: dbQueue),
       modelRates: GRDBAIModelRateRepository(dbQueue: dbQueue),
       summaries: syncAwareSummaries,
+      standups: syncAwareStandups,
       credentials: GRDBAICredentialRepository(dbQueue: dbQueue),
       settings: GRDBAISettingsRepository(dbQueue: dbQueue)
     )

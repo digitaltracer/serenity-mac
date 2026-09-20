@@ -157,3 +157,43 @@ final class SyncAwareSummaryRepository: SummaryRepository {
     try underlying.delete(id: id)
   }
 }
+
+final class SyncAwareStandupRepository: StandupRepository {
+  private let underlying: StandupRepository
+  private let pendingStore: PendingSyncChangeStore
+
+  init(underlying: StandupRepository, pendingStore: PendingSyncChangeStore) {
+    self.underlying = underlying
+    self.pendingStore = pendingStore
+  }
+
+  func fetchAll(limit: Int) throws -> [StandupEntity] {
+    try underlying.fetchAll(limit: limit)
+  }
+
+  func fetchLatest() throws -> StandupEntity? {
+    try underlying.fetchLatest()
+  }
+
+  func fetchByID(_ id: String) throws -> StandupEntity? {
+    try underlying.fetchByID(id)
+  }
+
+  func save(_ standup: StandupEntity) throws {
+    try underlying.save(standup)
+    try pendingStore.enqueue(entityType: SyncEntityType.standup, entityId: standup.id, operation: .upsert)
+  }
+
+  func delete(id: String) throws {
+    try underlying.delete(id: id)
+    try pendingStore.enqueue(entityType: SyncEntityType.standup, entityId: id, operation: .delete)
+  }
+
+  func applyRemoteUpsert(_ standup: StandupEntity) throws {
+    try underlying.save(standup)
+  }
+
+  func applyRemoteDelete(id: String) throws {
+    try underlying.delete(id: id)
+  }
+}

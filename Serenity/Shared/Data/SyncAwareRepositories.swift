@@ -11,6 +11,7 @@ enum SyncEntityType {
   static let aiInsight = "AIInsight"
   static let aiRecap = "AIRecap"
   static let summary = "Summary"
+  static let standup = "Standup"
 }
 
 /// Wraps a `CoreTaskRepository` so every successful save/delete pushes a

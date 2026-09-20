@@ -422,19 +422,45 @@ public struct AISettingsEntity: Codable, Equatable, Sendable {
   public var analysisFrequency: AIAnalysisFrequency
   public var dataTypes: AISettingsDataTypes
   public var preferredModels: AIPreferredModels?
+  /// How this team runs stand-up, in the user's own words. Optional so a
+  /// settings blob written before stand-ups existed still decodes.
+  public var standupFormat: String?
+  public var standupLength: StandupLength?
 
   public init(
     activeProvider: AICredentialProvider?,
     autoAnalyze: Bool,
     analysisFrequency: AIAnalysisFrequency,
     dataTypes: AISettingsDataTypes,
-    preferredModels: AIPreferredModels?
+    preferredModels: AIPreferredModels?,
+    standupFormat: String? = nil,
+    standupLength: StandupLength? = nil
   ) {
     self.activeProvider = activeProvider
     self.autoAnalyze = autoAnalyze
     self.analysisFrequency = analysisFrequency
     self.dataTypes = dataTypes
     self.preferredModels = preferredModels
+    self.standupFormat = standupFormat
+    self.standupLength = standupLength
+  }
+
+  /// The instruction a stand-up is written to before anyone has changed it.
+  /// Lives with the setting rather than with the writer, so the stored shape
+  /// does not depend on the thing that consumes it.
+  public static let defaultStandupFormat = """
+    Go in the order: what landed, what I'm on, what's in my way. Name the PR or ticket number when \
+    there is one. Never say "worked on" — say what actually changed. Keep the blocker last and make \
+    the ask explicit, including who I need it from.
+    """
+
+  /// What the writer is handed when nothing has been set yet.
+  public var resolvedStandupFormat: String {
+    standupFormat?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? Self.defaultStandupFormat
+  }
+
+  public var resolvedStandupLength: StandupLength {
+    standupLength ?? .standard
   }
 
   public static let defaultValue = AISettingsEntity(
@@ -564,5 +590,155 @@ public struct AIQuickCapturePreview: Identifiable, Equatable, Sendable {
     self.id = id
     self.originalInput = originalInput
     self.classification = classification
+  }
+}
+
+/// One confirmed line of a stand-up, frozen as it was spoken about. Stored
+/// alongside the script so tomorrow's board can tell you what you said about a
+/// task today, and phrase the follow-up as movement rather than repetition.
+public struct StandupItem: Codable, Equatable, Sendable, Identifiable {
+  public var id: String
+  public var taskID: String?
+  public var column: StandupColumn
+  public var title: String
+  public var fact: String
+  public var source: StandupCardSource
+
+  public init(
+    id: String,
+    taskID: String?,
+    column: StandupColumn,
+    title: String,
+    fact: String,
+    source: StandupCardSource
+  ) {
+    self.id = id
+    self.taskID = taskID
+    self.column = column
+    self.title = title
+    self.fact = fact
+    self.source = source
+  }
+}
+
+/// How much of the detail reaches the spoken script. A per-day lever; the
+/// standing format instruction outranks it when the two disagree.
+public enum StandupLength: String, Codable, CaseIterable, Sendable {
+  case short
+  case standard
+  case detailed
+
+  public var title: String {
+    switch self {
+    case .short:
+      return "Short"
+    case .standard:
+      return "Standard"
+    case .detailed:
+      return "Detailed"
+    }
+  }
+
+  /// Roughly how many words the script should run to. Spoken English lands
+  /// around 130 words a minute, so these are 20, 40 and 70 seconds.
+  public var wordTarget: Int {
+    switch self {
+    case .short:
+      return 45
+    case .standard:
+      return 100
+    case .detailed:
+      return 160
+    }
+  }
+}
+
+public struct StandupEntity: Identifiable, Equatable, Sendable {
+  public var id: String
+  public var generatedAt: Date
+  public var windowStart: Date
+  public var windowEnd: Date
+  public var spoken: String
+  public var paste: String
+  public var folded: [String]
+  public var items: [StandupItem]
+  public var formatInstruction: String
+  public var length: StandupLength
+  public var writtenByModel: Bool
+  public var provider: AIProvider
+  public var promptTokens: Int
+  public var completionTokens: Int
+  public var totalTokens: Int
+  public var createdAt: Date
+  public var updatedAt: Date
+
+  public init(
+    id: String,
+    generatedAt: Date,
+    windowStart: Date,
+    windowEnd: Date,
+    spoken: String,
+    paste: String,
+    folded: [String],
+    items: [StandupItem],
+    formatInstruction: String,
+    length: StandupLength,
+    writtenByModel: Bool,
+    provider: AIProvider,
+    promptTokens: Int,
+    completionTokens: Int,
+    totalTokens: Int,
+    createdAt: Date,
+    updatedAt: Date
+  ) {
+    self.id = id
+    self.generatedAt = generatedAt
+    self.windowStart = windowStart
+    self.windowEnd = windowEnd
+    self.spoken = spoken
+    self.paste = paste
+    self.folded = folded
+    self.items = items
+    self.formatInstruction = formatInstruction
+    self.length = length
+    self.writtenByModel = writtenByModel
+    self.provider = provider
+    self.promptTokens = promptTokens
+    self.completionTokens = completionTokens
+    self.totalTokens = totalTokens
+    self.createdAt = createdAt
+    self.updatedAt = updatedAt
+  }
+}
+
+extension StandupEntity {
+  /// What this stand-up said, in the shape tomorrow's board reads. A task can
+  /// hold two items — progress yesterday and work left today — so the columns
+  /// are ranked rather than left to whichever was stored last: being stuck
+  /// outranks being planned, which outranks having moved.
+  var recall: StandupRecall {
+    var mentions: [String: StandupMention] = [:]
+    var ranks: [String: Int] = [:]
+
+    for item in items {
+      guard let taskID = item.taskID else { continue }
+      let rank: Int
+      switch item.column {
+      case .blocked:
+        rank = 0
+      case .today:
+        rank = 1
+      case .since:
+        rank = 2
+      case .leftOut:
+        continue
+      }
+
+      if let existing = ranks[taskID], existing <= rank { continue }
+      ranks[taskID] = rank
+      mentions[taskID] = StandupMention(column: item.column, fact: item.fact)
+    }
+
+    return StandupRecall(generatedAt: generatedAt, mentions: mentions)
   }
 }
