@@ -287,6 +287,128 @@ final class AIWorkflowServiceTests: XCTestCase {
     )
   }
 
+  func testCustomDomainGainsSchemeAndVersionSegment() {
+    XCTAssertEqual(
+      AIProviderEndpoint.normalizedCustomBase("https://adarshnb.com/llm/"),
+      "https://adarshnb.com/llm/v1"
+    )
+    XCTAssertEqual(
+      AIProviderEndpoint.normalizedCustomBase("adarshnb.com/llm"),
+      "https://adarshnb.com/llm/v1"
+    )
+    XCTAssertEqual(
+      AIProviderEndpoint.normalizedCustomBase("https://adarshnb.com/llm/v1/"),
+      "https://adarshnb.com/llm/v1"
+    )
+    XCTAssertEqual(
+      AIProviderEndpoint.normalizedCustomBase("http://localhost:8000"),
+      "http://localhost:8000/v1"
+    )
+    XCTAssertNil(AIProviderEndpoint.normalizedCustomBase("   "))
+  }
+
+  func testCustomEndpointBuildsRequestURLs() throws {
+    let endpoint = AIProviderEndpoint(provider: .custom, baseURL: "https://adarshnb.com/llm/")
+
+    XCTAssertEqual(
+      try endpoint.customURL(path: "/models").absoluteString,
+      "https://adarshnb.com/llm/v1/models"
+    )
+    XCTAssertEqual(
+      try endpoint.customURL(path: "/chat/completions").absoluteString,
+      "https://adarshnb.com/llm/v1/chat/completions"
+    )
+  }
+
+  func testCustomEndpointWithoutDomainFails() {
+    let endpoint = AIProviderEndpoint(provider: .custom, baseURL: nil)
+
+    XCTAssertThrowsError(try endpoint.customURL(path: "/models")) { error in
+      XCTAssertEqual(error as? AIProviderAPIError, .missingCustomDomain)
+    }
+  }
+
+  func testClassifyQuickCaptureRoutesThroughCustomDomain() async throws {
+    var seenEndpoint: AIProviderEndpoint?
+    var seenModel: String?
+    let (service, _, _) = try makeService { endpoint, _, model, _, _, _ in
+      seenEndpoint = endpoint
+      seenModel = model
+      return AIProviderTextGenerationResponse(
+        text: """
+        {
+          "kind": "tasks",
+          "confidence": 0.9,
+          "newProjects": [],
+          "tasks": [
+            {
+              "title": "Call the dentist",
+              "description": null,
+              "priority": "high",
+              "dueDate": null,
+              "projectId": null,
+              "projectName": null,
+              "tags": [],
+              "subtasks": []
+            }
+          ],
+          "journal": null
+        }
+        """,
+        promptTokens: 12,
+        completionTokens: 24
+      )
+    }
+
+    let credential = try await service.addCredential(
+      provider: .custom,
+      name: "Home proxy",
+      apiKey: "sk-custom",
+      modelPreference: "gpt-5.5",
+      baseURL: "https://adarshnb.com/llm/"
+    )
+
+    let classification = try await service.classifyQuickCapture(
+      input: "Call the dentist",
+      credentialID: credential.id,
+      projects: [],
+      availableTags: [],
+      now: Date()
+    )
+
+    XCTAssertEqual(classification.tasks.first?.title, "Call the dentist")
+    XCTAssertEqual(seenEndpoint?.provider, .custom)
+    XCTAssertEqual(seenEndpoint?.baseURL, "https://adarshnb.com/llm/")
+    XCTAssertEqual(seenModel, "gpt-5.5")
+
+    let snapshot = try await service.fetchSnapshot(limit: 20)
+    XCTAssertEqual(snapshot.usage.first?.provider, .custom)
+    XCTAssertEqual(snapshot.usage.first?.model, "gpt-5.5")
+    XCTAssertEqual(snapshot.credentials.first?.provider, .custom)
+  }
+
+  func testCustomCredentialRemembersDomainAndVerifiedModels() async throws {
+    let (service, _, _) = try makeService { _, _, _, _, _, _ in
+      AIProviderTextGenerationResponse(text: "{}", promptTokens: 0, completionTokens: 0)
+    }
+
+    let credential = try await service.addCredential(
+      provider: .custom,
+      name: "Home proxy",
+      apiKey: "sk-custom",
+      modelPreference: nil,
+      availableModels: ["gpt-5.5", "gpt-5.6-sol"],
+      baseURL: "https://adarshnb.com/llm/"
+    )
+
+    XCTAssertEqual(
+      AIWorkflowService.decodeCredentialBaseURL(from: credential.metadataJSON),
+      "https://adarshnb.com/llm/"
+    )
+    let models = await service.decodeAvailableModels(from: credential.metadataJSON)
+    XCTAssertEqual(models, ["gpt-5.5", "gpt-5.6-sol"])
+  }
+
   private func makeService(
     quickCaptureGenerator: @escaping AIWorkflowService.QuickCaptureGenerationHandler = AIProviderAPIClient.generateQuickCaptureJSON
   ) throws -> (AIWorkflowService, InMemorySecretStorageBackend, String) {

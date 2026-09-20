@@ -84,7 +84,7 @@ struct AIWorkflowSnapshot {
 
 actor AIWorkflowService {
   typealias QuickCaptureGenerationHandler = (
-    AICredentialProvider,
+    AIProviderEndpoint,
     String,
     String,
     String,
@@ -112,8 +112,15 @@ actor AIWorkflowService {
     AIProviderModelCatalog.models
   }
 
-  func validateAPIKey(provider: AICredentialProvider, apiKey: String) async throws -> [String] {
-    try await AIProviderAPIClient.fetchModels(provider: provider, apiKey: apiKey)
+  func validateAPIKey(
+    provider: AICredentialProvider,
+    apiKey: String,
+    baseURL: String? = nil
+  ) async throws -> [String] {
+    try await AIProviderAPIClient.fetchModels(
+      endpoint: AIProviderEndpoint(provider: provider, baseURL: baseURL),
+      apiKey: apiKey
+    )
   }
 
   func classifyQuickCapture(
@@ -141,7 +148,7 @@ actor AIWorkflowService {
 
     do {
       let response = try await quickCaptureGenerator(
-        selection.credential.provider,
+        endpoint(for: selection.credential),
         selection.apiKey,
         selection.model,
         systemPrompt,
@@ -169,7 +176,7 @@ actor AIWorkflowService {
           schema: schema
         )
         let repaired = try await quickCaptureGenerator(
-          selection.credential.provider,
+          endpoint(for: selection.credential),
           selection.apiKey,
           selection.model,
           systemPrompt,
@@ -240,7 +247,7 @@ actor AIWorkflowService {
 
       do {
         let response = try await quickCaptureGenerator(
-          selection.credential.provider,
+          endpoint(for: selection.credential),
           selection.apiKey,
           selection.model,
           systemPrompt,
@@ -389,7 +396,7 @@ actor AIWorkflowService {
 
     do {
       let response = try await quickCaptureGenerator(
-        selection.credential.provider,
+        endpoint(for: selection.credential),
         selection.apiKey,
         selection.model,
         systemPrompt,
@@ -410,7 +417,7 @@ actor AIWorkflowService {
         )
       } catch {
         let repaired = try await quickCaptureGenerator(
-          selection.credential.provider,
+          endpoint(for: selection.credential),
           selection.apiKey,
           selection.model,
           systemPrompt,
@@ -634,7 +641,8 @@ actor AIWorkflowService {
     name: String,
     apiKey: String,
     modelPreference: String?,
-    availableModels: [String]? = nil
+    availableModels: [String]? = nil,
+    baseURL: String? = nil
   ) async throws -> AICredentialEntity {
     let repositories = try await requireRepositories()
     let now = Date()
@@ -652,7 +660,7 @@ actor AIWorkflowService {
       modelPreference: modelPreference,
       enabled: true,
       priority: currentCount,
-      metadataJSON: encodeCredentialMetadata(availableModels: availableModels),
+      metadataJSON: encodeCredentialMetadata(availableModels: availableModels, baseURL: baseURL),
       lastUsedAt: nil,
       totalRequests: 0,
       totalTokens: 0,
@@ -668,16 +676,41 @@ actor AIWorkflowService {
     return credential
   }
 
-  private func encodeCredentialMetadata(availableModels: [String]?) -> String {
-    guard let availableModels, !availableModels.isEmpty else { return "{}" }
-    let payload: [String: Any] = ["availableModels": availableModels]
+  private func encodeCredentialMetadata(availableModels: [String]?, baseURL: String?) -> String {
+    var payload: [String: Any] = [:]
+    if let availableModels, !availableModels.isEmpty {
+      payload["availableModels"] = availableModels
+    }
+    if let baseURL = baseURL?.trimmingCharacters(in: .whitespacesAndNewlines), !baseURL.isEmpty {
+      payload["baseURL"] = baseURL
+    }
     guard
+      !payload.isEmpty,
       let data = try? JSONSerialization.data(withJSONObject: payload),
       let json = String(data: data, encoding: .utf8)
     else {
       return "{}"
     }
     return json
+  }
+
+  private func endpoint(for credential: AICredentialEntity) -> AIProviderEndpoint {
+    AIProviderEndpoint(
+      provider: credential.provider,
+      baseURL: Self.decodeCredentialBaseURL(from: credential.metadataJSON)
+    )
+  }
+
+  static func decodeCredentialBaseURL(from metadataJSON: String) -> String? {
+    guard
+      let data = metadataJSON.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let baseURL = object["baseURL"] as? String,
+      !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      return nil
+    }
+    return baseURL
   }
 
   func updateCredential(
@@ -1522,6 +1555,9 @@ actor AIWorkflowService {
       configured = settings.preferredModels?.anthropic
     case .nvidia:
       configured = settings.preferredModels?.nvidia
+    case .custom:
+      // Several custom domains share this provider, so a model belongs to a credential, not here.
+      configured = nil
     }
     guard let trimmed = configured?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
       return nil
@@ -1553,6 +1589,9 @@ actor AIWorkflowService {
       return "claude-opus-4-7"
     case .nvidia:
       return "nvidia/nemotron-3.5-lightning-30b-a3b"
+    case .custom:
+      // A custom domain has no compiled-in catalog; its models are whatever it verified.
+      return ""
     }
   }
 
@@ -1600,6 +1639,8 @@ actor AIWorkflowService {
       return .anthropic
     case .nvidia:
       return .nvidia
+    case .custom:
+      return .custom
     }
   }
 
@@ -1613,6 +1654,8 @@ actor AIWorkflowService {
       return .anthropic
     case .nvidia:
       return .nvidia
+    case .custom:
+      return .custom
     }
   }
 
@@ -1803,6 +1846,9 @@ enum AIUsageCostService {
       return normalizedModel(settings.preferredModels?.anthropic ?? AIProviderModelCatalog.models[.anthropic]?.first)
     case .nvidia:
       return normalizedModel(settings.preferredModels?.nvidia ?? AIProviderModelCatalog.models[.nvidia]?.first)
+    case .custom:
+      // Nothing to fall back on: a custom domain's model is recorded on the usage row itself.
+      return ""
     }
   }
 

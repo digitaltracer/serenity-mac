@@ -1935,10 +1935,15 @@ final class AppState: ObservableObject {
 
   func validateAICredentialKey(
     provider: AICredentialProvider,
-    apiKey: String
+    apiKey: String,
+    baseURL: String? = nil
   ) async throws -> [String] {
     let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    return try await aiWorkflowService.validateAPIKey(provider: provider, apiKey: trimmed)
+    return try await aiWorkflowService.validateAPIKey(
+      provider: provider,
+      apiKey: trimmed,
+      baseURL: baseURL
+    )
   }
 
   func addAICredential(
@@ -1946,7 +1951,8 @@ final class AppState: ObservableObject {
     name: String,
     apiKey: String,
     modelPreference: String?,
-    availableModels: [String]? = nil
+    availableModels: [String]? = nil,
+    baseURL: String? = nil
   ) async {
     let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedKey.isEmpty else {
@@ -1954,11 +1960,21 @@ final class AppState: ObservableObject {
       return
     }
 
+    let trimmedBaseURL = baseURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if provider == .custom, trimmedBaseURL?.isEmpty ?? true {
+      showToast("Custom provider needs a domain")
+      return
+    }
+
     // Saving without pressing Verify would otherwise store no model list, leaving the credential on
     // the compiled-in catalog. A failure here is not fatal — the key still saves.
     var resolvedModels = availableModels
     if resolvedModels?.isEmpty ?? true {
-      resolvedModels = try? await aiWorkflowService.validateAPIKey(provider: provider, apiKey: trimmedKey)
+      resolvedModels = try? await aiWorkflowService.validateAPIKey(
+        provider: provider,
+        apiKey: trimmedKey,
+        baseURL: trimmedBaseURL
+      )
     }
 
     do {
@@ -1967,7 +1983,8 @@ final class AppState: ObservableObject {
         name: name,
         apiKey: trimmedKey,
         modelPreference: modelPreference,
-        availableModels: resolvedModels
+        availableModels: resolvedModels,
+        baseURL: trimmedBaseURL
       )
       showToast("\(provider.rawValue.capitalized) credential added")
       await refreshAIWorkflows()
@@ -2090,6 +2107,9 @@ final class AppState: ObservableObject {
       preferred.anthropic = model
     case .nvidia:
       preferred.nvidia = model
+    case .custom:
+      // Several custom domains share this provider, so the model is set on the credential instead.
+      return
     }
 
     var updated = aiSettings

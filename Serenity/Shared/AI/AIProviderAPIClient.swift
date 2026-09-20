@@ -7,6 +7,8 @@ enum AIProviderAPIError: Error, LocalizedError, Equatable {
   case decoding
   case invalidResponse
   case incompleteResponse(String)
+  case missingCustomDomain
+  case invalidCustomDomain(String)
   case unexpected(Int, String?)
 
   var errorDescription: String? {
@@ -23,12 +25,57 @@ enum AIProviderAPIError: Error, LocalizedError, Equatable {
       return "Provider response did not include usable text"
     case .incompleteResponse(let reason):
       return "Provider response was incomplete: \(reason)"
+    case .missingCustomDomain:
+      return "This provider needs a domain"
+    case .invalidCustomDomain(let value):
+      return "\(value) is not a usable domain"
     case .unexpected(let status, let detail):
       guard let detail, !detail.isEmpty else {
         return "Provider returned HTTP \(status)"
       }
       return "Provider returned HTTP \(status): \(detail)"
     }
+  }
+}
+
+/// Where a call goes. The hosted providers each live at a fixed address; a custom provider carries
+/// the domain its owner runs it on.
+struct AIProviderEndpoint: Equatable, Sendable {
+  let provider: AICredentialProvider
+  let baseURL: String?
+
+  init(provider: AICredentialProvider, baseURL: String? = nil) {
+    self.provider = provider
+    self.baseURL = baseURL
+  }
+
+  /// A domain is typed as a host or a path prefix, so the scheme and the OpenAI `/v1` segment are
+  /// filled in here: `adarshnb.com/llm/` resolves to `https://adarshnb.com/llm/v1`.
+  static func normalizedCustomBase(_ raw: String) -> String? {
+    var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !value.isEmpty else { return nil }
+    let lowered = value.lowercased()
+    if !lowered.hasPrefix("http://"), !lowered.hasPrefix("https://") {
+      value = "https://" + value
+    }
+    while value.hasSuffix("/") {
+      value.removeLast()
+    }
+    guard let url = URL(string: value), let host = url.host, !host.isEmpty else { return nil }
+    if !value.lowercased().hasSuffix("/v1") {
+      value += "/v1"
+    }
+    return value
+  }
+
+  func customURL(path: String) throws -> URL {
+    guard let raw = baseURL?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+      throw AIProviderAPIError.missingCustomDomain
+    }
+    guard let base = Self.normalizedCustomBase(raw), let url = URL(string: base + path) else {
+      throw AIProviderAPIError.invalidCustomDomain(raw)
+    }
+    return url
   }
 }
 
@@ -39,10 +86,10 @@ struct AIProviderTextGenerationResponse: Equatable, Sendable {
 }
 
 enum AIProviderAPIClient {
-  static func fetchModels(provider: AICredentialProvider, apiKey: String) async throws -> [String] {
+  static func fetchModels(endpoint: AIProviderEndpoint, apiKey: String) async throws -> [String] {
     let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { throw AIProviderAPIError.invalidKey }
-    switch provider {
+    switch endpoint.provider {
     case .openai:
       return try await fetchOpenAIModels(apiKey: trimmed)
     case .anthropic:
@@ -51,11 +98,13 @@ enum AIProviderAPIClient {
       return try await fetchGeminiModels(apiKey: trimmed)
     case .nvidia:
       return try await fetchNvidiaModels(apiKey: trimmed)
+    case .custom:
+      return try await fetchCustomModels(endpoint: endpoint, apiKey: trimmed)
     }
   }
 
   static func generateQuickCaptureJSON(
-    provider: AICredentialProvider,
+    endpoint: AIProviderEndpoint,
     apiKey: String,
     model: String,
     systemPrompt: String,
@@ -65,7 +114,7 @@ enum AIProviderAPIClient {
     let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { throw AIProviderAPIError.invalidKey }
 
-    switch provider {
+    switch endpoint.provider {
     case .openai:
       return try await generateOpenAIJSON(
         apiKey: trimmed,
@@ -92,6 +141,15 @@ enum AIProviderAPIClient {
       )
     case .nvidia:
       return try await generateNvidiaJSON(
+        apiKey: trimmed,
+        model: model,
+        systemPrompt: systemPrompt,
+        userPrompt: userPrompt,
+        schema: schema
+      )
+    case .custom:
+      return try await generateCustomJSON(
+        endpoint: endpoint,
         apiKey: trimmed,
         model: model,
         systemPrompt: systemPrompt,
@@ -412,7 +470,7 @@ enum AIProviderAPIClient {
     return !excluded.contains { lowered.contains($0) }
   }
 
-  private struct NvidiaChatCompletionPayload: Decodable {
+  private struct ChatCompletionPayload: Decodable {
     struct Choice: Decodable {
       struct Message: Decodable {
         let content: String?
@@ -482,7 +540,20 @@ enum AIProviderAPIClient {
       ],
     ])
 
-    let payload: NvidiaChatCompletionPayload = try await perform(request)
+    let payload: ChatCompletionPayload = try await perform(request)
+    return try chatCompletionText(
+      payload,
+      systemPrompt: systemPrompt,
+      userPrompt: userPrompt
+    )
+  }
+
+  /// Shared by every OpenAI-compatible service.
+  private static func chatCompletionText(
+    _ payload: ChatCompletionPayload,
+    systemPrompt: String,
+    userPrompt: String
+  ) throws -> AIProviderTextGenerationResponse {
     let choices = payload.choices ?? []
     let messages = choices.compactMap(\.message)
     let content = messages.compactMap(\.content).joined(separator: "\n")
@@ -517,7 +588,83 @@ enum AIProviderAPIClient {
     }
 
     throw AIProviderAPIError.invalidResponse
+  }
 
+  // MARK: - Custom domain
+
+  /// An OpenAI-compatible service at a domain the user supplies. Unlike NIM it is asked for strict
+  /// JSON Schema output directly, because a proxy that speaks this API normally honours it.
+  private static func fetchCustomModels(
+    endpoint: AIProviderEndpoint,
+    apiKey: String
+  ) async throws -> [String] {
+    var request = URLRequest(url: try endpoint.customURL(path: "/models"))
+    request.httpMethod = "GET"
+    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+    let payload: OpenAIModelsResponse = try await perform(request)
+    let allIDs = payload.data.map(\.id)
+    let chatIDs = allIDs.filter(isLikelyChatModel)
+    return (chatIDs.isEmpty ? allIDs : chatIDs).sorted()
+  }
+
+  /// A catalog behind a proxy mixes chat models with image, audio and embedding ones and carries no
+  /// capability field, so the non-conversational families are filtered out by name.
+  private static func isLikelyChatModel(_ id: String) -> Bool {
+    let lowered = id.lowercased()
+    let excluded = [
+      "embed", "rerank", "ocr", "asr", "tts", "riva", "guard", "retriever",
+      "image", "whisper", "moderation", "audio", "video", "speech", "dall-e",
+    ]
+    return !excluded.contains { lowered.contains($0) }
+  }
+
+  private static func generateCustomJSON(
+    endpoint: AIProviderEndpoint,
+    apiKey: String,
+    model: String,
+    systemPrompt: String,
+    userPrompt: String,
+    schema: [String: Any]
+  ) async throws -> AIProviderTextGenerationResponse {
+    var request = URLRequest(url: try endpoint.customURL(path: "/chat/completions"))
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+    let schemaText = try jsonString(schema)
+    request.httpBody = try jsonData([
+      "model": model,
+      // A reasoning model behind the domain spends this budget thinking before it answers.
+      "max_tokens": 4_096,
+      "temperature": 0,
+      "response_format": [
+        "type": "json_schema",
+        "json_schema": [
+          "name": "quick_capture_classification",
+          "strict": true,
+          "schema": schema,
+        ],
+      ],
+      "messages": [
+        ["role": "system", "content": systemPrompt],
+        [
+          "role": "user",
+          "content": """
+          \(userPrompt)
+
+          Return only one JSON object matching this JSON Schema. Do not wrap it in markdown:
+          \(schemaText)
+          """,
+        ],
+      ],
+    ])
+
+    let payload: ChatCompletionPayload = try await perform(request)
+    return try chatCompletionText(
+      payload,
+      systemPrompt: systemPrompt,
+      userPrompt: userPrompt
+    )
   }
 
   // MARK: - Common

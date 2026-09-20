@@ -310,8 +310,8 @@ final class AppStateTests: XCTestCase {
   func testAIQuickCaptureRoutesThroughNvidiaCredential() async throws {
     var seenProvider: AICredentialProvider?
     var seenModel: String?
-    let fixture = try makeAIQuickCaptureState { provider, _, model, _, _, _ in
-      seenProvider = provider
+    let fixture = try makeAIQuickCaptureState { endpoint, _, model, _, _, _ in
+      seenProvider = endpoint.provider
       seenModel = model
       return AIProviderTextGenerationResponse(
         text: Self.taskClassificationJSON(confidence: 0.91),

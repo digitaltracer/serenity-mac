@@ -2412,6 +2412,8 @@ private struct HomeSectionView: View {
       if let preferred = appState.aiSettings.preferredModels?.nvidia, !preferred.isEmpty {
         return preferred
       }
+    case .custom:
+      break
     }
 
     return appState.aiModelCatalog[credential.provider]?.first ?? "Default model"
@@ -2427,6 +2429,8 @@ private struct HomeSectionView: View {
       return "Anthropic"
     case .nvidia:
       return "NVIDIA NIM"
+    case .custom:
+      return "Custom"
     }
   }
 
@@ -2440,6 +2444,8 @@ private struct HomeSectionView: View {
       return "brain.head.profile"
     case .nvidia:
       return "cpu.fill"
+    case .custom:
+      return "globe"
     }
   }
 
@@ -2453,6 +2459,8 @@ private struct HomeSectionView: View {
       return .orange
     case .nvidia:
       return .green
+    case .custom:
+      return .teal
     }
   }
 }
@@ -7138,7 +7146,7 @@ struct InsightsSectionView: View {
   }
 
   private var providerOptions: [AICredentialProvider] {
-    [.openai, .gemini, .anthropic, .nvidia]
+    [.openai, .gemini, .anthropic, .nvidia, .custom]
   }
 
   private func providerTitle(_ provider: AICredentialProvider) -> String {
@@ -7151,6 +7159,8 @@ struct InsightsSectionView: View {
       return "Anthropic"
     case .nvidia:
       return "NVIDIA NIM"
+    case .custom:
+      return "Custom"
     }
   }
 
@@ -7164,6 +7174,8 @@ struct InsightsSectionView: View {
       return "brain.head.profile"
     case .nvidia:
       return "cpu.fill"
+    case .custom:
+      return "globe"
     }
   }
 
@@ -7177,6 +7189,8 @@ struct InsightsSectionView: View {
       return .orange
     case .nvidia:
       return .green
+    case .custom:
+      return .teal
     }
   }
 }
@@ -7817,6 +7831,7 @@ private struct CostCenterSectionView: View {
     case .gemini: return "Gemini"
     case .anthropic: return "Anthropic"
     case .nvidia: return "NVIDIA NIM"
+    case .custom: return "Custom"
     }
   }
 
@@ -7826,6 +7841,7 @@ private struct CostCenterSectionView: View {
     case .gemini: return "Google Gemini usage rates"
     case .anthropic: return "Anthropic usage rates"
     case .nvidia: return "NVIDIA NIM usage rates"
+    case .custom: return "Custom domain usage rates"
     }
   }
 
@@ -7835,6 +7851,7 @@ private struct CostCenterSectionView: View {
     case .gemini: return "diamond.fill"
     case .anthropic: return "brain.head.profile"
     case .nvidia: return "cpu.fill"
+    case .custom: return "globe"
     }
   }
 
@@ -7844,6 +7861,7 @@ private struct CostCenterSectionView: View {
     case .gemini: return .purple
     case .anthropic: return .orange
     case .nvidia: return .green
+    case .custom: return .teal
     }
   }
 
@@ -9194,6 +9212,7 @@ private struct SettingsSectionView: View {
   @State private var newCredentialName = ""
   @State private var newCredentialAPIKey = ""
   @State private var newCredentialModel = ""
+  @State private var newCredentialDomain = ""
   @State private var keyVerification: KeyVerificationState = .idle
   @State private var selectedTab: SettingsTab = .appearance
 
@@ -9453,6 +9472,18 @@ private struct SettingsSectionView: View {
         providerPickerRow
       }
 
+      if newCredentialProvider == .custom {
+        settingsField(
+          "Domain",
+          help: "Any service that speaks the OpenAI API. Serenity calls /v1/models and /v1/chat/completions under it."
+        ) {
+          TextField("https://example.com/llm/", text: $newCredentialDomain)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+            .frame(maxWidth: 520)
+        }
+      }
+
       settingsField("API key", help: "Stored securely in the system Keychain.") {
         HStack(spacing: 10) {
           SecureField("sk-…", text: $newCredentialAPIKey)
@@ -9478,6 +9509,7 @@ private struct SettingsSectionView: View {
           .disabled(
             newCredentialAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
               || keyVerification == .validating
+              || isMissingCustomDomain
           )
         }
 
@@ -9522,11 +9554,13 @@ private struct SettingsSectionView: View {
               name: finalName,
               apiKey: newCredentialAPIKey,
               modelPreference: newCredentialModel.isEmpty ? nil : newCredentialModel,
-              availableModels: verifiedModels
+              availableModels: verifiedModels,
+              baseURL: newCredentialDomain
             )
             newCredentialName = ""
             newCredentialAPIKey = ""
             newCredentialModel = ""
+            newCredentialDomain = ""
             keyVerification = .idle
           }
         } label: {
@@ -9537,6 +9571,7 @@ private struct SettingsSectionView: View {
         .disabled(
           newCredentialAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || keyVerification == .validating
+            || isMissingCustomDomain
         )
       }
     }
@@ -9550,6 +9585,14 @@ private struct SettingsSectionView: View {
     .onChange(of: newCredentialAPIKey) { _, _ in
       if keyVerification != .validating { keyVerification = .idle }
     }
+    .onChange(of: newCredentialDomain) { _, _ in
+      if keyVerification != .validating { keyVerification = .idle }
+    }
+  }
+
+  private var isMissingCustomDomain: Bool {
+    newCredentialProvider == .custom
+      && newCredentialDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   @ViewBuilder
@@ -9614,7 +9657,8 @@ private struct SettingsSectionView: View {
     do {
       let models = try await appState.validateAICredentialKey(
         provider: newCredentialProvider,
-        apiKey: trimmed
+        apiKey: trimmed,
+        baseURL: newCredentialDomain
       )
       keyVerification = .valid(models: models)
     } catch {
@@ -9675,7 +9719,7 @@ private struct SettingsSectionView: View {
             .foregroundStyle(SerenityPalette.textPrimary)
           statusDot(isActive: credential.enabled)
         }
-        Text("\(providerTitle(credential.provider)) · \(credential.totalRequests) requests · \(credential.totalTokens) tokens")
+        Text("\(credentialProviderCaption(credential)) · \(credential.totalRequests) requests · \(credential.totalTokens) tokens")
           .font(SerenityType.caption)
           .foregroundStyle(SerenityPalette.textSecondary)
           .lineLimit(1)
@@ -9725,6 +9769,16 @@ private struct SettingsSectionView: View {
       RoundedRectangle(cornerRadius: 12, style: .continuous)
         .stroke(SerenityPalette.thinBorder, lineWidth: 1)
     )
+  }
+
+  private func credentialProviderCaption(_ credential: AICredentialEntity) -> String {
+    guard credential.provider == .custom,
+          let domain = AIWorkflowService.decodeCredentialBaseURL(from: credential.metadataJSON),
+          let host = URL(string: AIProviderEndpoint.normalizedCustomBase(domain) ?? "")?.host
+    else {
+      return providerTitle(credential.provider)
+    }
+    return host
   }
 
   private var credentialStatusText: String {
@@ -9795,7 +9849,7 @@ private struct SettingsSectionView: View {
   }
 
   private var providerOptions: [AICredentialProvider] {
-    [.openai, .gemini, .anthropic, .nvidia]
+    [.openai, .gemini, .anthropic, .nvidia, .custom]
   }
 
   private func providerTitle(_ provider: AICredentialProvider) -> String {
@@ -9808,20 +9862,31 @@ private struct SettingsSectionView: View {
       return "Anthropic"
     case .nvidia:
       return "NVIDIA NIM"
+    case .custom:
+      return "Custom"
     }
   }
 
+  @ViewBuilder
   private func providerLogo(_ provider: AICredentialProvider, size: CGFloat) -> some View {
-    Image(providerLogoAsset(provider))
-      .renderingMode(.template)
-      .resizable()
-      .scaledToFit()
-      .foregroundStyle(providerTint(provider))
-      .frame(width: size, height: size)
-      .accessibilityHidden(true)
+    if let asset = providerLogoAsset(provider) {
+      Image(asset)
+        .renderingMode(.template)
+        .resizable()
+        .scaledToFit()
+        .foregroundStyle(providerTint(provider))
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    } else {
+      Image(systemName: providerIcon(provider))
+        .font(SerenityType.scaledSystem(size: size, weight: .semibold))
+        .foregroundStyle(providerTint(provider))
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
   }
 
-  private func providerLogoAsset(_ provider: AICredentialProvider) -> String {
+  private func providerLogoAsset(_ provider: AICredentialProvider) -> String? {
     switch provider {
     case .openai:
       return "ProviderOpenAI"
@@ -9831,6 +9896,8 @@ private struct SettingsSectionView: View {
       return "ProviderAnthropic"
     case .nvidia:
       return "ProviderNvidia"
+    case .custom:
+      return nil
     }
   }
 
@@ -9844,6 +9911,8 @@ private struct SettingsSectionView: View {
       return "brain.head.profile"
     case .nvidia:
       return "cpu.fill"
+    case .custom:
+      return "globe"
     }
   }
 
@@ -9857,6 +9926,8 @@ private struct SettingsSectionView: View {
       return .orange
     case .nvidia:
       return .green
+    case .custom:
+      return .teal
     }
   }
 

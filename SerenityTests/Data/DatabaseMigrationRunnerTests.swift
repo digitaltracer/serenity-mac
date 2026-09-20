@@ -10,7 +10,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
 
     let summary = try await runner.bootstrapDatabase(at: databaseURL)
 
-    XCTAssertEqual(summary.appliedMigrations.count, 10)
+    XCTAssertEqual(summary.appliedMigrations.count, 11)
     XCTAssertTrue(summary.skippedMigrations.isEmpty)
 
     let dbQueue = try DatabaseQueue(path: databaseURL.path)
@@ -71,7 +71,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     let secondRun = try await runner.bootstrapDatabase(at: databaseURL)
 
     XCTAssertTrue(secondRun.appliedMigrations.isEmpty)
-    XCTAssertEqual(secondRun.skippedMigrations.count, 10)
+    XCTAssertEqual(secondRun.skippedMigrations.count, 11)
   }
 
   func testNvidiaIsAcceptedByEveryProviderConstrainedTable() async throws {
@@ -130,6 +130,46 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     }
   }
 
+  func testCustomProviderIsAcceptedByTheProviderTables() async throws {
+    let databaseURL = try makeTemporaryDatabaseURL()
+    _ = try await DatabaseMigrationRunner().bootstrapDatabase(at: databaseURL)
+    let dbQueue = try DatabaseQueue(path: databaseURL.path)
+
+    try await dbQueue.write { db in
+      try db.execute(
+        sql: """
+        INSERT INTO ai_provider_credentials (id, provider, name, api_key_encrypted, created_at, updated_at)
+        VALUES ('cred-custom', 'custom', 'Home proxy', 'keychain://x', '2026-09-19', '2026-09-19');
+        """
+      )
+      try db.execute(
+        sql: """
+        INSERT INTO ai_usage (id, timestamp, provider, operation, total_tokens)
+        VALUES ('usage-custom', '2026-09-19T10:00:00Z', 'custom', 'quickadd', 42);
+        """
+      )
+    }
+
+    let storedProvider = try await dbQueue.read { db in
+      try String.fetchOne(db, sql: "SELECT provider FROM ai_provider_credentials WHERE id = 'cred-custom';")
+    }
+    XCTAssertEqual(storedProvider, "custom")
+
+    do {
+      try await dbQueue.write { db in
+        try db.execute(
+          sql: """
+          INSERT INTO ai_usage (id, timestamp, provider, operation, total_tokens)
+          VALUES ('usage-bogus-provider', '2026-09-19T10:00:00Z', 'telepathy', 'quickadd', 1);
+          """
+        )
+      }
+      XCTFail("ai_usage accepted an unknown provider value")
+    } catch {
+      // Expected: the widened CHECK still rejects anything outside the enum.
+    }
+  }
+
   func testWideningProviderConstraintPreservesExistingRows() async throws {
     let databaseURL = try makeTemporaryDatabaseURL()
     try seedPreNvidiaDatabase(at: databaseURL)
@@ -137,7 +177,12 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     let summary = try await DatabaseMigrationRunner().bootstrapDatabase(at: databaseURL)
     XCTAssertEqual(
       summary.appliedMigrations,
-      ["20260901_008_nvidia_provider", "20260910_010_task_activity", "20260917_011_slack_integration"]
+      [
+        "20260901_008_nvidia_provider",
+        "20260910_010_task_activity",
+        "20260917_011_slack_integration",
+        "20260919_012_custom_provider",
+      ]
     )
 
     let dbQueue = try DatabaseQueue(path: databaseURL.path)

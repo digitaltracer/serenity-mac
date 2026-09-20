@@ -5,6 +5,7 @@ public enum AIProvider: String, Codable, CaseIterable, Sendable {
   case gemini
   case anthropic
   case nvidia
+  case custom
   case local
 }
 
@@ -161,13 +162,15 @@ public enum AIUsageProvider: String, Codable, CaseIterable, Sendable {
   case gemini
   case anthropic
   case nvidia
+  case custom
 
   /// LiteLLM files NIM models under `nvidia_nim`; every other provider matches its raw value.
+  /// A custom domain matches nothing, which is correct — its pricing is whatever its owner charges.
   var litellmSlug: String {
     switch self {
     case .nvidia:
       return "nvidia_nim"
-    case .openai, .gemini, .anthropic:
+    case .openai, .gemini, .anthropic, .custom:
       return rawValue
     }
   }
@@ -319,6 +322,8 @@ public enum AICredentialProvider: String, Codable, CaseIterable, Sendable {
   case gemini
   case anthropic
   case nvidia
+  /// An OpenAI-compatible service at a domain the user supplies; the URL lives on the credential.
+  case custom
 }
 
 public struct AICredentialEntity: Identifiable, Equatable, Sendable {
