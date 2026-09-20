@@ -1173,9 +1173,17 @@ private struct SectionView: View {
 
   @ViewBuilder
   private var taskEditorContent: some View {
-    if let draft = Binding($editorDraft) {
+    if let openDraft = editorDraft {
       TaskEditorView(
-        draft: draft,
+        // The inspector lays its content out once more after the draft is
+        // cleared, so this binding has to survive the nil rather than trap.
+        draft: Binding(
+          get: { editorDraft ?? openDraft },
+          set: { updated in
+            guard editorDraft != nil else { return }
+            editorDraft = updated
+          }
+        ),
         availableProjects: appState.projects.filter { !$0.archived },
         onCancel: requestCloseEditor,
         onSave: {
