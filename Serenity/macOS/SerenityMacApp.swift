@@ -50,7 +50,7 @@ struct SerenityMacApp: App {
         .keyboardShortcut("n", modifiers: [.command, .shift])
       }
 
-      // ⌘1–⌘8, in the order the sidebar lists them.
+      // ⌘1–⌘9, in the order the sidebar lists them.
       CommandGroup(after: .sidebar) {
         Divider()
 

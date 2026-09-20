@@ -183,6 +183,16 @@ final class AppState: ObservableObject {
   @Published var aiInsights: [AIInsightEntity] = []
   @Published var aiRecaps: [AIRecapEntity] = []
   @Published var aiSummaries: [SummaryEntity] = []
+  @Published var standups: [StandupEntity] = []
+  @Published var standupBoard: StandupBoard?
+  @Published var standupScript: StandupScript?
+  @Published var standupWrittenByModel = false
+  @Published var standupIsWriting = false
+  @Published var standupSaveToJournal = true
+  /// Once you have moved or added a card, the board stops regathering itself
+  /// underneath you.
+  @Published var standupBoardEdited = false
+  private var pendingStandupDraft: StandupDraft?
   @Published var aiUsageEntries: [AIUsageEntity] = []
   @Published var aiModelRates: [AIModelRateEntity] = []
   @Published var aiStatusMessage = "AI features require a configured provider key."
@@ -1922,6 +1932,7 @@ final class AppState: ObservableObject {
       aiSummaries = snapshot.summaries
       aiUsageEntries = snapshot.usage
       aiModelRates = snapshot.modelRates
+      standups = snapshot.standups
 
       if aiCredentials.contains(where: { $0.enabled }) {
         aiStatusMessage = "AI is ready."
@@ -2201,6 +2212,215 @@ final class AppState: ObservableObject {
     } catch {
       showError(title: "Failed to update insight feedback", message: error.localizedDescription)
     }
+  }
+
+  // MARK: - Stand-up
+
+  /// The last stand-up is both the window anchor and the source of carry-over,
+  /// so a stale copy would silently replay yesterday. Read it fresh rather than
+  /// trusting whatever the last refresh left in `standups`.
+  private func latestStandup() async -> StandupEntity? {
+    do {
+      return try await aiWorkflowService.fetchLatestStandup()
+    } catch {
+      AppLogger.error("Standup: failed to read the last stand-up: \(error.localizedDescription)")
+      return standups.max { $0.generatedAt < $1.generatedAt }
+    }
+  }
+
+  /// What Home's strip reports before anything is opened.
+  func standupPendingCount(now: Date = Date()) async -> Int {
+    let recall = await latestStandup()?.recall
+    return StandupPlanner.build(tasks: tasks, recall: recall, now: now).reportableCount
+  }
+
+  func buildStandupBoard(now: Date = Date()) async {
+    let previous = await latestStandup()
+    standupScript = nil
+    standupBoardEdited = false
+    standupBoard = StandupPlanner.build(tasks: tasks, recall: previous?.recall, now: now)
+  }
+
+  func moveStandupCard(id: String, to column: StandupColumn) {
+    guard var board = standupBoard, let index = board.cards.firstIndex(where: { $0.id == id }) else { return }
+    guard board.cards[index].column != column else { return }
+
+    let previousID = board.cards[index].id
+    var card = board.cards[index]
+    card.column = column
+    // The id carries the column, so a moved card has to be re-keyed or a second
+    // move of the same task collides with where it used to be.
+    if let taskID = card.taskID {
+      card.id = StandupCard.cardID(taskID: taskID, column: column)
+    }
+
+    // Both keys go: the row being moved, and any card already sitting in the
+    // destination for this task. A task may hold two columns, never two cards
+    // in one.
+    board.cards.removeAll { $0.id == previousID || $0.id == card.id }
+    board.cards.insert(card, at: min(index, board.cards.count))
+    standupBoard = board
+    standupBoardEdited = true
+  }
+
+  func addStandupCard(title: String, to column: StandupColumn) {
+    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, var board = standupBoard else { return }
+
+    board.cards.append(
+      StandupCard(
+        id: "manual:\(UUID().uuidString)",
+        taskID: nil,
+        column: column,
+        title: trimmed,
+        fact: "Not tracked in Serenity",
+        source: .manual
+      )
+    )
+    standupBoard = board
+    standupBoardEdited = true
+  }
+
+  func removeStandupCard(id: String) {
+    guard var board = standupBoard else { return }
+    board.cards.removeAll { $0.id == id }
+    standupBoard = board
+    standupBoardEdited = true
+  }
+
+  func setStandupLength(_ length: StandupLength) async {
+    var updated = aiSettings
+    updated.standupLength = length
+
+    do {
+      try await aiWorkflowService.saveSettings(updated)
+      aiSettings = updated
+    } catch {
+      showError(title: "Failed to save stand-up length", message: error.localizedDescription)
+    }
+  }
+
+  func setStandupFormat(_ instruction: String) async {
+    var updated = aiSettings
+    updated.standupFormat = instruction.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+
+    do {
+      try await aiWorkflowService.saveSettings(updated)
+      aiSettings = updated
+      showToast("Stand-up format saved")
+    } catch {
+      showError(title: "Failed to save stand-up format", message: error.localizedDescription)
+    }
+  }
+
+  /// `instructionOverride` is the just-for-today escape: the morning someone
+  /// asks for it differently, without rewriting the standing rule.
+  func writeStandup(instructionOverride: String? = nil, now: Date = Date()) async {
+    guard let board = standupBoard else { return }
+
+    standupIsWriting = true
+    defer { standupIsWriting = false }
+
+    do {
+      let draft = try await aiWorkflowService.writeStandup(
+        board: board,
+        instruction: instructionOverride?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? aiSettings.resolvedStandupFormat,
+        length: aiSettings.resolvedStandupLength,
+        now: now
+      )
+      standupScript = draft.script
+      standupWrittenByModel = draft.writtenByModel
+      pendingStandupDraft = draft
+    } catch {
+      showError(title: "Stand-up generation failed", message: error.localizedDescription)
+    }
+  }
+
+  func updateStandupScript(spoken: String) {
+    guard var script = standupScript else { return }
+    script.spoken = spoken
+    standupScript = script
+  }
+
+  @discardableResult
+  func saveStandup(now: Date = Date()) async -> Bool {
+    guard let board = standupBoard, let script = standupScript, let draft = pendingStandupDraft else {
+      return false
+    }
+
+    let standup = StandupEntity(
+      id: UUID().uuidString,
+      generatedAt: now,
+      windowStart: board.window.start,
+      windowEnd: board.window.end,
+      spoken: script.spoken,
+      paste: script.paste,
+      folded: script.folded,
+      items: board.cards.map {
+        StandupItem(
+          id: $0.id,
+          taskID: $0.taskID,
+          column: $0.column,
+          title: $0.title,
+          fact: $0.fact,
+          source: $0.source
+        )
+      },
+      formatInstruction: aiSettings.resolvedStandupFormat,
+      length: aiSettings.resolvedStandupLength,
+      writtenByModel: draft.writtenByModel,
+      provider: draft.provider,
+      promptTokens: draft.promptTokens,
+      completionTokens: draft.completionTokens,
+      totalTokens: draft.totalTokens,
+      createdAt: now,
+      updatedAt: now
+    )
+
+    do {
+      try await aiWorkflowService.saveStandup(standup)
+
+      if standupSaveToJournal {
+        await createJournalEntry(
+          title: "Stand-up",
+          content: script.paste,
+          mood: nil,
+          tags: ["standup"]
+        )
+      }
+
+      triggerICloudSync()
+      discardStandup()
+      await refreshAIWorkflows()
+      // Rebuild rather than leaving the board nil: the window now anchors to
+      // the stand-up just saved, and the screen should say that plainly
+      // instead of sitting on the "gathering" message forever.
+      await buildStandupBoard(now: now)
+      showToast(standupSaveToJournal ? "Stand-up saved to your journal" : "Stand-up saved")
+      return true
+    } catch {
+      showError(title: "Failed to save the stand-up", message: error.localizedDescription)
+      return false
+    }
+  }
+
+  func deleteStandup(id: String) async {
+    do {
+      try await aiWorkflowService.deleteStandup(id: id)
+      triggerICloudSync()
+      await refreshAIWorkflows()
+    } catch {
+      showError(title: "Failed to delete the stand-up", message: error.localizedDescription)
+    }
+  }
+
+  func discardStandup() {
+    standupBoard = nil
+    standupBoardEdited = false
+    standupScript = nil
+    standupWrittenByModel = false
+    pendingStandupDraft = nil
   }
 
   func generateAIRecap(type: AIRecapType) async {
@@ -3531,7 +3751,8 @@ final class AppState: ObservableObject {
     guard
       let insightRepository = aiRepositories.insights as? SyncAwareAIInsightRepository,
       let recapRepository = aiRepositories.recaps as? SyncAwareAIRecapRepository,
-      let summaryRepository = aiRepositories.summaries as? SyncAwareSummaryRepository
+      let summaryRepository = aiRepositories.summaries as? SyncAwareSummaryRepository,
+      let standupRepository = aiRepositories.standups as? SyncAwareStandupRepository
     else {
       AppLogger.error("iCloudSync: AI repositories were not sync-aware.")
       return
@@ -3548,6 +3769,7 @@ final class AppState: ObservableObject {
         AIInsightSyncRecordKind(repository: insightRepository),
         AIRecapSyncRecordKind(repository: recapRepository),
         SummarySyncRecordKind(repository: summaryRepository),
+        StandupSyncRecordKind(repository: standupRepository),
       ],
       stateUpdate: { [weak self] state in
         Task { @MainActor [weak self] in

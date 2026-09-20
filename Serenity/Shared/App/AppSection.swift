@@ -3,6 +3,7 @@ import Foundation
 public enum AppSection: String, CaseIterable, Identifiable {
   case home
   case actionHub
+  case standup
   case journal
   case goals
   case projects
@@ -13,10 +14,10 @@ public enum AppSection: String, CaseIterable, Identifiable {
 
   public var id: String { rawValue }
 
-  /// Sidebar order, and therefore the order ⌘1–⌘8 follow. `allCases` is the
+  /// Sidebar order, and therefore the order ⌘1–⌘9 follow. `allCases` is the
   /// declaration order and is not guaranteed to match what the user sees.
   static let navigationOrder: [AppSection] = [
-    .home, .actionHub, .journal, .goals, .insights, .aiSummaries, .integrations, .settings,
+    .home, .actionHub, .standup, .journal, .goals, .insights, .aiSummaries, .integrations, .settings,
   ]
 
   var title: String {
@@ -25,6 +26,8 @@ public enum AppSection: String, CaseIterable, Identifiable {
       return "Home"
     case .actionHub:
       return "ActionHub"
+    case .standup:
+      return "Stand-up"
     case .journal:
       return "Journal"
     case .goals:
@@ -48,6 +51,8 @@ public enum AppSection: String, CaseIterable, Identifiable {
       return "house"
     case .actionHub:
       return "checklist"
+    case .standup:
+      return "mic"
     case .journal:
       return "book"
     case .goals:

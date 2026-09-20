@@ -520,7 +520,7 @@ private struct SerenityPhoneTabShell: View {
 private struct MorePhoneList: View {
   @EnvironmentObject private var appState: AppState
 
-  private let sections: [AppSection] = [.insights, .aiSummaries, .integrations, .settings]
+  private let sections: [AppSection] = [.standup, .insights, .aiSummaries, .integrations, .settings]
 
   var body: some View {
     SerenityThemedScrollView {
@@ -652,7 +652,7 @@ private struct SerenitySidebar: View {
   @Binding var selectedSection: AppSection?
   @State private var hoveredSection: AppSection?
 
-  private let primarySections: [AppSection] = [.home, .actionHub, .journal, .goals, .insights, .aiSummaries]
+  private let primarySections: [AppSection] = [.home, .actionHub, .standup, .journal, .goals, .insights, .aiSummaries]
   private let systemSections: [AppSection] = [.integrations, .settings]
 
   var body: some View {
@@ -779,6 +779,8 @@ private extension AppSection {
       return "Manage external providers and sync health"
     case .insights:
       return "AI analysis, recaps, and usage intelligence"
+    case .standup:
+      return "Build today's stand-up from what actually happened, then say it"
     case .aiSummaries:
       return "Generate and view AI-powered summaries of your tasks and journal entries"
     case .settings:
@@ -984,13 +986,13 @@ private struct SectionView: View {
       .animation(.easeInOut(duration: 0.2), value: section)
       .onAppear {
         AppLogger.info("Rendered section: \(section.rawValue)")
-        if section == .insights || section == .aiSummaries || section == .settings {
+        if section == .insights || section == .aiSummaries || section == .standup || section == .settings {
           Task {
             await appState.refreshAIWorkflows()
           }
         }
 
-        if [.home, .actionHub, .journal, .goals, .projects, .integrations, .settings].contains(section) {
+        if [.home, .actionHub, .standup, .journal, .goals, .projects, .integrations, .settings].contains(section) {
           Task {
             await appState.refreshCoreWorkflowData()
           }
@@ -1029,6 +1031,8 @@ private struct SectionView: View {
               IntegrationsSectionView()
             case .insights:
               InsightsSectionView()
+            case .standup:
+              StandupSectionView()
             case .aiSummaries:
               AISummariesSectionView()
             case .settings:
@@ -1068,11 +1072,11 @@ private struct SectionView: View {
 
   @MainActor
   private func refreshSection() async {
-    if section == .insights || section == .aiSummaries || section == .settings {
+    if section == .insights || section == .aiSummaries || section == .standup || section == .settings {
       await appState.refreshAIWorkflows()
     }
 
-    if [.home, .actionHub, .journal, .goals, .projects, .integrations, .settings].contains(section) {
+    if [.home, .actionHub, .standup, .journal, .goals, .projects, .integrations, .settings].contains(section) {
       await appState.refreshCoreWorkflowData()
     }
   }
@@ -1522,6 +1526,7 @@ private struct HomeSectionView: View {
   @State private var commandInput: CaptureCommandInput = .none
   @State private var commandMenuSelection = 0
   @State private var commandMenuDismissed = false
+  @State private var standupPending = 0
 
   private let nativeQuickCaptureProviderID = "native"
   private static let quickCapturePreviewDateFormatter: DateFormatter = {
@@ -1540,7 +1545,13 @@ private struct HomeSectionView: View {
       if let preview = appState.pendingAIQuickCapturePreview {
         aiQuickCapturePreview(preview)
       }
+      if standupPending > 0 {
+        standupStrip
+      }
       TodayOverviewView()
+    }
+    .task(id: appState.tasks.count) {
+      standupPending = await appState.standupPendingCount()
     }
     .onChange(of: appState.shouldFocusQuickCapture) { _, requested in
       guard requested else { return }
@@ -1552,6 +1563,54 @@ private struct HomeSectionView: View {
       commandMenuSelection = 0
       commandMenuDismissed = false
     }
+  }
+
+  /// Only appears when there is something to report, so it is not dead
+  /// furniture on a quiet morning.
+  private var standupStrip: some View {
+    Button {
+      appState.setSection(.standup)
+    } label: {
+      HStack(spacing: 14) {
+        ZStack {
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(SerenityPalette.headerIconBackground)
+            .frame(width: 38, height: 38)
+          Image(systemName: "mic")
+            .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
+            .foregroundStyle(SerenityPalette.accent)
+        }
+
+        VStack(alignment: .leading, spacing: 3) {
+          Text("Ready for stand-up?")
+            .font(SerenityType.bodyLarge.weight(.semibold))
+            .foregroundStyle(SerenityPalette.textPrimary)
+          Text("\(standupPending) thing\(standupPending == 1 ? "" : "s") to go through.")
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+
+        Spacer(minLength: 8)
+
+        Text("Build it")
+          .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.textOnInteractiveSurface)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 8)
+          .background(SerenityPalette.primaryActionBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+      }
+      .padding(16)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(SerenityPalette.accent.opacity(0.3), lineWidth: 1)
+      )
+      .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+    .accessibilityLabel("Build today's stand-up from \(standupPending) items")
   }
 
   private var commandPreview: CaptureCommandPreview? {
@@ -8457,6 +8516,782 @@ private struct AISummariesSectionView: View {
     guard let type = resolvedSummaryType else { return }
     normalizeDateRange()
     await appState.generateAISummary(type: type, startDate: startDate, endDate: endDate)
+  }
+}
+
+/// The stand-up board and everything downstream of it. Three columns you drag
+/// between, because moving a card is how you say "that one's a blocker" and how
+/// you carry yesterday's item into today — the two things this screen exists to
+/// let you do.
+struct StandupSectionView: View {
+  @EnvironmentObject private var appState: AppState
+  @Environment(\.serenityCompactLayout) private var compactLayout
+
+  @State private var addingTo: StandupColumn?
+  @State private var newCardTitle = ""
+  @State private var isFormatSheetPresented = false
+  @State private var showPasteRendering = false
+  @State private var isEditingScript = false
+  @State private var editedScript = ""
+  @State private var isFoldedExpanded = false
+  @State private var openSwipeRowID: String?
+  @FocusState private var addFieldFocused: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 20) {
+      if let script = appState.standupScript {
+        outputPanel(script)
+      } else if let board = appState.standupBoard, board.hasAnythingToSay {
+        boardPanel(board)
+      } else {
+        quietPanel
+      }
+
+      if !appState.standups.isEmpty {
+        historyPanel
+      }
+    }
+    // Keyed on the task list rather than on appearing: entering the section
+    // straight after launch would otherwise gather from tasks that have not
+    // loaded and report an honest-looking "nothing to report" for ever.
+    // Reading the database again here instead would race the section's own
+    // load and trip SQLite's lock.
+    .task(id: appState.tasks.count) {
+      guard appState.standupScript == nil, !appState.standupBoardEdited else { return }
+      await appState.buildStandupBoard()
+    }
+    .sheet(isPresented: $isFormatSheetPresented) {
+      StandupFormatSheet()
+        .environmentObject(appState)
+    }
+  }
+
+  // MARK: - Nothing to say
+
+  private var quietPanel: some View {
+    SerenityEmptyState(
+      icon: "mic.slash",
+      title: "Nothing to report yet",
+      message: appState.standupBoard == nil
+        ? "Gathering what has happened since your last stand-up."
+        : "Nothing has moved since your last stand-up, and nothing is due. Add something by hand if you spent the day off the board."
+    ) {
+      HStack(spacing: 8) {
+        Button("Start over") {
+          Task { await appState.buildStandupBoard() }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button("Format") {
+          isFormatSheetPresented = true
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    }
+  }
+
+  // MARK: - The board
+
+  private func boardPanel(_ board: StandupBoard) -> some View {
+    VStack(alignment: .leading, spacing: 16) {
+      boardHeader(board)
+
+      if compactLayout {
+        phoneColumns(board)
+      } else {
+        deskColumns(board)
+      }
+
+      leavingOutTray(board)
+      boardFooter
+    }
+    .padding(18)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .serenityPanel()
+  }
+
+  private func boardHeader(_ board: StandupBoard) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Stand-up for \(Date().formatted(.dateTime.weekday(.wide)))")
+            .font(SerenityType.sectionTitle)
+            .foregroundStyle(SerenityPalette.textPrimary)
+          Text(windowSubtitle(board.window))
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+
+        Spacer(minLength: 8)
+
+        if !compactLayout {
+          headerButtons
+        }
+      }
+
+      if compactLayout {
+        headerButtons
+      }
+    }
+  }
+
+  private var headerButtons: some View {
+    HStack(spacing: 8) {
+      Button {
+        isFormatSheetPresented = true
+      } label: {
+        Label("Format", systemImage: "text.alignleft")
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+
+      Button("Start over") {
+        Task { await appState.buildStandupBoard() }
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+    }
+  }
+
+  /// Says how the window was arrived at, because a suspiciously thin or fat
+  /// stand-up should explain itself rather than look broken.
+  private func windowSubtitle(_ window: StandupWindow) -> String {
+    let span = StandupDateText.windowLabel(window).lowercased()
+    switch window.anchor {
+    case .lastStandup:
+      return "\(span.prefix(1).uppercased() + span.dropFirst()) — your last stand-up. Drag a card to move it between columns."
+    case .sameDay:
+      return "Since this morning's stand-up. This one will be thin."
+    case .previousWorkingDay:
+      return "Since your previous working day. Serenity has no earlier stand-up to measure from."
+    case .capped:
+      return "Capped at \(StandupPlanner.windowCapDays) days — your last stand-up was longer ago than that."
+    }
+  }
+
+  /// The columns read as one board rather than three cards of random height.
+  /// A Grid row is what makes that work: inside a scroll view an HStack
+  /// proposes an unbounded height, so `maxHeight: .infinity` on a column would
+  /// stretch nothing. A grid cell gets the row's real height instead.
+  private func deskColumns(_ board: StandupBoard) -> some View {
+    Grid(horizontalSpacing: 14, verticalSpacing: 0) {
+      GridRow {
+        ForEach(StandupColumn.spoken) { column in
+          columnPanel(column, cards: board.cards(in: column), stretch: true)
+        }
+      }
+    }
+  }
+
+  private func phoneColumns(_ board: StandupBoard) -> some View {
+    VStack(alignment: .leading, spacing: 14) {
+      ForEach(StandupColumn.spoken) { column in
+        columnPanel(column, cards: board.cards(in: column), stretch: false)
+      }
+    }
+  }
+
+  private func columnPanel(_ column: StandupColumn, cards: [StandupCard], stretch: Bool) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 8) {
+        Image(systemName: column.systemImage)
+          .font(SerenityType.scaledSystem(size: 13, weight: .semibold))
+          .foregroundStyle(tint(for: column))
+        Text(columnTitle(column))
+          .font(SerenityType.bodyLarge.weight(.semibold))
+          .foregroundStyle(SerenityPalette.textPrimary)
+        Text("\(cards.count)")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .padding(.horizontal, 7)
+          .padding(.vertical, 2)
+          .background(SerenityPalette.panelBackgroundRaised, in: Capsule())
+        Spacer(minLength: 0)
+      }
+
+      ForEach(cards) { card in
+        cardRow(card)
+      }
+
+      if cards.isEmpty {
+        Text(column == .blocked ? "Drop a card here to raise it as a blocker" : "Nothing here")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 18)
+          .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+              .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+              .foregroundStyle(SerenityPalette.border)
+          )
+      }
+
+      addControl(for: column)
+    }
+    .padding(14)
+    .frame(maxWidth: .infinity, maxHeight: stretch ? .infinity : nil, alignment: .topLeading)
+    .background(SerenityPalette.panelBackgroundRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .dropDestination(for: String.self) { ids, _ in
+      guard let id = ids.first else { return false }
+      appState.moveStandupCard(id: id, to: column)
+      return true
+    }
+  }
+
+  private func columnTitle(_ column: StandupColumn) -> String {
+    guard column == .since, let window = appState.standupBoard?.window else { return column.title }
+    return StandupDateText.windowLabel(window)
+  }
+
+  private func tint(for column: StandupColumn) -> Color {
+    switch column {
+    case .since:
+      return .green
+    case .today:
+      return SerenityPalette.accent
+    case .blocked:
+      return .red
+    case .leftOut:
+      return SerenityPalette.textSecondary
+    }
+  }
+
+  @ViewBuilder
+  private func cardRow(_ card: StandupCard) -> some View {
+    let content = VStack(alignment: .leading, spacing: 5) {
+      Text(card.title)
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textPrimary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      Text(card.fact)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      if card.source.isGuess {
+        provenanceChip(card.source.label, tint: .red)
+      } else if card.source == .manual {
+        provenanceChip(card.source.label, tint: SerenityPalette.accent)
+      }
+
+      if let saidLast = card.saidLast {
+        // Neutral on purpose: something you mentioned last time is usually
+        // still today's work, so this is information, not a nudge to drop it.
+        Label("Said last time: \(saidLast)", systemImage: "arrow.counterclockwise")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 3)
+          .background(SerenityPalette.panelBackground, in: Capsule())
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 11)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(card.saidLast == nil ? Color.clear : SerenityPalette.accent.opacity(0.3), lineWidth: 1)
+    )
+    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .draggable(card.id)
+    // Drag has no keyboard or VoiceOver path, so every move is also a menu
+    // item. The phone uses the same list.
+    .contextMenu {
+      ForEach(moveTargets(from: card.column)) { target in
+        Button("Move to \(target.title)") {
+          appState.moveStandupCard(id: card.id, to: target)
+        }
+      }
+      Divider()
+      Button("Remove", role: .destructive) {
+        appState.removeStandupCard(id: card.id)
+      }
+    }
+
+#if os(iOS)
+    content
+      .serenitySwipeActions(
+        rowID: card.id,
+        openRowID: $openSwipeRowID,
+        actions: swipeActions(for: card)
+      )
+#else
+    content
+#endif
+  }
+
+#if os(iOS)
+  /// Swiping moves a card to its neighbouring column, which is the phone's
+  /// stand-in for dragging across the board.
+  private func swipeActions(for card: StandupCard) -> [SerenitySwipeAction] {
+    moveTargets(from: card.column).prefix(2).map { target in
+      SerenitySwipeAction(
+        id: "\(card.id):\(target.rawValue)",
+        title: target.title,
+        systemImage: target == .leftOut ? "tray" : "arrow.right",
+        tint: target == .leftOut ? SerenityPalette.textSecondary : SerenityPalette.accent
+      ) {
+        appState.moveStandupCard(id: card.id, to: target)
+      }
+    }
+  }
+#endif
+
+  private func moveTargets(from column: StandupColumn) -> [StandupColumn] {
+    ([.since, .today, .blocked, .leftOut] as [StandupColumn]).filter { $0 != column }
+  }
+
+  private func provenanceChip(_ text: String, tint: Color) -> some View {
+    Text(text)
+      .font(SerenityType.caption)
+      .foregroundStyle(tint)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .background(tint.opacity(0.14), in: Capsule())
+  }
+
+  @ViewBuilder
+  private func addControl(for column: StandupColumn) -> some View {
+    if addingTo == column {
+      HStack(spacing: 8) {
+        TextField("What happened?", text: $newCardTitle)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+          .focused($addFieldFocused)
+          .onSubmit { commitNewCard(to: column) }
+
+        Button("Add") {
+          commitNewCard(to: column)
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .disabled(newCardTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+    } else {
+      Button {
+        addingTo = column
+        newCardTitle = ""
+        addFieldFocused = true
+      } label: {
+        Label(column == .blocked ? "Add a blocker" : "Add", systemImage: "plus")
+          .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 10)
+          .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+              .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+              .foregroundStyle(SerenityPalette.border)
+          )
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+    }
+  }
+
+  private func commitNewCard(to column: StandupColumn) {
+    appState.addStandupCard(title: newCardTitle, to: column)
+    newCardTitle = ""
+    addingTo = nil
+    addFieldFocused = false
+  }
+
+  /// Dropping a card needs a destination and a way back, or excluding
+  /// something is a one-way door you cannot audit before you speak.
+  private func leavingOutTray(_ board: StandupBoard) -> some View {
+    let cards = board.cards(in: .leftOut)
+
+    return VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 8) {
+        Image(systemName: "tray")
+          .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Text("Leaving out")
+          .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Text(cards.isEmpty ? "Drag anything here to keep it out of the script" : "Drag back to include")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary.opacity(0.8))
+        Spacer(minLength: 0)
+      }
+
+      if !cards.isEmpty {
+        SerenityFlowLayout(spacing: 8) {
+          ForEach(cards) { card in
+            HStack(spacing: 6) {
+              Text(card.title)
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
+              Button {
+                appState.moveStandupCard(id: card.id, to: .today)
+              } label: {
+                Image(systemName: "arrow.uturn.backward")
+                  .font(SerenityType.scaledSystem(size: 10, weight: .semibold))
+              }
+              .buttonStyle(.plain)
+              .hoverCursor(.pointingHand)
+              .accessibilityLabel("Put \(card.title) back in Today")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(SerenityPalette.panelBackgroundRaised, in: Capsule())
+            .draggable(card.id)
+          }
+        }
+      }
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+        .foregroundStyle(SerenityPalette.thinBorder)
+    )
+    .dropDestination(for: String.self) { ids, _ in
+      guard let id = ids.first else { return false }
+      appState.moveStandupCard(id: id, to: .leftOut)
+      return true
+    }
+  }
+
+  private var boardFooter: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 10) {
+        Picker("Length", selection: lengthBinding) {
+          ForEach(StandupLength.allCases, id: \.self) { length in
+            Text(length.title).tag(length)
+          }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: compactLayout ? .infinity : 260)
+
+        if !compactLayout {
+          Spacer(minLength: 8)
+          writeButton
+        }
+      }
+
+      if compactLayout {
+        writeButton
+          .frame(maxWidth: .infinity)
+      }
+
+      Text("Your format instruction wins wherever it disagrees with this.")
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+    }
+    .padding(.top, 4)
+  }
+
+  private var lengthBinding: Binding<StandupLength> {
+    Binding(
+      get: { appState.aiSettings.resolvedStandupLength },
+      set: { length in Task { await appState.setStandupLength(length) } }
+    )
+  }
+
+  private var writeButton: some View {
+    Button {
+      Task { await appState.writeStandup() }
+    } label: {
+      if appState.standupIsWriting {
+        Label("Writing\u{2026}", systemImage: "hourglass")
+      } else {
+        Text("Write my stand-up")
+      }
+    }
+    .buttonStyle(SerenityPrimaryButtonStyle())
+    .hoverCursor(.pointingHand)
+    .disabled(appState.standupIsWriting)
+  }
+
+  // MARK: - The finished stand-up
+
+  private func outputPanel(_ script: StandupScript) -> some View {
+    VStack(alignment: .leading, spacing: 16) {
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)))
+            .font(SerenityType.sectionTitle)
+            .foregroundStyle(SerenityPalette.textPrimary)
+          Text("\(script.wordCount) words \u{00B7} about \(script.spokenSeconds) seconds out loud")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+
+        Spacer(minLength: 8)
+
+        if !appState.standupWrittenByModel {
+          Text("No AI key")
+            .font(SerenityType.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(SerenityPalette.panelBackgroundRaised, in: Capsule())
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+      }
+
+      Picker("Rendering", selection: $showPasteRendering) {
+        Text("Out loud").tag(false)
+        Text("To paste").tag(true)
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .frame(maxWidth: compactLayout ? .infinity : 260)
+
+      if isEditingScript {
+        TextEditor(text: $editedScript)
+          .serenityTextArea(minHeight: 160)
+      } else {
+        Text(showPasteRendering ? script.paste : script.spoken)
+          .font(SerenityType.scaledSystem(size: showPasteRendering ? 14 : 19, weight: .regular))
+          .foregroundStyle(SerenityPalette.textPrimary)
+          .lineSpacing(showPasteRendering ? 3 : 7)
+          .textSelection(.enabled)
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(18)
+          .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      }
+
+      if !script.folded.isEmpty {
+        foldedStrip(script.folded)
+      }
+
+      outputFooter(script)
+    }
+    .padding(18)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .serenityPanel()
+  }
+
+  /// Where "concise" and "nothing left out" both hold: the script stays short,
+  /// and the specifics it compressed stay one glance away for the follow-up.
+  private func foldedStrip(_ folded: [String]) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Button {
+        withAnimation(.easeInOut(duration: 0.15)) { isFoldedExpanded.toggle() }
+      } label: {
+        HStack(spacing: 7) {
+          Image(systemName: isFoldedExpanded ? "chevron.down" : "chevron.right")
+            .font(SerenityType.scaledSystem(size: 10, weight: .semibold))
+          Text("Detail it folded away — \(folded.count)")
+            .font(SerenityType.caption)
+          Spacer(minLength: 0)
+        }
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+
+      if isFoldedExpanded {
+        VStack(alignment: .leading, spacing: 6) {
+          ForEach(Array(folded.enumerated()), id: \.offset) { _, line in
+            Text("\u{00B7} \(line)")
+              .font(SerenityType.body)
+              .foregroundStyle(SerenityPalette.textSecondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+      }
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.panelBackgroundRaised, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+  }
+
+  private func outputFooter(_ script: StandupScript) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Toggle(isOn: $appState.standupSaveToJournal) {
+        Text("Save as today's journal entry")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+      .toggleStyle(.switch)
+
+      HStack(spacing: 8) {
+        Button(isEditingScript ? "Done editing" : "Edit wording") {
+          if isEditingScript {
+            appState.updateStandupScript(spoken: editedScript)
+            isEditingScript = false
+          } else {
+            editedScript = script.spoken
+            showPasteRendering = false
+            isEditingScript = true
+          }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button("Back to the list") {
+          appState.standupScript = nil
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Spacer(minLength: 8)
+
+        Button("Copy") {
+          StandupClipboard.copy(showPasteRendering ? script.paste : script.spoken)
+          appState.showToast("Copied")
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+
+        Button("Save") {
+          Task { await appState.saveStandup() }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    }
+  }
+
+  // MARK: - What you said before
+
+  private var historyPanel: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("Earlier stand-ups")
+        .font(SerenityType.sectionTitle)
+        .foregroundStyle(SerenityPalette.textPrimary)
+
+      ForEach(appState.standups.prefix(10)) { standup in
+        VStack(alignment: .leading, spacing: 5) {
+          HStack(spacing: 8) {
+            Text(standup.generatedAt.formatted(.dateTime.weekday(.wide).day().month(.abbreviated)))
+              .font(SerenityType.bodyMedium)
+              .foregroundStyle(SerenityPalette.textPrimary)
+            Spacer(minLength: 8)
+            Text("\(standup.items.filter { $0.column != .leftOut }.count) items")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+          }
+
+          Text(standup.spoken)
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .lineLimit(3)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contextMenu {
+          Button("Copy") {
+            StandupClipboard.copy(standup.spoken)
+            appState.showToast("Copied")
+          }
+          Button("Delete", role: .destructive) {
+            Task { await appState.deleteStandup(id: standup.id) }
+          }
+        }
+      }
+    }
+    .padding(18)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .serenityPanel()
+  }
+}
+
+/// The standing instruction that shapes the words. Reachable from the board's
+/// header as well as Settings, because the moment you learn the format is wrong
+/// is the moment you walk out of the stand-up.
+private struct StandupFormatSheet: View {
+  @EnvironmentObject private var appState: AppState
+  @Environment(\.dismiss) private var dismiss
+
+  @State private var instruction = ""
+  @State private var justForToday = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("How your team runs stand-up")
+          .font(SerenityType.sectionTitle)
+          .foregroundStyle(SerenityPalette.textPrimary)
+        Text("Plain English. This shapes the words, not what gets gathered.")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      VStack(alignment: .leading, spacing: 8) {
+        Text("Start from one of these, then edit it")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+
+        SerenityFlowLayout(spacing: 8) {
+          ForEach(StandupWriter.presets) { preset in
+            Button(preset.title) {
+              instruction = preset.instruction
+            }
+            .buttonStyle(SerenityPillButtonStyle(selected: instruction == preset.instruction))
+            .hoverCursor(.pointingHand)
+          }
+        }
+      }
+
+      TextEditor(text: $instruction)
+        .serenityTextArea(minHeight: 150)
+
+      Text("Easier than writing rules: paste a stand-up that went down well and say \u{201C}like this one\u{201D}.")
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      Toggle(isOn: $justForToday) {
+        Text("Just for today, don't save it")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+      .toggleStyle(.switch)
+
+      HStack(spacing: 8) {
+        Spacer(minLength: 0)
+
+        Button("Cancel") { dismiss() }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+
+        Button(justForToday ? "Use for today" : "Save format") {
+          Task {
+            if justForToday {
+              await appState.writeStandup(instructionOverride: instruction)
+            } else {
+              await appState.setStandupFormat(instruction)
+            }
+            dismiss()
+          }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+    }
+    .padding(22)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.panelBackground)
+    .serenityDesktopSheetSize(minWidth: 560, minHeight: 520)
+    .onAppear {
+      instruction = appState.aiSettings.resolvedStandupFormat
+    }
+  }
+}
+
+enum StandupClipboard {
+  static func copy(_ text: String) {
+#if os(macOS)
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
+#else
+    UIPasteboard.general.string = text
+#endif
   }
 }
 

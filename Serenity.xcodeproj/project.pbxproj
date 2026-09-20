@@ -106,6 +106,10 @@
 		A00000000000000000000134 /* SlackRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000114 /* SlackRepositories.swift */; };
 		A00000000000000000000135 /* CaptureCommandParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000115 /* CaptureCommandParser.swift */; };
 		A00000000000000000000136 /* CaptureCommandDrafter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000116 /* CaptureCommandDrafter.swift */; };
+		A00000000000000000000127 /* StandupPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000117 /* StandupPlanner.swift */; };
+		A00000000000000000000128 /* StandupWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000118 /* StandupWriter.swift */; };
+		A00000000000000000000137 /* StandupPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000117 /* StandupPlanner.swift */; };
+		A00000000000000000000138 /* StandupWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000118 /* StandupWriter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -164,6 +168,8 @@
 		A00000000000000000000114 /* SlackRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlackRepositories.swift; sourceTree = "<group>"; };
 		A00000000000000000000115 /* CaptureCommandParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureCommandParser.swift; sourceTree = "<group>"; };
 		A00000000000000000000116 /* CaptureCommandDrafter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureCommandDrafter.swift; sourceTree = "<group>"; };
+		A00000000000000000000117 /* StandupPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandupPlanner.swift; sourceTree = "<group>"; };
+		A00000000000000000000118 /* StandupWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandupWriter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -241,6 +247,7 @@
 				A00000000000000000000021 /* AppSection.swift */,
 				A00000000000000000000022 /* AppState.swift */,
 				A00000000000000000000115 /* CaptureCommandParser.swift */,
+				A00000000000000000000117 /* StandupPlanner.swift */,
 				A00000000000000000000023 /* CoreWorkflowModels.swift */,
 				A00000000000000000000040 /* DotEnv.swift */,
 				A000000000000000000000FC /* NotificationScheduler.swift */,
@@ -258,6 +265,7 @@
 				A00000000000000000000025 /* AIWorkflowService.swift */,
 				A000000000000000000000F0 /* AIProviderAPIClient.swift */,
 				A00000000000000000000116 /* CaptureCommandDrafter.swift */,
+				A00000000000000000000118 /* StandupWriter.swift */,
 				A00000000000000000000113 /* SlackProposalService.swift */,
 			);
 			path = AI;
@@ -522,6 +530,8 @@
 				A00000000000000000000124 /* SlackRepositories.swift in Sources */,
 				A00000000000000000000125 /* CaptureCommandParser.swift in Sources */,
 				A00000000000000000000126 /* CaptureCommandDrafter.swift in Sources */,
+				A00000000000000000000127 /* StandupPlanner.swift in Sources */,
+				A00000000000000000000128 /* StandupWriter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -574,6 +584,8 @@
 				A00000000000000000000134 /* SlackRepositories.swift in Sources */,
 				A00000000000000000000135 /* CaptureCommandParser.swift in Sources */,
 				A00000000000000000000136 /* CaptureCommandDrafter.swift in Sources */,
+				A00000000000000000000137 /* StandupPlanner.swift in Sources */,
+				A00000000000000000000138 /* StandupWriter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
