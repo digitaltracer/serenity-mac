@@ -8,6 +8,7 @@ enum AIWorkflowError: Error, LocalizedError, Equatable {
   case invalidQuickCaptureResponse(String)
   case invalidSlackResponse(String)
   case invalidCaptureDraftResponse(String)
+  case invalidStandupResponse(String)
 
   var errorDescription: String? {
     switch self {
@@ -25,6 +26,8 @@ enum AIWorkflowError: Error, LocalizedError, Equatable {
       return "AI Slack response was invalid: \(reason)"
     case .invalidCaptureDraftResponse(let reason):
       return "The drafted task came back unreadable: \(reason)"
+    case .invalidStandupResponse(let reason):
+      return "The stand-up came back unreadable: \(reason)"
     }
   }
 }
@@ -80,6 +83,7 @@ struct AIWorkflowSnapshot {
   let summaries: [SummaryEntity]
   let usage: [AIUsageEntity]
   let modelRates: [AIModelRateEntity]
+  let standups: [StandupEntity]
 }
 
 actor AIWorkflowService {
@@ -578,7 +582,8 @@ actor AIWorkflowService {
       recaps: try repositories.recaps.fetchAll(limit: limit),
       summaries: try repositories.summaries.fetchAll(),
       usage: try repositories.usage.fetchAll(limit: limit),
-      modelRates: try repositories.modelRates.fetchAll()
+      modelRates: try repositories.modelRates.fetchAll(),
+      standups: try repositories.standups.fetchAll(limit: limit)
     )
   }
 
@@ -943,6 +948,118 @@ actor AIWorkflowService {
     )
 
     return recap
+  }
+
+  // MARK: - Stand-up
+
+  /// The one model call a stand-up makes, and only after the board has been
+  /// confirmed. Falls back to a written-here script when no provider is
+  /// configured, so the feature degrades the way capture commands already do.
+  func writeStandup(
+    board: StandupBoard,
+    instruction: String,
+    length: StandupLength,
+    now: Date = Date()
+  ) async throws -> StandupDraft {
+    let repositories = try await requireRepositories()
+    let settings = try repositories.settings.fetch() ?? .defaultValue
+
+    guard let selection = try? chooseCredential(settings: settings) else {
+      return StandupDraft(
+        script: StandupWriter.fallback(board: board, length: length, now: now),
+        writtenByModel: false,
+        provider: .local,
+        promptTokens: 0,
+        completionTokens: 0
+      )
+    }
+
+    let schema = StandupWriter.schema()
+    let systemPrompt = StandupWriter.systemPrompt()
+    let userPrompt = StandupWriter.userPrompt(
+      board: board,
+      instruction: instruction,
+      length: length,
+      now: now
+    )
+
+    do {
+      let response = try await quickCaptureGenerator(
+        endpoint(for: selection.credential),
+        selection.apiKey,
+        selection.model,
+        systemPrompt,
+        userPrompt,
+        schema
+      )
+
+      var promptTokens = response.promptTokens
+      var completionTokens = response.completionTokens
+      let script: StandupScript
+
+      do {
+        script = try StandupWriter.decode(response.text)
+      } catch {
+        let repaired = try await quickCaptureGenerator(
+          endpoint(for: selection.credential),
+          selection.apiKey,
+          selection.model,
+          systemPrompt,
+          quickCaptureRepairPrompt(
+            invalidResponse: response.text,
+            validationError: Self.describeDecodingFailure(error),
+            schema: schema
+          ),
+          schema
+        )
+        promptTokens += repaired.promptTokens
+        completionTokens += repaired.completionTokens
+        script = try StandupWriter.decode(repaired.text)
+      }
+
+      // Logged as summary deliberately: `ai_usage.operation` sits behind a
+      // CHECK that SQLite cannot widen in place, and this table has already
+      // been rebuilt three times. A stand-up is a generated summary of a
+      // period, so the label holds.
+      try recordUsage(
+        repositories: repositories,
+        selection: selection,
+        operation: .summary,
+        promptTokens: promptTokens,
+        completionTokens: completionTokens
+      )
+
+      return StandupDraft(
+        script: script,
+        writtenByModel: true,
+        provider: providerForCredential(selection.credential.provider),
+        promptTokens: promptTokens,
+        completionTokens: completionTokens
+      )
+    } catch {
+      try? repositories.credentials.recordError(
+        id: selection.credential.id,
+        message: error.localizedDescription,
+        at: Date()
+      )
+      throw error
+    }
+  }
+
+  func fetchLatestStandup() async throws -> StandupEntity? {
+    try await requireRepositories().standups.fetchLatest()
+  }
+
+  func fetchStandups(limit: Int = 50) async throws -> [StandupEntity] {
+    try await requireRepositories().standups.fetchAll(limit: limit)
+  }
+
+  func saveStandup(_ standup: StandupEntity) async throws {
+    try await requireRepositories().standups.save(standup)
+  }
+
+  func deleteStandup(id: String) async throws {
+    try await requireRepositories().standups.delete(id: id)
   }
 
   func updateRecapInteraction(id: String, viewed: Bool?, favorited: Bool?, exported: Bool?) async throws {
