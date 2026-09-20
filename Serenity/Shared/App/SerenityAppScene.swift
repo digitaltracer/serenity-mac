@@ -1018,7 +1018,7 @@ private struct SectionView: View {
           VStack(alignment: .leading, spacing: density.sectionSpacing) {
             switch section {
             case .home:
-              HomeSectionView(density: density)
+              HomeSectionView(density: density, onEditTask: openTaskEditor)
             case .actionHub:
               ActionHubSectionView(onEditTask: openTaskEditor)
             case .journal:
@@ -1524,6 +1524,7 @@ private struct HomeSectionHeader: View {
 
 private struct HomeSectionView: View {
   let density: SerenityContentDensity
+  let onEditTask: (TaskEntity) -> Void
 
   @EnvironmentObject private var appState: AppState
 
@@ -1556,7 +1557,7 @@ private struct HomeSectionView: View {
       if standupPending > 0 {
         standupStrip
       }
-      TodayOverviewView()
+      TodayOverviewView(onEditTask: onEditTask)
     }
     .task(id: appState.tasks.count) {
       standupPending = await appState.standupPendingCount()
@@ -5182,7 +5183,11 @@ private struct ActionHubSectionView: View {
 /// been scheduled — so nothing captured can fall out of view. Empty bands are
 /// omitted entirely rather than reporting zero.
 private struct TodayOverviewView: View {
+  let onEditTask: (TaskEntity) -> Void
+
   @EnvironmentObject private var appState: AppState
+
+  @State private var expandedTaskID: String?
 
   private var bands: [Band] {
     [
@@ -5249,34 +5254,70 @@ private struct TodayOverviewView: View {
   }
 
   private func taskRow(_ task: TaskEntity, in kind: Band.Kind) -> some View {
-    HStack(spacing: 10) {
-      Button {
-        Task { await appState.toggleTaskCompletion(id: task.id) }
-      } label: {
-        Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
-          .font(SerenityType.scaledSystem(size: 18, weight: .regular))
-          .foregroundStyle(task.completed ? Color.green : SerenityPalette.textSecondary)
+    let isExpanded = expandedTaskID == task.id
+
+    return VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 10) {
+        Button {
+          Task { await appState.toggleTaskCompletion(id: task.id) }
+        } label: {
+          Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
+            .font(SerenityType.scaledSystem(size: 18, weight: .regular))
+            .foregroundStyle(task.completed ? Color.green : SerenityPalette.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .hoverCursor(.pointingHand)
+        .accessibilityLabel(task.completed ? "Mark \(task.title) incomplete" : "Mark \(task.title) complete")
+
+        Text(task.title)
+          .strikethrough(task.completed, color: SerenityPalette.textSecondary)
+          .foregroundStyle(task.completed ? SerenityPalette.textSecondary : SerenityPalette.textPrimary)
+          .lineLimit(1)
+
+        Spacer(minLength: 8)
+
+        if let dueDate = task.dueDate {
+          Text(SerenityDateText.dueWithTime(dueDate))
+            .font(SerenityType.caption)
+            .foregroundStyle(kind == .overdue ? Color.red.opacity(0.9) : SerenityPalette.textSecondary)
+        }
+
+        Button {
+          toggleExpansion(of: task)
+        } label: {
+          Image(systemName: "chevron.right")
+            .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverCursor(.pointingHand)
+        .accessibilityLabel(isExpanded ? "Collapse task details" : "Expand task details")
+        .accessibilityValue(task.title)
       }
-      .buttonStyle(.plain)
+      // The whole row opens the task, not just the chevron: the band rows are
+      // what you reach for on Home.
+      .contentShape(Rectangle())
       .hoverCursor(.pointingHand)
-      .accessibilityLabel(task.completed ? "Mark \(task.title) incomplete" : "Mark \(task.title) complete")
+      .onTapGesture {
+        toggleExpansion(of: task)
+      }
 
-      Text(task.title)
-        .strikethrough(task.completed, color: SerenityPalette.textSecondary)
-        .foregroundStyle(task.completed ? SerenityPalette.textSecondary : SerenityPalette.textPrimary)
-        .lineLimit(1)
-
-      Spacer(minLength: 8)
-
-      if let dueDate = task.dueDate {
-        Text(SerenityDateText.dueWithTime(dueDate))
-          .font(SerenityType.caption)
-          .foregroundStyle(kind == .overdue ? Color.red.opacity(0.9) : SerenityPalette.textSecondary)
+      if isExpanded {
+        TaskDetailPanel(task: task, onEditTask: onEditTask)
       }
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 12)
     .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private func toggleExpansion(of task: TaskEntity) {
+    withAnimation(.easeInOut(duration: 0.18)) {
+      expandedTaskID = expandedTaskID == task.id ? nil : task.id
+    }
   }
 
   struct Band: Identifiable {

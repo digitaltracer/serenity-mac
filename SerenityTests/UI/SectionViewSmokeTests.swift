@@ -49,7 +49,7 @@ final class SectionViewSmokeTests: XCTestCase {
     let source = try appSceneSource()
     let home = try XCTUnwrap(source.slice(from: "private struct HomeSectionView", to: "private struct ActionHubSectionView"))
 
-    XCTAssertTrue(home.contains("TodayOverviewView()"))
+    XCTAssertTrue(home.contains("TodayOverviewView("))
     XCTAssertFalse(home.contains("featureGrid"))
     // Asserted against the enum rather than the source text: "case .today" also
     // appears in TodayOverviewView's band kind, which is not a route.
@@ -90,6 +90,21 @@ final class SectionViewSmokeTests: XCTestCase {
     XCTAssertTrue(sectionView.contains("HomeSectionHeader()"))
     XCTAssertTrue(header.contains("HStack(alignment: .firstTextBaseline, spacing: 12)"))
     XCTAssertTrue(quickCaptureCard.contains("Text(quickCaptureHelperText)\n            .font(SerenityType.body)"))
+  }
+
+  func testHomeAndActionHubShareOneExpandedTaskPanel() throws {
+    let source = try appSceneSource()
+    let home = try XCTUnwrap(source.slice(from: "private struct TodayOverviewView", to: "private struct SerenityDateRangePicker"))
+    let actionHub = try XCTUnwrap(source.slice(from: "private struct ActionHubSectionView", to: "private struct TodayOverviewView"))
+
+    // Both lists mount the same panel, so an expanded task reads identically
+    // wherever you opened it.
+    XCTAssertTrue(home.contains("TaskDetailPanel(task: task, onEditTask: onEditTask)"))
+    XCTAssertTrue(actionHub.contains("TaskDetailPanel(task: task, onEditTask: onEditTask)"))
+
+    // On Home the whole row opens the task, not just the chevron.
+    XCTAssertTrue(home.contains("expandedTaskID"))
+    XCTAssertTrue(home.contains("onTapGesture"))
   }
 
   private func appSceneSource() throws -> String {
