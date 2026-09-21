@@ -591,10 +591,10 @@ actor AIWorkflowService {
     let repositories = try await requireRepositories()
     try repositories.modelRates.save(rate)
     let settings = try repositories.settings.fetch() ?? .defaultValue
+    // Not filtered by provider: a custom domain's unpriced rows borrow this model's rate too.
     _ = try AIUsageCostService.backfillMissingCostsIfNeeded(
       repositories: repositories,
       settings: settings,
-      provider: rate.provider,
       model: rate.model
     )
   }
@@ -622,7 +622,11 @@ actor AIWorkflowService {
       guard !model.isEmpty else { continue }
       let key = "\(usage.provider.rawValue)::\(model.lowercased())"
       guard !savedKeys.contains(key) else { continue }
-      if try repositories.modelRates.fetch(provider: usage.provider, model: model) != nil {
+      if try AIUsageCostService.resolveRate(
+        provider: usage.provider,
+        model: model,
+        repositories: repositories
+      ) != nil {
         continue
       }
       guard let rate = try await AIUsageCostService.fetchLiteLLMRate(provider: usage.provider, model: model) else {
@@ -1887,7 +1891,7 @@ enum AIUsageCostService {
   ) throws -> AIUsageCostBreakdown {
     let model = normalizedModel(model)
     guard !model.isEmpty,
-          let rate = try repositories.modelRates.fetch(provider: provider, model: model) else {
+          let rate = try resolveRate(provider: provider, model: model, repositories: repositories) else {
       return .unavailable
     }
 
@@ -1898,6 +1902,20 @@ enum AIUsageCostService {
       outputCostUSD: roundToMicros(outputCost),
       totalCostUSD: roundToMicros(inputCost + outputCost)
     )
+  }
+
+  /// A custom domain proxies models it did not publish, so when it has no price of its own,
+  /// whoever does publish that model name sets the rate. Every other provider matches only itself.
+  static func resolveRate(
+    provider: AIUsageProvider,
+    model: String,
+    repositories: GRDBAIRepositorySet
+  ) throws -> AIModelRateEntity? {
+    if let own = try repositories.modelRates.fetch(provider: provider, model: model) {
+      return own
+    }
+    guard provider == .custom else { return nil }
+    return try repositories.modelRates.fetchAcrossProviders(model: model).first
   }
 
   @discardableResult
@@ -1984,12 +2002,14 @@ enum AIUsageCostService {
       return (key, details)
     }
 
+    let eligible = candidates.filter { _, details in
+      // A custom domain is a proxy: LiteLLM files its models under whoever publishes them.
+      guard provider != .custom else { return true }
+      return (details["litellm_provider"] as? String)?.lowercased() == normalizedProvider
+    }
     let match = modelLookupAliases(for: normalizedModel, provider: normalizedProvider).lazy.compactMap { modelAlias in
-      candidates.first { key, details in
-        let providerMatches = (details["litellm_provider"] as? String)?.lowercased() == normalizedProvider
-        guard providerMatches else { return false }
-        return modelKeyMatches(key, model: modelAlias, provider: normalizedProvider)
-      }
+      eligible.first { key, _ in key.lowercased() == modelAlias.lowercased() } ??
+        eligible.first { key, _ in modelKeyMatches(key, model: modelAlias, provider: normalizedProvider) }
     }.first
 
     guard let match,
@@ -1998,13 +2018,24 @@ enum AIUsageCostService {
       return nil
     }
 
+    let publisher = provider == .custom
+      ? usageProvider(forLiteLLMSlug: match.1["litellm_provider"] as? String) ?? .custom
+      : provider
+
     return AIModelRateEntity(
-      provider: provider,
+      provider: publisher,
       model: normalizedModel,
       inputUSDPerMillion: roundToMicros(inputCost * 1_000_000),
       outputUSDPerMillion: roundToMicros(outputCost * 1_000_000),
       source: .litellm
     )
+  }
+
+  /// Reverse of `litellmSlug`: the provider LiteLLM says publishes a model, so a rate found for a
+  /// custom domain is filed under its real owner rather than masquerading as a custom price.
+  private static func usageProvider(forLiteLLMSlug slug: String?) -> AIUsageProvider? {
+    guard let slug = slug?.lowercased() else { return nil }
+    return AIUsageProvider.allCases.first { $0 != .custom && $0.litellmSlug == slug }
   }
 
   private static func modelKeyMatches(_ key: String, model: String, provider: String) -> Bool {
@@ -2018,8 +2049,9 @@ enum AIUsageCostService {
   private static func modelLookupAliases(for model: String, provider: String) -> [String] {
     var aliases = [model]
 
-    if provider == AIUsageProvider.gemini.rawValue,
-       !model.hasSuffix("-preview") {
+    // Gemini publishes some models only under a `-preview` key, and a custom domain may proxy one.
+    let mayBeGemini = provider == AIUsageProvider.gemini.rawValue || provider == AIUsageProvider.custom.rawValue
+    if mayBeGemini, !model.hasSuffix("-preview") {
       aliases.append("\(model)-preview")
     }
 

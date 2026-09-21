@@ -277,6 +277,147 @@ final class AIRepositoriesTests: XCTestCase {
     XCTAssertEqual(rate?.source, .litellm)
   }
 
+  func testCustomDomainIsPricedByThePublisherOfTheModelItProxies() async throws {
+    let repositories = try await makeRepositorySet()
+    let usage = AIUsageEntity(
+      id: UUID().uuidString,
+      timestamp: Date(),
+      provider: .custom,
+      operation: .quickadd,
+      model: "gpt-5.4",
+      promptTokens: 100,
+      completionTokens: 200,
+      totalTokens: 300
+    )
+
+    try repositories.usage.save(usage)
+    try AIUsageCostService.seedDefaultRatesIfNeeded(repositories: repositories)
+    let backfilled = try AIUsageCostService.backfillMissingCostsIfNeeded(
+      repositories: repositories,
+      settings: .defaultValue
+    )
+
+    XCTAssertEqual(backfilled, 1)
+    let fetched = try repositories.usage.fetchAll(limit: 1).first
+    XCTAssertEqual(fetched?.inputCostUSD, 0.00025)
+    XCTAssertEqual(fetched?.outputCostUSD, 0.003)
+    XCTAssertEqual(fetched?.totalCostUSD, 0.00325)
+  }
+
+  func testACustomRateOverridesThePublishedOne() async throws {
+    let repositories = try await makeRepositorySet()
+    try AIUsageCostService.seedDefaultRatesIfNeeded(repositories: repositories)
+    try repositories.modelRates.save(
+      AIModelRateEntity(
+        provider: .custom,
+        model: "gpt-5.4",
+        inputUSDPerMillion: 10.0,
+        outputUSDPerMillion: 20.0,
+        source: .user
+      )
+    )
+
+    let calculated = try AIUsageCostService.calculateCosts(
+      provider: .custom,
+      model: "gpt-5.4",
+      promptTokens: 1_000_000,
+      completionTokens: 1_000_000,
+      repositories: repositories
+    )
+
+    XCTAssertEqual(calculated.inputCostUSD, 10.0)
+    XCTAssertEqual(calculated.outputCostUSD, 20.0)
+  }
+
+  /// The fallback runs one way only: an OpenAI call must never borrow Anthropic's price sheet.
+  func testAKnownProviderDoesNotBorrowAnotherProvidersRate() async throws {
+    let repositories = try await makeRepositorySet()
+    try AIUsageCostService.seedDefaultRatesIfNeeded(repositories: repositories)
+
+    let calculated = try AIUsageCostService.calculateCosts(
+      provider: .openai,
+      model: "claude-opus-4-7",
+      promptTokens: 1_000_000,
+      completionTokens: 1_000_000,
+      repositories: repositories
+    )
+
+    XCTAssertNil(calculated.totalCostUSD)
+  }
+
+  func testLiteLLMPricingParserFilesACustomDomainsModelUnderItsPublisher() throws {
+    let json = """
+    {
+      "gpt-5.6-luna": {
+        "litellm_provider": "openai",
+        "mode": "chat",
+        "input_cost_per_token": 0.0000015,
+        "output_cost_per_token": 0.000006
+      }
+    }
+    """
+
+    let rate = try AIUsageCostService.parseLiteLLMRate(
+      provider: .custom,
+      model: "gpt-5.6-luna",
+      data: Data(json.utf8)
+    )
+
+    XCTAssertEqual(rate?.provider, .openai)
+    XCTAssertEqual(rate?.model, "gpt-5.6-luna")
+    XCTAssertEqual(rate?.inputUSDPerMillion, 1.5)
+    XCTAssertEqual(rate?.outputUSDPerMillion, 6.0)
+  }
+
+  /// A proxy LiteLLM has never heard of keeps the rate for itself rather than inventing a publisher.
+  func testLiteLLMPricingParserKeepsAnUnknownPublisherAsCustom() throws {
+    let json = """
+    {
+      "some-proxy/house-model": {
+        "litellm_provider": "some_proxy",
+        "mode": "chat",
+        "input_cost_per_token": 0.000001,
+        "output_cost_per_token": 0.000002
+      }
+    }
+    """
+
+    let rate = try AIUsageCostService.parseLiteLLMRate(
+      provider: .custom,
+      model: "house-model",
+      data: Data(json.utf8)
+    )
+
+    XCTAssertEqual(rate?.provider, .custom)
+    XCTAssertEqual(rate?.inputUSDPerMillion, 1.0)
+  }
+
+  func testRateLookupAcrossProvidersPrefersAUserEnteredPrice() async throws {
+    let repositories = try await makeRepositorySet()
+    try repositories.modelRates.saveMany([
+      AIModelRateEntity(
+        provider: .openai,
+        model: "gpt-5.6-luna",
+        inputUSDPerMillion: 1.0,
+        outputUSDPerMillion: 2.0,
+        source: .seeded
+      ),
+      AIModelRateEntity(
+        provider: .nvidia,
+        model: "gpt-5.6-luna",
+        inputUSDPerMillion: 3.0,
+        outputUSDPerMillion: 4.0,
+        source: .user
+      ),
+    ])
+
+    let matches = try repositories.modelRates.fetchAcrossProviders(model: "GPT-5.6-LUNA")
+
+    XCTAssertEqual(matches.count, 2)
+    XCTAssertEqual(matches.first?.provider, .nvidia)
+    XCTAssertEqual(matches.first?.source, .user)
+  }
+
   func testCredentialAndSettingsRepositories() async throws {
     let repositories = try await makeRepositorySet()
     let now = Date()

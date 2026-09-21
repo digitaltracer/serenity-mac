@@ -165,7 +165,7 @@ public enum AIUsageProvider: String, Codable, CaseIterable, Sendable {
   case custom
 
   /// LiteLLM files NIM models under `nvidia_nim`; every other provider matches its raw value.
-  /// A custom domain matches nothing, which is correct — its pricing is whatever its owner charges.
+  /// A custom domain has no slug of its own — it is priced by whoever publishes the model it proxies.
   var litellmSlug: String {
     switch self {
     case .nvidia:

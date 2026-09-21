@@ -48,6 +48,7 @@ protocol AIUsageRepository {
 protocol AIModelRateRepository {
   func fetchAll() throws -> [AIModelRateEntity]
   func fetch(provider: AIUsageProvider, model: String) throws -> AIModelRateEntity?
+  func fetchAcrossProviders(model: String) throws -> [AIModelRateEntity]
   func save(_ rate: AIModelRateEntity) throws
   func saveMany(_ rates: [AIModelRateEntity]) throws
   func delete(provider: AIUsageProvider, model: String) throws
@@ -547,6 +548,26 @@ final class GRDBAIModelRateRepository: AIModelRateRepository {
       }
 
       return try Self.makeRate(from: row)
+    }
+  }
+
+  /// Every rate filed under this model name, most trustworthy first: a price the user typed
+  /// beats one fetched from LiteLLM, which beats a compiled-in default.
+  func fetchAcrossProviders(model: String) throws -> [AIModelRateEntity] {
+    let normalizedModel = Self.normalizeModel(model)
+    return try dbQueue.read { db in
+      let rows = try Row.fetchAll(
+        db,
+        sql: """
+        SELECT * FROM ai_model_rates
+        WHERE lower(model) = lower(?)
+        ORDER BY
+          CASE source WHEN 'user' THEN 0 WHEN 'litellm' THEN 1 ELSE 2 END ASC,
+          provider ASC;
+        """,
+        arguments: [normalizedModel]
+      )
+      return try rows.map(Self.makeRate(from:))
     }
   }
 
