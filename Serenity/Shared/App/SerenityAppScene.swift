@@ -2148,28 +2148,72 @@ private struct HomeSectionView: View {
     )
   }
 
+  /// The badge states which task the draft would write to, so it is also where
+  /// that decision is made: a match the user disagrees with becomes its own
+  /// task without losing the draft. A draft that matched nothing has no second
+  /// shape to offer, so it stays a plain label.
+  @ViewBuilder
+  private func draftKindControl(_ draft: CaptureDraft) -> some View {
+    if draft.matchesExistingTask {
+      HStack(spacing: 2) {
+        draftKindSegment(.create, in: draft)
+        draftKindSegment(.update, in: draft)
+      }
+      .padding(2)
+      .background(SerenityPalette.panelBackground, in: Capsule())
+      .overlay(Capsule().stroke(SerenityPalette.thinBorder, lineWidth: 1))
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Save this draft as")
+    } else {
+      Text("New task")
+        .font(SerenityType.caption)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(SerenityPalette.headerIconBackground, in: Capsule())
+        .foregroundStyle(SerenityPalette.accent)
+    }
+  }
+
+  private func draftKindSegment(_ kind: CaptureDraftKind, in draft: CaptureDraft) -> some View {
+    let selected = draft.resolvedKind == kind
+
+    return Button {
+      appState.chooseCaptureDraftKind(kind, forDraftID: draft.id)
+    } label: {
+      Text(kind == .create ? "New task" : "Update")
+        .font(SerenityType.caption)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .foregroundStyle(selected ? SerenityPalette.accent : SerenityPalette.textSecondary)
+        .background(selected ? SerenityPalette.headerIconBackground : Color.clear, in: Capsule())
+        .contentShape(Capsule())
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+    .accessibilityAddTraits(selected ? [.isSelected] : [])
+  }
+
   private func saveButtonTitle(for preview: CaptureDraftPreview) -> String {
     guard preview.drafts.count > 1 else {
-      return preview.drafts.first?.kind == .update ? "Apply update" : "Save task"
+      return preview.drafts.first?.resolvedKind == .update ? "Apply update" : "Save task"
     }
     return "Save \(preview.drafts.count) tasks"
   }
 
   private func captureDraftRow(_ draft: CaptureDraft) -> some View {
-    let target = draft.targetTaskID.flatMap { id in appState.tasks.first { $0.id == id } }
+    let isUpdate = draft.resolvedKind == .update
+    let payload = draft.resolvedPayload
+    // A draft saved as new work is not about the task it matched, so nothing
+    // below reads from that task any more.
+    let target = isUpdate ? draft.targetTaskID.flatMap({ id in appState.tasks.first { $0.id == id } }) : nil
 
     return VStack(alignment: .leading, spacing: 8) {
       HStack(alignment: .firstTextBaseline, spacing: 8) {
         // One paste can be part-new and part-already-tracked, so the badge sits
         // on every row rather than on the card.
-        Text(draft.kind == .create ? "New task" : "Update")
-          .font(SerenityType.caption)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 3)
-          .background(SerenityPalette.headerIconBackground, in: Capsule())
-          .foregroundStyle(SerenityPalette.accent)
+        draftKindControl(draft)
 
-        Text(draft.payload.title ?? target?.title ?? "Untitled")
+        Text(payload.title ?? target?.title ?? "Untitled")
           .font(SerenityType.bodyLarge.weight(.semibold))
           .foregroundStyle(SerenityPalette.textPrimary)
           .fixedSize(horizontal: false, vertical: true)
@@ -2184,8 +2228,8 @@ private struct HomeSectionView: View {
       }
 
       let changes = DraftChanges.rows(
-        payload: draft.payload,
-        isUpdate: draft.kind == .update,
+        payload: payload,
+        isUpdate: isUpdate,
         target: target
       )
       if !changes.isEmpty {

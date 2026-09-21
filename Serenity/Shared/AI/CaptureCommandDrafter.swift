@@ -19,9 +19,16 @@ enum CaptureDraftKind: String, Equatable, Sendable {
 /// it — a parallel type would mean a parallel write path.
 struct CaptureDraft: Equatable, Sendable, Identifiable {
   var id: String
+  /// What the drafter decided. `chosenKind` overrides it when the user says the
+  /// match is wrong; holding both means switching back and forth loses nothing.
   var kind: CaptureDraftKind
+  var chosenKind: CaptureDraftKind?
   var targetTaskID: String?
   var payload: SlackProposalPayload
+  /// The title a new task would take, kept apart from the payload because
+  /// redirecting a draft onto the task it matched clears `payload.title` — a
+  /// repeated link must not rename what it matched.
+  var proposedTitle: String?
   var confidence: Double
   var reason: String?
   var sourceLabel: String
@@ -30,8 +37,10 @@ struct CaptureDraft: Equatable, Sendable, Identifiable {
   init(
     id: String = UUID().uuidString,
     kind: CaptureDraftKind,
+    chosenKind: CaptureDraftKind? = nil,
     targetTaskID: String? = nil,
     payload: SlackProposalPayload,
+    proposedTitle: String? = nil,
     confidence: Double,
     reason: String? = nil,
     sourceLabel: String,
@@ -39,12 +48,33 @@ struct CaptureDraft: Equatable, Sendable, Identifiable {
   ) {
     self.id = id
     self.kind = kind
+    self.chosenKind = chosenKind
     self.targetTaskID = targetTaskID
     self.payload = payload
+    self.proposedTitle = proposedTitle ?? payload.title
     self.confidence = confidence
     self.reason = reason
     self.sourceLabel = sourceLabel
     self.sourceLinks = sourceLinks
+  }
+
+  /// What saving this draft would do now.
+  var resolvedKind: CaptureDraftKind { chosenKind ?? kind }
+
+  /// Only a draft that matched a task has two shapes to choose between.
+  var matchesExistingTask: Bool { targetTaskID != nil }
+
+  /// What saving would write. A new task always needs something to call it,
+  /// even when the draft was only ever meant to amend a task that has a title.
+  var resolvedPayload: SlackProposalPayload {
+    guard resolvedKind == .create else { return payload }
+    var resolved = payload
+    resolved.title = payload.title ?? proposedTitle ?? fallbackTitle
+    return resolved
+  }
+
+  private var fallbackTitle: String? {
+    sourceLabel.isEmpty ? nil : "Follow up on \(sourceLabel)"
   }
 }
 
@@ -495,7 +525,8 @@ enum CaptureCommandDrafter {
       redirected.kind = .update
       redirected.targetTaskID = existing.id
       // A create's title describes the work; retitling a task the user already
-      // has is not what they asked for by pasting the link again.
+      // has is not what they asked for by pasting the link again. The title
+      // stays on `proposedTitle` in case the match turns out to be wrong.
       redirected.payload.title = nil
       return redirected
     }

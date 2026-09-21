@@ -1650,14 +1650,16 @@ final class AppState: ObservableObject {
       for draft in preview.drafts {
         let attribution = captureAttribution(for: draft, at: now)
 
-        switch draft.kind {
+        switch draft.resolvedKind {
         case .create:
-          try await applyDraftCreate(draft.payload, attribution: attribution, at: now)
+          try await applyDraftCreate(draft.resolvedPayload, attribution: attribution, at: now)
           created += 1
         case .update:
           // The task can have been deleted between the draft and the Save.
           guard let taskID = draft.targetTaskID, tasks.contains(where: { $0.id == taskID }) else {
-            try await applyDraftCreate(draft.payload, attribution: attribution, at: now)
+            var orphaned = draft
+            orphaned.chosenKind = .create
+            try await applyDraftCreate(orphaned.resolvedPayload, attribution: attribution, at: now)
             created += 1
             continue
           }
@@ -1674,6 +1676,13 @@ final class AppState: ObservableObject {
       showError(title: "Could not save the drafted task", message: error.localizedDescription)
       return false
     }
+  }
+
+  /// The user's answer to a match they disagree with: the same drafted work,
+  /// written as a new task instead of over the one it was aimed at.
+  func chooseCaptureDraftKind(_ kind: CaptureDraftKind, forDraftID id: String) {
+    guard let index = pendingCaptureDraft?.drafts.firstIndex(where: { $0.id == id }) else { return }
+    pendingCaptureDraft?.drafts[index].chosenKind = kind
   }
 
   func discardPendingCaptureDraft() {

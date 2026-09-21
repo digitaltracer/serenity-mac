@@ -240,6 +240,122 @@ final class CaptureCommandFlowTests: XCTestCase {
     XCTAssertTrue(fixture.state.tasks.isEmpty)
   }
 
+  /// The match can simply be wrong. Saying so has to leave the matched task
+  /// untouched and write the drafted work as its own task instead.
+  func testRejectingTheMatchLeavesTheMatchedTaskAloneAndWritesANewOne() async throws {
+    let fixture = try makeState()
+    defer { fixture.cleanup() }
+    await fixture.state.bootstrapLocalDatabase()
+    await fixture.state.refreshCoreWorkflowData()
+
+    await fixture.state.createTask(
+      title: "Fix incorrect 'Known Lead' tagging",
+      priority: .low,
+      dueDate: nil,
+      tags: ["github", "github-pr-990001"],
+      subtaskTitles: []
+    )
+    await fixture.state.refreshCoreWorkflowData()
+    let existing = try XCTUnwrap(fixture.state.tasks.first)
+
+    let draft = CaptureDraft(
+      kind: .update,
+      targetTaskID: existing.id,
+      payload: SlackProposalPayload(
+        title: "Implement account-domain fallback for CRM routing",
+        priority: .high,
+        tags: ["github", "github-pr-990001"]
+      ),
+      confidence: 0.95,
+      sourceLabel: "acme/api#812"
+    )
+    fixture.state.pendingCaptureDraft = preview(drafts: [draft])
+
+    fixture.state.chooseCaptureDraftKind(.create, forDraftID: draft.id)
+    let saved = await fixture.state.savePendingCaptureDraft()
+
+    XCTAssertTrue(saved)
+    XCTAssertEqual(fixture.state.tasks.count, 2)
+
+    let untouched = try XCTUnwrap(fixture.state.tasks.first { $0.id == existing.id })
+    XCTAssertEqual(untouched.title, "Fix incorrect 'Known Lead' tagging")
+    XCTAssertEqual(untouched.priority, .low, "the task the user said was the wrong match keeps every field")
+
+    let written = try XCTUnwrap(fixture.state.tasks.first { $0.id != existing.id })
+    XCTAssertEqual(written.title, "Implement account-domain fallback for CRM routing")
+    XCTAssertEqual(written.priority, .high)
+  }
+
+  /// A repeated paste arrives with its title stripped, because renaming the
+  /// task it matched is exactly what the redirect exists to prevent.
+  func testRejectingARedirectedMatchStillWritesATitledTask() async throws {
+    let fixture = try makeState()
+    defer { fixture.cleanup() }
+    await fixture.state.bootstrapLocalDatabase()
+    await fixture.state.refreshCoreWorkflowData()
+
+    await fixture.state.createTask(
+      title: "Add retry backoff",
+      priority: .medium,
+      dueDate: nil,
+      tags: ["github", "github-pr-990001"],
+      subtaskTitles: []
+    )
+    await fixture.state.refreshCoreWorkflowData()
+    let existing = try XCTUnwrap(fixture.state.tasks.first)
+
+    let source = githubSource(issueID: 990001)
+    let drafted = CaptureCommandDrafter.tagged(
+      CaptureDraft(kind: .create, payload: .init(title: "Handle the 429 path"), confidence: 0.9, sourceLabel: ""),
+      sources: [source],
+      coveringKeys: ["s1"]
+    )
+    let redirected = try XCTUnwrap(
+      CaptureCommandDrafter.redirectingDuplicates([drafted], sources: [source], tasks: [existing]).first
+    )
+    fixture.state.pendingCaptureDraft = preview(drafts: [redirected])
+
+    fixture.state.chooseCaptureDraftKind(.create, forDraftID: redirected.id)
+    _ = await fixture.state.savePendingCaptureDraft()
+
+    let written = try XCTUnwrap(fixture.state.tasks.first { $0.id != existing.id })
+    XCTAssertEqual(written.title, "Handle the 429 path")
+    XCTAssertTrue(written.tags.contains("github-pr-990001"), "the new task has to be findable by the next paste")
+  }
+
+  func testChoosingTheUpdateAfterAllStillUpdates() async throws {
+    let fixture = try makeState()
+    defer { fixture.cleanup() }
+    await fixture.state.bootstrapLocalDatabase()
+    await fixture.state.refreshCoreWorkflowData()
+
+    await fixture.state.createTask(
+      title: "Add retry backoff",
+      priority: .low,
+      dueDate: nil,
+      tags: [],
+      subtaskTitles: []
+    )
+    await fixture.state.refreshCoreWorkflowData()
+    let existing = try XCTUnwrap(fixture.state.tasks.first)
+
+    let draft = CaptureDraft(
+      kind: .update,
+      targetTaskID: existing.id,
+      payload: SlackProposalPayload(priority: .high),
+      confidence: 0.8,
+      sourceLabel: "acme/api#812"
+    )
+    fixture.state.pendingCaptureDraft = preview(drafts: [draft])
+
+    fixture.state.chooseCaptureDraftKind(.create, forDraftID: draft.id)
+    fixture.state.chooseCaptureDraftKind(.update, forDraftID: draft.id)
+    _ = await fixture.state.savePendingCaptureDraft()
+
+    XCTAssertEqual(fixture.state.tasks.count, 1)
+    XCTAssertEqual(fixture.state.tasks.first?.priority, .high)
+  }
+
   func testSavingWithNothingHeldDoesNothing() async throws {
     let fixture = try makeState()
     defer { fixture.cleanup() }

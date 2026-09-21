@@ -512,6 +512,98 @@ final class CaptureCommandDrafterTests: XCTestCase {
     XCTAssertEqual(result.first?.payload.priority, .high)
   }
 
+  // MARK: - Rejecting a match
+
+  /// The redirect clears the title so a repeated paste cannot rename the task
+  /// it matched. Saying the match is wrong has to get that title back, or the
+  /// new task is called "Untitled".
+  func testRejectingARedirectedMatchRecoversTheTitleTheRedirectCleared() {
+    let source = githubSource(issueID: 990001)
+    let existing = task(title: "Add retry backoff", tags: ["github", "github-pr-990001"])
+    let draft = CaptureCommandDrafter.tagged(
+      CaptureDraft(kind: .create, payload: .init(title: "Handle the 429 path"), confidence: 0.9, sourceLabel: ""),
+      sources: [source],
+      coveringKeys: ["s1"]
+    )
+
+    var redirected = try! XCTUnwrap(
+      CaptureCommandDrafter.redirectingDuplicates([draft], sources: [source], tasks: [existing]).first
+    )
+    XCTAssertNil(redirected.payload.title)
+
+    redirected.chosenKind = .create
+
+    XCTAssertEqual(redirected.resolvedKind, .create)
+    XCTAssertEqual(redirected.resolvedPayload.title, "Handle the 429 path")
+  }
+
+  func testRejectingAMatchKeepsTheOriginTagSoTheNextPasteFindsTheNewTask() {
+    let source = githubSource(issueID: 990001)
+    let existing = task(title: "Add retry backoff", tags: ["github", "github-pr-990001"])
+    let draft = CaptureCommandDrafter.tagged(
+      CaptureDraft(kind: .create, payload: .init(title: "Handle the 429 path"), confidence: 0.9, sourceLabel: ""),
+      sources: [source],
+      coveringKeys: ["s1"]
+    )
+
+    var redirected = try! XCTUnwrap(
+      CaptureCommandDrafter.redirectingDuplicates([draft], sources: [source], tasks: [existing]).first
+    )
+    redirected.chosenKind = .create
+
+    XCTAssertTrue(redirected.resolvedPayload.tags.contains("github-pr-990001"))
+  }
+
+  /// Switching is a decision, not a one-way door: changing your mind twice has
+  /// to leave the drafted rename exactly as the model wrote it.
+  func testSwitchingBackToAnUpdateRestoresTheDraftedRename() {
+    let existing = task(title: "Fix the tagging bug")
+    var draft = CaptureDraft(
+      kind: .update,
+      targetTaskID: existing.id,
+      payload: .init(title: "Implement the account-domain fallback", priority: .high),
+      confidence: 0.95,
+      sourceLabel: "#field-support"
+    )
+
+    draft.chosenKind = .create
+    XCTAssertEqual(draft.resolvedPayload.title, "Implement the account-domain fallback")
+
+    draft.chosenKind = .update
+    XCTAssertEqual(draft.resolvedKind, .update)
+    XCTAssertEqual(draft.resolvedPayload.title, "Implement the account-domain fallback")
+    XCTAssertEqual(draft.targetTaskID, existing.id)
+    XCTAssertEqual(draft.resolvedPayload.priority, .high)
+  }
+
+  /// An update that only adds subtasks carries no title at all, so rejecting
+  /// its match has to name the new task after where the work came from.
+  func testAnUpdateWithNoTitleFallsBackToItsSourceWhenRejected() {
+    var draft = CaptureDraft(
+      kind: .update,
+      targetTaskID: "task-1",
+      payload: .init(subtasks: ["Rebase onto main"]),
+      confidence: 0.7,
+      sourceLabel: "acme/api#812"
+    )
+
+    draft.chosenKind = .create
+
+    XCTAssertEqual(draft.resolvedPayload.title, "Follow up on acme/api#812")
+  }
+
+  func testADraftThatMatchedNothingHasNoSecondShapeToOffer() {
+    let draft = CaptureDraft(
+      kind: .create,
+      payload: .init(title: "Handle the 429 path"),
+      confidence: 0.9,
+      sourceLabel: "acme/api#812"
+    )
+
+    XCTAssertFalse(draft.matchesExistingTask)
+    XCTAssertEqual(draft.resolvedKind, .create)
+  }
+
   // MARK: - Fixtures
 
   private func message(
