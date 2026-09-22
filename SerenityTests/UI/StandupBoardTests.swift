@@ -131,6 +131,17 @@ final class StandupBoardTests: XCTestCase {
     XCTAssertTrue(board.contains("Text(section.label.uppercased())"))
   }
 
+  /// Asking for a change is the primary path; typing one stays for the
+  /// surgical fix, and neither is offered when no model wrote the script.
+  func testTheScriptCanBeRevisedByAskingAndStillEditedByHand() throws {
+    let board = try standupSource()
+
+    XCTAssertTrue(board.contains("Text(\"Change it by asking\")"))
+    XCTAssertTrue(board.contains("Text(\"Remember this for next time\")"))
+    XCTAssertTrue(board.contains("if appState.standupWrittenByModel, !isEditingScript {"))
+    XCTAssertTrue(board.contains("\"Edit wording myself\""))
+  }
+
   // MARK: - Helpers
 
   private func standupSource() throws -> String {

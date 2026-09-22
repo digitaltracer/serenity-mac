@@ -227,6 +227,38 @@ final class StandupWriterTests: XCTestCase {
     XCTAssertTrue(rules.contains("each URL, each path, each identifier"))
   }
 
+  // MARK: - Revising
+
+  func testRevisingCarriesTheFactsTheScriptAndTheAsk() {
+    let prompt = StandupWriter.revisePrompt(
+      board: board(cards: [detailedCard]),
+      instruction: "P0 / P1 / P2 then Blockers.",
+      length: .detailed,
+      script: sectionedScript,
+      ask: "Trim P1 and drop the Slack link",
+      now: monday,
+      calendar: calendar
+    )
+
+    // The board, so a revision cannot drift off what was confirmed.
+    XCTAssertTrue(prompt.contains("Postgres adapter connection timeouts \u{2014} Due today"), prompt)
+    XCTAssertTrue(prompt.contains("Subtasks (1 of 2 done):"), prompt)
+    // What it said last pass, so "trim P1" has something to refer to.
+    XCTAssertTrue(prompt.contains("<<<CURRENT"), prompt)
+    XCTAssertTrue(prompt.contains("**P1 \u{00B7} Known Lead tagging**"), prompt)
+    // And the ask, fenced so it cannot be read as part of the script.
+    XCTAssertTrue(prompt.contains("<<<CHANGE\nTrim P1 and drop the Slack link\nCHANGE"), prompt)
+  }
+
+  func testRevisingIsToldToChangeOnlyWhatWasAskedAndInventNothing() {
+    let rules = StandupWriter.reviseSystemPrompt()
+
+    XCTAssertTrue(rules.contains("leave everything else alone"))
+    XCTAssertTrue(rules.contains("cannot introduce a fact"))
+    // The standing rules still apply to a revision.
+    XCTAssertTrue(rules.contains("Use only the facts given."))
+  }
+
   // MARK: - Decoding
 
   func testACleanResponseDecodes() throws {
@@ -406,6 +438,18 @@ final class StandupWriterTests: XCTestCase {
           ),
         ]
       )
+    )
+  }
+
+  private var sectionedScript: StandupScript {
+    StandupScript(
+      spoken: "P0 is the adapter today.",
+      paste: "",
+      sections: [
+        StandupSection(label: "P0", title: "Postgres adapter", body: "Patching the release path."),
+        StandupSection(label: "P1", title: "Known Lead tagging", body: "The tag fires on absence, not a match."),
+      ],
+      folded: []
     )
   }
 

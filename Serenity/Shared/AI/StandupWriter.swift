@@ -114,6 +114,10 @@ enum StandupWriter {
     ),
   ]
 
+  /// The handful of changes people ask for most, one tap away. Deliberately
+  /// short: a chip that needs reading is slower than typing the ask.
+  static let reviseSuggestions = ["Shorter", "More detail", "No links", "Plainer words"]
+
   // MARK: - Prompt
 
   /// How much of a task's own material a prompt carries. A stand-up runs to a
@@ -214,6 +218,48 @@ enum StandupWriter {
     }
 
     return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// Revising is deliberately not a re-write: the model is given the same
+  /// confirmed facts, the script it already produced, and the change asked
+  /// for. Handing it only the ask would let each pass drift a little further
+  /// from what the board actually says.
+  static func reviseSystemPrompt() -> String {
+    """
+    \(systemPrompt())
+
+    You are revising a stand-up you already wrote, because the person asked for a change.
+
+    - Make the change they asked for and leave everything else alone. Same parts, same order, same wording, \
+    except where the change requires otherwise.
+    - The change cannot introduce a fact. If they ask for something the facts do not support, keep the \
+    script truthful and leave that part as it was.
+    - Return the whole stand-up in the same shape, not a description of what you changed.
+    """
+  }
+
+  static func revisePrompt(
+    board: StandupBoard,
+    instruction: String,
+    length: StandupLength,
+    script: StandupScript,
+    ask: String,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> String {
+    """
+    \(userPrompt(board: board, instruction: instruction, length: length, now: now, calendar: calendar))
+
+    The stand-up you wrote:
+    <<<CURRENT
+    \(StandupScript.paste(from: script.sections).nilIfEmpty ?? script.paste)
+    CURRENT
+
+    What they want changed:
+    <<<CHANGE
+    \(ask.trimmingCharacters(in: .whitespacesAndNewlines))
+    CHANGE
+    """
   }
 
   private static func heading(

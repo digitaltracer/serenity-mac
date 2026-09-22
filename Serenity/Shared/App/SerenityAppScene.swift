@@ -8474,6 +8474,8 @@ struct StandupSectionView: View {
   @State private var showPasteRendering = false
   @State private var isEditingScript = false
   @State private var editedScript = ""
+  @State private var reviseAsk = ""
+  @State private var rememberAsk = false
   @State private var isFoldedExpanded = false
   @State private var openSwipeRowID: String?
   @FocusState private var addFieldFocused: Bool
@@ -9008,6 +9010,10 @@ struct StandupSectionView: View {
         foldedStrip(script.folded)
       }
 
+      if appState.standupWrittenByModel, !isEditingScript {
+        reviseBar
+      }
+
       outputFooter(script)
     }
     .padding(18)
@@ -9099,6 +9105,66 @@ struct StandupSectionView: View {
     .lineSpacing(3)
   }
 
+  /// Changing the wording by saying what to change. The manual editor stays in
+  /// the footer for the surgical fix, but a stand-up is rewritten every
+  /// morning, so an instruction outlives the edit it replaces.
+  private var reviseBar: some View {
+    VStack(alignment: .leading, spacing: 11) {
+      Text("Change it by asking")
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+
+      HStack(spacing: 8) {
+        TextField("Trim P1 and drop the Slack link", text: $reviseAsk)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+          .onSubmit { submitRevise() }
+          .disabled(appState.standupIsRevising)
+
+        Button(appState.standupIsRevising ? "Rewriting\u{2026}" : "Rewrite") {
+          submitRevise()
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .disabled(appState.standupIsRevising || reviseAsk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+
+      HStack(spacing: 7) {
+        ForEach(StandupWriter.reviseSuggestions, id: \.self) { suggestion in
+          Button(suggestion) {
+            reviseAsk = suggestion
+            submitRevise()
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .disabled(appState.standupIsRevising)
+        }
+        Spacer(minLength: 0)
+      }
+
+      Toggle(isOn: $rememberAsk) {
+        Text("Remember this for next time")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+      .toggleStyle(.switch)
+    }
+    .padding(14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+  }
+
+  private func submitRevise() {
+    let ask = reviseAsk
+    guard !ask.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+    Task {
+      await appState.reviseStandup(ask: ask, remember: rememberAsk)
+      reviseAsk = ""
+      rememberAsk = false
+    }
+  }
+
   /// Where "concise" and "nothing left out" both hold: the script stays short,
   /// and the specifics it compressed stay one glance away for the follow-up.
   private func foldedStrip(_ folded: [String]) -> some View {
@@ -9145,7 +9211,7 @@ struct StandupSectionView: View {
       .toggleStyle(.switch)
 
       HStack(spacing: 8) {
-        Button(isEditingScript ? "Done editing" : "Edit wording") {
+        Button(isEditingScript ? "Done editing" : "Edit wording myself") {
           if isEditingScript {
             appState.updateStandupScript(spoken: editedScript)
             isEditingScript = false

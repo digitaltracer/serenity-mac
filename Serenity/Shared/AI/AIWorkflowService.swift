@@ -978,14 +978,59 @@ actor AIWorkflowService {
       )
     }
 
-    let schema = StandupWriter.schema()
-    let systemPrompt = StandupWriter.systemPrompt()
-    let userPrompt = StandupWriter.userPrompt(
-      board: board,
-      instruction: instruction,
-      length: length,
-      now: now
+    return try await runStandup(
+      repositories: repositories,
+      selection: selection,
+      systemPrompt: StandupWriter.systemPrompt(),
+      userPrompt: StandupWriter.userPrompt(
+        board: board,
+        instruction: instruction,
+        length: length,
+        now: now
+      )
     )
+  }
+
+  /// Rewrites the stand-up that was just written, from the same confirmed
+  /// facts plus what the person asked to change. No fallback: without a
+  /// provider there is nobody to ask, and silently returning the unchanged
+  /// script would read as the change having been made.
+  func reviseStandup(
+    board: StandupBoard,
+    script: StandupScript,
+    ask: String,
+    instruction: String,
+    length: StandupLength,
+    now: Date = Date()
+  ) async throws -> StandupDraft {
+    let repositories = try await requireRepositories()
+    let settings = try repositories.settings.fetch() ?? .defaultValue
+    let selection = try chooseCredential(settings: settings)
+
+    return try await runStandup(
+      repositories: repositories,
+      selection: selection,
+      systemPrompt: StandupWriter.reviseSystemPrompt(),
+      userPrompt: StandupWriter.revisePrompt(
+        board: board,
+        instruction: instruction,
+        length: length,
+        script: script,
+        ask: ask,
+        now: now
+      )
+    )
+  }
+
+  /// The one model call a stand-up makes, whether it is the first draft or a
+  /// revision of it: same schema, same repair pass, same usage row.
+  private func runStandup(
+    repositories: GRDBAIRepositorySet,
+    selection: AICredentialSelectionResult,
+    systemPrompt: String,
+    userPrompt: String
+  ) async throws -> StandupDraft {
+    let schema = StandupWriter.schema()
 
     do {
       let response = try await quickCaptureGenerator(

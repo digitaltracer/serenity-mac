@@ -188,6 +188,7 @@ final class AppState: ObservableObject {
   @Published var standupScript: StandupScript?
   @Published var standupWrittenByModel = false
   @Published var standupIsWriting = false
+  @Published var standupIsRevising = false
   @Published var standupSaveToJournal = true
   /// Once you have moved or added a card, the board stops regathering itself
   /// underneath you.
@@ -2344,6 +2345,53 @@ final class AppState: ObservableObject {
     } catch {
       showError(title: "Stand-up generation failed", message: error.localizedDescription)
     }
+  }
+
+  /// Asking for a change instead of typing one. The model gets the confirmed
+  /// facts back alongside the script it wrote, so a revision cannot wander off
+  /// the board; `remember` promotes today's ask to the standing instruction.
+  func reviseStandup(ask: String, remember: Bool = false, now: Date = Date()) async {
+    let trimmed = ask.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, let board = standupBoard, let script = standupScript else { return }
+
+    standupIsRevising = true
+    defer { standupIsRevising = false }
+
+    do {
+      let draft = try await aiWorkflowService.reviseStandup(
+        board: board,
+        script: script,
+        ask: trimmed,
+        instruction: aiSettings.resolvedStandupFormat,
+        length: aiSettings.resolvedStandupLength,
+        now: now
+      )
+      standupScript = draft.script
+      standupWrittenByModel = draft.writtenByModel
+      pendingStandupDraft = merge(draft, onto: pendingStandupDraft)
+
+      if remember {
+        await rememberStandupAsk(trimmed)
+      }
+    } catch {
+      showError(title: "Couldn't revise the stand-up", message: error.localizedDescription)
+    }
+  }
+
+  /// The saved stand-up should report what it cost altogether, not what its
+  /// last pass cost.
+  private func merge(_ draft: StandupDraft, onto previous: StandupDraft?) -> StandupDraft {
+    guard let previous else { return draft }
+    var merged = draft
+    merged.promptTokens += previous.promptTokens
+    merged.completionTokens += previous.completionTokens
+    return merged
+  }
+
+  private func rememberStandupAsk(_ ask: String) async {
+    let existing = aiSettings.resolvedStandupFormat
+    guard !existing.localizedCaseInsensitiveContains(ask) else { return }
+    await setStandupFormat("\(existing)\n\(ask)")
   }
 
   func updateStandupScript(spoken: String) {
