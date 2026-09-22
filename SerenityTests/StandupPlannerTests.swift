@@ -338,6 +338,67 @@ final class StandupPlannerTests: XCTestCase {
     XCTAssertFalse(board.hasAnythingToSay)
   }
 
+  // MARK: - The detail behind a card
+
+  func testACardCarriesTheTaskItsDescriptionSubtasksAndComments() throws {
+    let detailed = task(
+      id: "t9",
+      title: "Postgres adapter connection timeouts",
+      description: "Pool exhausts under the nightly backfill; suspect the adapter never returns a\nconnection after a statement timeout.",
+      dueDate: monday,
+      subtasks: [
+        subtask(id: "s1", title: "Reproduce against staging", completed: true, order: 0),
+        subtask(id: "s2", title: "Patch the release path", completed: false, order: 1),
+      ],
+      activity: [
+        comment("Repro is deterministic with two writers", at: date(year: 2026, month: 9, day: 18, hour: 14, minute: 10)),
+        comment("Infra says the pool cap is ours to change", at: date(year: 2026, month: 9, day: 19, hour: 9, minute: 5)),
+      ]
+    )
+
+    let card = try XCTUnwrap(build(tasks: [detailed]).cards(in: .today).first)
+
+    XCTAssertTrue(card.detail.description?.hasPrefix("Pool exhausts") == true)
+    XCTAssertEqual(card.detail.subtasks.map(\.title), ["Reproduce against staging", "Patch the release path"])
+    XCTAssertEqual(card.detail.subtasks.map(\.completed), [true, false])
+    // Whole, and oldest first: what the writer trims is the writer's call.
+    XCTAssertEqual(card.detail.comments.map(\.text), [
+      "Repro is deterministic with two writers",
+      "Infra says the pool cap is ours to change",
+    ])
+  }
+
+  /// The one-line fact clips a comment to sixty characters. The detail must
+  /// not, or the "detailed" setting has nothing longer to say.
+  func testTheDetailKeepsACommentTheFactLineHadToCut() throws {
+    let long = String(repeating: "a", count: 200)
+    let noted = task(
+      id: "t10",
+      title: "Postgres adapter connection timeouts",
+      activity: [comment(long, at: date(year: 2026, month: 9, day: 18, hour: 14, minute: 10))]
+    )
+
+    let card = try XCTUnwrap(build(tasks: [noted]).cards(in: .since).first)
+
+    XCTAssertTrue(card.fact.contains("\u{2026}"), card.fact)
+    XCTAssertEqual(card.detail.comments.first?.text, long)
+  }
+
+  /// Field changes are the app talking about itself. They are already summarised
+  /// into the fact, and repeating them as "comments" would invite the script to
+  /// quote Serenity back at the team.
+  func testEventsAreNotPassedOffAsSomethingThePersonWrote() throws {
+    let moved = task(
+      id: "t11",
+      title: "Capture commands for GitHub pull requests",
+      activity: [event("Priority set to High", at: date(year: 2026, month: 9, day: 18, hour: 11, minute: 0))]
+    )
+
+    let card = try XCTUnwrap(build(tasks: [moved]).cards(in: .since).first)
+
+    XCTAssertTrue(card.detail.comments.isEmpty)
+  }
+
   // MARK: - Helpers
 
   private func build(tasks: [TaskEntity], recall: StandupRecall? = nil) -> StandupBoard {
@@ -363,6 +424,7 @@ final class StandupPlannerTests: XCTestCase {
   private func task(
     id: String,
     title: String,
+    description: String? = nil,
     completed: Bool = false,
     completedAt: Date? = nil,
     tags: [String] = [],
@@ -375,7 +437,7 @@ final class StandupPlannerTests: XCTestCase {
     return TaskEntity(
       id: id,
       title: title,
-      description: nil,
+      description: description,
       completed: completed,
       completedAt: completedAt,
       priority: .medium,
@@ -391,8 +453,8 @@ final class StandupPlannerTests: XCTestCase {
     )
   }
 
-  private func subtask(id: String, completed: Bool) -> TaskSubtask {
-    TaskSubtask(id: id, title: id, completed: completed, order: 0)
+  private func subtask(id: String, title: String? = nil, completed: Bool, order: Int = 0) -> TaskSubtask {
+    TaskSubtask(id: id, title: title ?? id, completed: completed, order: order)
   }
 
   private func event(_ text: String, at instant: Date) -> TaskActivityEntry {

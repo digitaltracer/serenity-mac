@@ -82,6 +82,37 @@ public enum StandupCardSource: String, Codable, Equatable, Sendable {
   }
 }
 
+/// The task's own material, carried past the one-line fact. Kept in labelled
+/// parts rather than run together, so the script can quote a subtask or a note
+/// and still know which is which.
+struct StandupCardDetail: Equatable, Sendable {
+  struct Subtask: Equatable, Sendable {
+    var title: String
+    var completed: Bool
+  }
+
+  struct Comment: Equatable, Sendable {
+    var text: String
+    var writtenAt: Date
+  }
+
+  var description: String?
+  var subtasks: [Subtask]
+  var comments: [Comment]
+
+  init(description: String? = nil, subtasks: [Subtask] = [], comments: [Comment] = []) {
+    self.description = description
+    self.subtasks = subtasks
+    self.comments = comments
+  }
+
+  static let none = StandupCardDetail()
+
+  var isEmpty: Bool {
+    description == nil && subtasks.isEmpty && comments.isEmpty
+  }
+}
+
 /// One line of the stand-up, before it has been turned into words. A task can
 /// produce two cards — three subtasks closed yesterday and two left today are
 /// both true — so identity is the task and the column together, never the task
@@ -93,6 +124,9 @@ struct StandupCard: Identifiable, Equatable, Sendable {
   var title: String
   var fact: String
   var source: StandupCardSource
+  /// The task's description, subtasks and comments, for the script to draw
+  /// specifics from. A card typed on the board has none of it.
+  var detail: StandupCardDetail
   /// What the previous stand-up said about this task, when it mentioned it.
   /// Present so the script can say where the work got to instead of repeating
   /// itself.
@@ -105,6 +139,7 @@ struct StandupCard: Identifiable, Equatable, Sendable {
     title: String,
     fact: String,
     source: StandupCardSource,
+    detail: StandupCardDetail = .none,
     saidLast: String? = nil
   ) {
     self.id = id
@@ -113,6 +148,7 @@ struct StandupCard: Identifiable, Equatable, Sendable {
     self.title = title
     self.fact = fact
     self.source = source
+    self.detail = detail
     self.saidLast = saidLast
   }
 
@@ -334,6 +370,7 @@ enum StandupPlanner {
         title: task.title,
         fact: fact,
         source: source,
+        detail: detail(for: task),
         saidLast: mention?.fact
       )
     }
@@ -434,6 +471,7 @@ enum StandupPlanner {
       title: task.title,
       fact: fact,
       source: source,
+      detail: detail(for: task),
       saidLast: mention?.fact
     )
     return (card, rank)
@@ -464,6 +502,7 @@ enum StandupPlanner {
         title: task.title,
         fact: fact,
         source: source,
+        detail: detail(for: task),
         saidLast: mention?.fact
       )
     }
@@ -489,6 +528,24 @@ enum StandupPlanner {
 
     let noun = silentDays == 1 ? "day" : "days"
     return (card("Nothing has moved in \(silentDays) \(noun), and it is overdue", .guessed), 2)
+  }
+
+  // MARK: - The detail behind a card
+
+  /// Everything the task itself says, whole. What fits in a prompt is the
+  /// writer's problem; the board's job is to carry the material rather than
+  /// decide in advance which half of a description matters.
+  private static func detail(for task: TaskEntity) -> StandupCardDetail {
+    StandupCardDetail(
+      description: task.description?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+      subtasks: task.subtasks
+        .sorted { $0.order < $1.order }
+        .map { StandupCardDetail.Subtask(title: $0.title, completed: $0.completed) },
+      comments: task.activity
+        .filter { $0.kind == .comment }
+        .sorted { $0.createdAt < $1.createdAt }
+        .map { StandupCardDetail.Comment(text: $0.text, writtenAt: $0.createdAt) }
+    )
   }
 
   // MARK: - Shared arithmetic

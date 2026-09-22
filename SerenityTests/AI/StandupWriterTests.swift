@@ -81,6 +81,105 @@ final class StandupWriterTests: XCTestCase {
     XCTAssertTrue(StandupWriter.systemPrompt().contains("the format instruction wins"))
   }
 
+  func testTheDetailReachesTheModelUnderItsOwnLabels() {
+    let prompt = StandupWriter.userPrompt(
+      board: board(cards: [detailedCard]),
+      instruction: "anything",
+      length: .detailed,
+      now: monday,
+      calendar: calendar
+    )
+
+    XCTAssertTrue(prompt.contains("Description: Pool exhausts under the nightly backfill"), prompt)
+    XCTAssertTrue(prompt.contains("Subtasks (1 of 2 done):"), prompt)
+    XCTAssertTrue(prompt.contains("- [done] Reproduce against staging"), prompt)
+    XCTAssertTrue(prompt.contains("- [not done] Patch the release path"), prompt)
+    XCTAssertTrue(prompt.contains("Comments they wrote (oldest first):"), prompt)
+    XCTAssertTrue(prompt.contains("\u{201C}Repro is deterministic with two writers\u{201D}"), prompt)
+    // Dated, so a week-old note cannot be read out as this morning's news.
+    // Built rather than spelled out: the clock format is the machine's.
+    let stamp = StandupDateText.dayAndTime(
+      date(year: 2026, month: 9, day: 18, hour: 14, minute: 10),
+      now: monday,
+      calendar: calendar
+    )
+    XCTAssertTrue(prompt.contains("  - \(stamp): \u{201C}Repro"), prompt)
+  }
+
+  func testTheDetailSitsUnderTheItemItBelongsTo() {
+    let prompt = StandupWriter.userPrompt(
+      board: board(cards: [detailedCard]),
+      instruction: "anything",
+      length: .detailed,
+      now: monday,
+      calendar: calendar
+    )
+
+    XCTAssertTrue(
+      prompt.contains("- Postgres adapter connection timeouts \u{2014} Due today\n  Description:"),
+      prompt
+    )
+  }
+
+  func testAnItemWithNoDetailAddsNothingToThePrompt() {
+    let prompt = StandupWriter.userPrompt(
+      board: board(cards: [todayCard]),
+      instruction: "anything",
+      length: .standard,
+      now: monday,
+      calendar: calendar
+    )
+
+    XCTAssertFalse(prompt.contains("Description:"), prompt)
+    XCTAssertFalse(prompt.contains("Subtasks ("), prompt)
+    XCTAssertFalse(prompt.contains("Comments they wrote"), prompt)
+  }
+
+  /// A long backlog cannot be allowed to crowd out the other items, but what is
+  /// dropped is counted rather than silently cut.
+  func testALongListIsCappedAndSaysHowMuchItLeftOut() {
+    let many = StandupCard(
+      id: "t5:today",
+      taskID: "t5",
+      column: .today,
+      title: "Migrate the ingest workers",
+      fact: "Due today",
+      source: .scheduled,
+      detail: StandupCardDetail(
+        subtasks: (1...15).map { StandupCardDetail.Subtask(title: "Step \($0)", completed: false) },
+        comments: (1...8).map {
+          StandupCardDetail.Comment(
+            text: "Note \($0)",
+            writtenAt: date(year: 2026, month: 9, day: 18, hour: 9, minute: $0)
+          )
+        }
+      )
+    )
+
+    let prompt = StandupWriter.userPrompt(
+      board: board(cards: [many]),
+      instruction: "anything",
+      length: .detailed,
+      now: monday,
+      calendar: calendar
+    )
+
+    XCTAssertTrue(prompt.contains("Subtasks (0 of 15 done):"), prompt)
+    XCTAssertTrue(prompt.contains("(3 more, not listed)"), prompt)
+    XCTAssertFalse(prompt.contains("[not done] Step 13"), prompt)
+    // The newest comments are the ones kept.
+    XCTAssertTrue(prompt.contains("Comments they wrote (oldest first, 3 older not listed):"), prompt)
+    XCTAssertTrue(prompt.contains("\u{201C}Note 8\u{201D}"), prompt)
+    XCTAssertFalse(prompt.contains("\u{201C}Note 3\u{201D}"), prompt)
+  }
+
+  func testTheRulesSayWhatTheLabelledDetailIsFor() {
+    let rules = StandupWriter.systemPrompt()
+
+    XCTAssertTrue(rules.contains("[not done] is outstanding"))
+    XCTAssertTrue(rules.contains("Spend the length target on that detail"))
+  }
+
   // MARK: - Decoding
 
   func testACleanResponseDecodes() throws {
@@ -194,6 +293,30 @@ final class StandupWriterTests: XCTestCase {
       fact: "Due Tuesday",
       source: .carried,
       saidLast: "Due Tuesday, 4 subtasks left"
+    )
+  }
+
+  private var detailedCard: StandupCard {
+    StandupCard(
+      id: "t5:today",
+      taskID: "t5",
+      column: .today,
+      title: "Postgres adapter connection timeouts",
+      fact: "Due today",
+      source: .scheduled,
+      detail: StandupCardDetail(
+        description: "Pool exhausts under the nightly backfill; suspect the adapter never returns a connection.",
+        subtasks: [
+          StandupCardDetail.Subtask(title: "Reproduce against staging", completed: true),
+          StandupCardDetail.Subtask(title: "Patch the release path", completed: false),
+        ],
+        comments: [
+          StandupCardDetail.Comment(
+            text: "Repro is deterministic with two writers",
+            writtenAt: date(year: 2026, month: 9, day: 18, hour: 14, minute: 10)
+          ),
+        ]
+      )
     )
   }
 

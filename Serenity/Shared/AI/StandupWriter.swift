@@ -81,6 +81,17 @@ enum StandupWriter {
 
   // MARK: - Prompt
 
+  /// How much of a task's own material a prompt carries. A stand-up runs to a
+  /// handful of tasks, so these are generous per item and still bounded in
+  /// total; anything dropped is counted out loud rather than silently cut.
+  static let descriptionLimit = 400
+  static let subtaskTitleLimit = 120
+  static let commentTextLimit = 280
+  static let subtaskListLimit = 12
+  static let commentListLimit = 5
+
+  // MARK: - System
+
   static func systemPrompt() -> String {
     """
     You write one person's daily stand-up, from facts they have already confirmed.
@@ -96,6 +107,15 @@ enum StandupWriter {
     uncertainty ("nothing has moved on X for four days") or leave it out. Never assert it as fact.
     - An item that carries "said last time" was already mentioned. Say where it got to since. Do not \
     repeat the earlier phrasing.
+    - An item may carry labelled detail indented under it: "Description" is what the task says about \
+    itself, "Subtasks" lists each one with its status in brackets, and "Comments" are the person's own \
+    words with the date they wrote them. That is where the specifics live — take the wording from there \
+    rather than restating the one-line fact.
+    - A subtask marked [not done] is outstanding; never report it as finished, and never treat a done \
+    subtask as today's work. A comment may be quoted or paraphrased but not contradicted, and an old one \
+    is old — its date is given, so do not present it as today's news.
+    - Spend the length target on that detail. A longer target means more specifics per item, not more \
+    words around the same sentence.
     - "spoken" is for reading aloud: flowing sentences, contractions, no bullet characters, no headings, \
     no markdown.
     - "paste" is the same content for a written thread: short markdown, headings and bullets allowed.
@@ -134,6 +154,9 @@ enum StandupWriter {
       } else {
         for card in cards {
           lines.append("- \(describe(card))")
+          lines.append(
+            contentsOf: detailLines(for: card, now: now, calendar: calendar).map { "  \($0)" }
+          )
         }
       }
       lines.append("")
@@ -174,6 +197,55 @@ enum StandupWriter {
     }
 
     return parts.joined(separator: " ")
+  }
+
+  /// The task's own material, under labels. A model told which lines are
+  /// subtasks and which are comments can name a specific one; the same text run
+  /// together reads as a single vague sentence, which is how a detailed
+  /// stand-up ends up sounding exactly like a short one.
+  private static func detailLines(for card: StandupCard, now: Date, calendar: Calendar) -> [String] {
+    guard !card.detail.isEmpty else { return [] }
+    var lines: [String] = []
+
+    if let description = card.detail.description {
+      lines.append("Description: \(clip(description, to: descriptionLimit))")
+    }
+
+    let subtasks = card.detail.subtasks
+    if !subtasks.isEmpty {
+      let done = subtasks.filter(\.completed).count
+      lines.append("Subtasks (\(done) of \(subtasks.count) done):")
+      for subtask in subtasks.prefix(subtaskListLimit) {
+        let status = subtask.completed ? "done" : "not done"
+        lines.append("  - [\(status)] \(clip(subtask.title, to: subtaskTitleLimit))")
+      }
+      if subtasks.count > subtaskListLimit {
+        lines.append("  - (\(subtasks.count - subtaskListLimit) more, not listed)")
+      }
+    }
+
+    let comments = card.detail.comments
+    if !comments.isEmpty {
+      let shown = comments.suffix(commentListLimit)
+      let older = comments.count - shown.count
+      let note = older > 0 ? ", \(older) older not listed" : ""
+      lines.append("Comments they wrote (oldest first\(note)):")
+      for comment in shown {
+        let stamp = StandupDateText.dayAndTime(comment.writtenAt, now: now, calendar: calendar)
+        lines.append("  - \(stamp): \u{201C}\(clip(comment.text, to: commentTextLimit))\u{201D}")
+      }
+    }
+
+    return lines
+  }
+
+  /// Newlines are flattened rather than kept: the block is read by line, and a
+  /// wrapped description would otherwise look like a new label.
+  private static func clip(_ text: String, to limit: Int) -> String {
+    let flat = text.trimmingCharacters(in: .whitespacesAndNewlines)
+      .replacingOccurrences(of: "\n", with: " ")
+    guard flat.count > limit else { return flat }
+    return flat.prefix(limit).trimmingCharacters(in: .whitespaces) + "\u{2026}"
   }
 
   private static func windowNote(_ window: StandupWindow) -> String {
