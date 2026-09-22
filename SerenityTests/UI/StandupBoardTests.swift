@@ -122,6 +122,15 @@ final class StandupBoardTests: XCTestCase {
     XCTAssertTrue(board.contains("Detail it folded away"))
   }
 
+  /// The paste tab used to show its own markdown syntax. Sections are drawn.
+  func testThePasteTabDrawsSectionsRatherThanPrintingMarkdown() throws {
+    let board = try standupSource()
+
+    XCTAssertTrue(board.contains("} else if showPasteRendering, !script.sections.isEmpty {"))
+    XCTAssertTrue(board.contains("sectionBlocks(script.sections)"))
+    XCTAssertTrue(board.contains("Text(section.label.uppercased())"))
+  }
+
   // MARK: - Helpers
 
   private func standupSource() throws -> String {

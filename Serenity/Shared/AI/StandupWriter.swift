@@ -1,18 +1,53 @@
 import Foundation
 
-/// The finished stand-up in both the shapes it is needed in. Same facts twice:
-/// one to read out, one to paste into a thread.
+/// One labelled part of the stand-up — a priority, a blocker, a heading the
+/// person's own format asked for. Structure the model reports rather than
+/// punctuation the app has to guess at, so the screen can draw it.
+struct StandupSection: Equatable, Sendable {
+  /// The short tag in front: "P0", "Blockers", "Since Friday". May be empty
+  /// when a format wants a heading and nothing to file it under.
+  var label: String
+  var title: String
+  var body: String
+
+  init(label: String, title: String, body: String) {
+    self.label = label
+    self.title = title
+    self.body = body
+  }
+
+  /// What this part looks like in a Slack thread.
+  var markdown: String {
+    let heading = [label.nilIfEmpty, title.nilIfEmpty]
+      .compactMap { $0 }
+      .joined(separator: " \u{00B7} ")
+    guard let heading = heading.nilIfEmpty else { return body }
+    return body.isEmpty ? "**\(heading)**" : "**\(heading)**\n\(body)"
+  }
+}
+
+/// The finished stand-up in every shape it is needed in. Same facts three
+/// ways: one to read out, one to paste into a thread, one the screen can lay
+/// out as parts.
 struct StandupScript: Equatable, Sendable {
   var spoken: String
   var paste: String
+  /// Empty when the model gave no structure, or when an older stand-up was
+  /// written before it did — the screen falls back to the plain text.
+  var sections: [StandupSection]
   /// Specifics the spoken version compressed out, kept one glance away for the
   /// follow-up question.
   var folded: [String]
 
-  init(spoken: String, paste: String, folded: [String]) {
+  init(spoken: String, paste: String, sections: [StandupSection] = [], folded: [String]) {
     self.spoken = spoken
     self.paste = paste
+    self.sections = sections
     self.folded = folded
+  }
+
+  static func paste(from sections: [StandupSection]) -> String {
+    sections.map(\.markdown).joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   var wordCount: Int {
@@ -116,9 +151,13 @@ enum StandupWriter {
     is old — its date is given, so do not present it as today's news.
     - Spend the length target on that detail. A longer target means more specifics per item, not more \
     words around the same sentence.
+    - "sections" is the stand-up broken into its parts, in the order they should be read. Each part has a \
+    "label" (the short tag in front: "P0", "Blockers", "Since Friday" — whatever the format instruction \
+    calls for, empty if it calls for none), a "title" (the subject in a few words) and a "body" (the \
+    detail, one or two sentences). The format instruction decides what the parts are and what they are \
+    called; do not impose a structure it did not ask for.
     - "spoken" is for reading aloud: flowing sentences, contractions, no bullet characters, no headings, \
     no markdown.
-    - "paste" is the same content for a written thread: short markdown, headings and bullets allowed.
     - "folded" holds every specific you compressed out of "spoken", one per entry, so it can be produced \
     if somebody asks. If you left nothing out, return an empty array.
     - Where the format instruction and the length target disagree, the format instruction wins.
@@ -269,18 +308,37 @@ enum StandupWriter {
     [
       "type": "object",
       "additionalProperties": false,
-      "required": ["spoken", "paste", "folded"],
+      "required": ["spoken", "sections", "folded"],
       "properties": [
         "spoken": ["type": "string"],
-        "paste": ["type": "string"],
+        "sections": [
+          "type": "array",
+          "items": [
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "title", "body"],
+            "properties": [
+              "label": ["type": "string"],
+              "title": ["type": "string"],
+              "body": ["type": "string"],
+            ],
+          ],
+        ],
         "folded": ["type": "array", "items": ["type": "string"]],
       ],
     ]
   }
 
   private struct Payload: Decodable {
+    struct Section: Decodable {
+      let label: String?
+      let title: String?
+      let body: String?
+    }
+
     let spoken: String
     let paste: String?
+    let sections: [Section]?
     let folded: [String]?
   }
 
@@ -296,9 +354,26 @@ enum StandupWriter {
       throw AIWorkflowError.invalidStandupResponse("Stand-up response had no spoken text.")
     }
 
+    let sections = (payload.sections ?? []).compactMap { section -> StandupSection? in
+      let built = StandupSection(
+        label: section.label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+        title: section.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+        body: section.body?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      )
+      return built.markdown.isEmpty ? nil : built
+    }
+
+    // The pasteable text is built here rather than asked for: it has to match
+    // what the screen draws, and a model asked for the same content twice
+    // eventually returns two different versions of it.
+    let paste = sections.isEmpty
+      ? payload.paste?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? spoken
+      : StandupScript.paste(from: sections)
+
     return StandupScript(
       spoken: spoken,
-      paste: payload.paste?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? spoken,
+      paste: paste,
+      sections: sections,
       folded: (payload.folded ?? []).compactMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
     )
   }
@@ -325,7 +400,7 @@ enum StandupWriter {
     calendar: Calendar = .current
   ) -> StandupScript {
     var spokenParts: [String] = []
-    var pasteLines: [String] = []
+    var sections: [StandupSection] = []
     var folded: [String] = []
 
     for column in StandupColumn.spoken {
@@ -333,18 +408,18 @@ enum StandupWriter {
       guard !cards.isEmpty else { continue }
 
       let heading = heading(for: column, window: board.window, now: now, calendar: calendar)
-      pasteLines.append("**\(heading)**")
 
       var titles: [String] = []
+      var lines: [String] = []
       for card in cards {
-        pasteLines.append("- \(card.title) — \(card.fact)")
+        lines.append("- \(card.title) — \(card.fact)")
         titles.append(card.title)
         // Nothing here can rewrite a fact into a clause, so the detail that a
         // model would have folded in is surfaced rather than dropped.
         folded.append("\(card.title): \(card.fact)")
       }
-      pasteLines.append("")
 
+      sections.append(StandupSection(label: heading, title: "", body: lines.joined(separator: "\n")))
       spokenParts.append("\(spokenLead(for: column, heading: heading)) \(sentenceList(titles)).")
     }
 
@@ -354,7 +429,8 @@ enum StandupWriter {
 
     return StandupScript(
       spoken: spoken,
-      paste: pasteLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines),
+      paste: StandupScript.paste(from: sections),
+      sections: sections,
       folded: folded
     )
   }

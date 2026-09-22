@@ -8990,6 +8990,8 @@ struct StandupSectionView: View {
       if isEditingScript {
         TextEditor(text: $editedScript)
           .serenityTextArea(minHeight: 160)
+      } else if showPasteRendering, !script.sections.isEmpty {
+        sectionBlocks(script.sections)
       } else {
         Text(showPasteRendering ? script.paste : script.spoken)
           .font(SerenityType.scaledSystem(size: showPasteRendering ? 14 : 19, weight: .regular))
@@ -9011,6 +9013,90 @@ struct StandupSectionView: View {
     .padding(18)
     .frame(maxWidth: .infinity, alignment: .leading)
     .serenityPanel()
+  }
+
+  /// The stand-up drawn as the parts the model reported. The alternative is a
+  /// slab of markdown with its own asterisks showing, which is what a plain
+  /// text view makes of it.
+  private func sectionBlocks(_ sections: [StandupSection]) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      ForEach(Array(sections.enumerated()), id: \.offset) { index, section in
+        VStack(alignment: .leading, spacing: 9) {
+          if !section.label.isEmpty || !section.title.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+              if !section.label.isEmpty {
+                Text(section.label.uppercased())
+                  .font(SerenityType.scaledSystem(size: 11, weight: .bold))
+                  .kerning(0.6)
+                  .foregroundStyle(SerenityPalette.accent)
+                  .padding(.horizontal, 8)
+                  .padding(.vertical, 4)
+                  .background(
+                    SerenityPalette.activeItemBackground,
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                  )
+              }
+
+              if !section.title.isEmpty {
+                Text(section.title)
+                  .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
+                  .foregroundStyle(SerenityPalette.textPrimary)
+                  .fixedSize(horizontal: false, vertical: true)
+              }
+
+              Spacer(minLength: 0)
+            }
+          }
+
+          if !section.body.isEmpty {
+            sectionBody(section.body)
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        if index < sections.count - 1 {
+          Rectangle()
+            .fill(SerenityPalette.border)
+            .frame(height: 1)
+            .padding(.vertical, 15)
+        }
+      }
+    }
+    .textSelection(.enabled)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(18)
+    .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+  }
+
+  /// A body is prose, except when the model (or the no-key fallback) wrote it
+  /// as a list. A dash at the start of a line is the one piece of markdown
+  /// worth drawing rather than showing.
+  private func sectionBody(_ body: String) -> some View {
+    let lines = body
+      .components(separatedBy: .newlines)
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }
+
+    return VStack(alignment: .leading, spacing: 6) {
+      ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+        if line.hasPrefix("- ") || line.hasPrefix("\u{2022} ") {
+          HStack(alignment: .firstTextBaseline, spacing: 9) {
+            Text("\u{2022}")
+              .foregroundStyle(SerenityPalette.textSecondary)
+            Text(String(line.dropFirst(2)))
+              .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+          }
+        } else {
+          Text(line)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+      }
+    }
+    .font(SerenityType.scaledSystem(size: 14, weight: .regular))
+    .foregroundStyle(SerenityPalette.textPrimary.opacity(0.86))
+    .lineSpacing(3)
   }
 
   /// Where "concise" and "nothing left out" both hold: the script stays short,

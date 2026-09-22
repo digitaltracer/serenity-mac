@@ -202,6 +202,33 @@ final class StandupWriterTests: XCTestCase {
     XCTAssertEqual(script.spoken, "Shipped it.")
   }
 
+  func testSectionsDecodeAndThePasteTextIsBuiltFromThem() throws {
+    let script = try StandupWriter.decode(#"""
+      {"spoken": "P0 today is the adapter.",
+       "sections": [
+         {"label": "P0", "title": "Postgres adapter", "body": "Patching the release path today."},
+         {"label": "Blockers", "title": "None", "body": ""}
+       ],
+       "folded": []}
+      """#)
+
+    XCTAssertEqual(script.sections.count, 2)
+    XCTAssertEqual(script.sections.first?.label, "P0")
+    // One source of truth: the pasteable text is built here, not asked for
+    // a second time and returned differently.
+    XCTAssertEqual(
+      script.paste,
+      "**P0 \u{00B7} Postgres adapter**\nPatching the release path today.\n\n**Blockers \u{00B7} None**"
+    )
+  }
+
+  func testAModelThatIgnoresSectionsStillProducesAScript() throws {
+    let script = try StandupWriter.decode(#"{"spoken": "Shipped it.", "paste": "**Since Friday**\n- Shipped it"}"#)
+
+    XCTAssertTrue(script.sections.isEmpty)
+    XCTAssertEqual(script.paste, "**Since Friday**\n- Shipped it")
+  }
+
   func testAMissingPasteFallsBackToTheSpokenText() throws {
     let script = try StandupWriter.decode(#"{"spoken": "Shipped it.", "folded": null}"#)
 
@@ -230,6 +257,21 @@ final class StandupWriterTests: XCTestCase {
     // rather than quietly lost.
     XCTAssertEqual(script.folded.count, 3)
     XCTAssertTrue(script.paste.contains("- Refresh model rates in Cost Center — Due today"), script.paste)
+  }
+
+  /// The no-key path draws in the same shape as the model path, or the screen
+  /// would look like two different features.
+  func testTheFallbackAlsoComesBackInSections() {
+    let script = StandupWriter.fallback(
+      board: board(cards: [finishedCard, todayCard]),
+      length: .standard,
+      now: monday,
+      calendar: calendar
+    )
+
+    XCTAssertEqual(script.sections.map(\.label), ["Since Friday", "Today"])
+    XCTAssertTrue(script.sections.first?.body.hasPrefix("- Ship Slack PKCE token refresh") == true)
+    XCTAssertEqual(script.paste, StandupScript.paste(from: script.sections))
   }
 
   func testAnEmptyBoardFallsBackToSayingThereIsNothing() {
