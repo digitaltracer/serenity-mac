@@ -999,10 +999,11 @@ actor AIWorkflowService {
 
       var promptTokens = response.promptTokens
       var completionTokens = response.completionTokens
-      let script: StandupScript
+      var text = response.text
+      var script: StandupScript
 
       do {
-        script = try StandupWriter.decode(response.text)
+        script = try StandupWriter.decode(text)
       } catch {
         let repaired = try await quickCaptureGenerator(
           endpoint(for: selection.credential),
@@ -1010,7 +1011,7 @@ actor AIWorkflowService {
           selection.model,
           systemPrompt,
           quickCaptureRepairPrompt(
-            invalidResponse: response.text,
+            invalidResponse: text,
             validationError: Self.describeDecodingFailure(error),
             schema: schema
           ),
@@ -1018,7 +1019,33 @@ actor AIWorkflowService {
         )
         promptTokens += repaired.promptTokens
         completionTokens += repaired.completionTokens
-        script = try StandupWriter.decode(repaired.text)
+        text = repaired.text
+        script = try StandupWriter.decode(text)
+      }
+
+      // A stand-up is read to a room. A link or a file path in the spoken text
+      // is not a style slip, it is a line the person cannot say, so it is
+      // worth one more pass. One only: a stand-up that reads slightly wrong
+      // still beats no stand-up, so whatever comes back is kept.
+      let problems = StandupWriter.speechProblems(in: script.spoken)
+      if !problems.isEmpty {
+        let spoken = try? await quickCaptureGenerator(
+          endpoint(for: selection.credential),
+          selection.apiKey,
+          selection.model,
+          systemPrompt,
+          quickCaptureRepairPrompt(
+            invalidResponse: text,
+            validationError: problems.joined(separator: " "),
+            schema: schema
+          ),
+          schema
+        )
+        if let spoken, let rewritten = try? StandupWriter.decode(spoken.text) {
+          promptTokens += spoken.promptTokens
+          completionTokens += spoken.completionTokens
+          script = rewritten
+        }
       }
 
       // Logged as summary deliberately: `ai_usage.operation` sits behind a

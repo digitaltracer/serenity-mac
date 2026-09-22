@@ -136,8 +136,8 @@ enum StandupWriter {
 
     Rules that hold whatever the format says:
     - Use only the facts given. Never invent a task, a number, a name, a date or a reason.
-    - Keep every number, identifier, PR reference and date that appears in a fact. Those are the parts \
-    people ask follow-up questions about.
+    - Keep every number, identifier, PR reference, path and date in "sections". That written version is \
+    what people scroll back to, and those are the parts they ask follow-up questions about.
     - An item marked "guessed" is Serenity's inference, not something the person said. Voice it as \
     uncertainty ("nothing has moved on X for four days") or leave it out. Never assert it as fact.
     - An item that carries "said last time" was already mentioned. Say where it got to since. Do not \
@@ -156,10 +156,22 @@ enum StandupWriter {
     calls for, empty if it calls for none), a "title" (the subject in a few words) and a "body" (the \
     detail, one or two sentences). The format instruction decides what the parts are and what they are \
     called; do not impose a structure it did not ask for.
-    - "spoken" is for reading aloud: flowing sentences, contractions, no bullet characters, no headings, \
-    no markdown.
-    - "folded" holds every specific you compressed out of "spoken", one per entry, so it can be produced \
-    if somebody asks. If you left nothing out, return an empty array.
+    - "spoken" is said out loud to a room of engineers and product managers who are listening, not \
+    reading. It has to survive being heard once. Full sentences, contractions, one idea per sentence, a \
+    blank line between one part and the next.
+    - Nothing in "spoken" may be a thing nobody would say out loud. No markdown, no asterisks, no \
+    backticks, no bullet characters, no headings, no numbered lists. No URL, no file path, no branch, \
+    no function or module name, no random-looking id. Name the thing in words instead: "the CRM owner \
+    matching code", "the Slack thread about it", "the account-domain fallback". Numbers a person would \
+    actually say — a count, a ticket or PR number, a day, a duration — stay.
+    - Say each part's label in "spoken" the way a person says it, not the way it is written: "First, and \
+    the one that has to land today", "P zero", "On the blockers". Never read out a heading or a bullet.
+    - A list of things in "spoken" becomes a sentence: "three things left on it — the account-domain \
+    fallback, the Thryv case, and making sure duration is not the only trigger". Never more than about \
+    four in one breath; past that, say how many there are and name the ones that matter.
+    - "folded" holds every specific "spoken" left out, one per entry: each URL, each path, each identifier \
+    you put into words. That is what answers "what was the link again?" when somebody asks. If you left \
+    nothing out, return an empty array.
     - Where the format instruction and the length target disagree, the format instruction wins.
     """
   }
@@ -378,6 +390,54 @@ enum StandupWriter {
     )
   }
 
+  // MARK: - Can it actually be said
+
+  /// What in the spoken text could not be read to a room, in words the model
+  /// can act on. Checked here rather than left to the prompt: "no links, no
+  /// paths, no markdown" is the rule a model quietly drops when the person's
+  /// own format instruction is a bulleted outline, and the cost of being
+  /// wrong is somebody standing in front of their team reading out a URL.
+  static func speechProblems(in spoken: String) -> [String] {
+    var problems: [String] = []
+
+    func matches(_ pattern: String, _ options: NSString.CompareOptions = [.regularExpression]) -> Bool {
+      spoken.range(of: pattern, options: options) != nil
+    }
+
+    if spoken.contains("**") || spoken.contains("`") || spoken.contains("\u{2022}") {
+      problems.append(
+        "\"spoken\" still contains markdown or bullet characters. It is read aloud: plain sentences only."
+      )
+    }
+    if matches("(?m)^\\s*([-*+]|\\d+\\.)\\s") {
+      problems.append(
+        "\"spoken\" is written as a list. Turn each part into sentences somebody can say in one breath."
+      )
+    }
+    if matches("(?m)^#{1,6}\\s") {
+      problems.append("\"spoken\" contains a heading. Say the label as a person would instead.")
+    }
+    if matches("https?://|www\\.", [.regularExpression, .caseInsensitive]) {
+      problems.append(
+        "\"spoken\" contains a link. Nobody can say a URL out loud: name it in words and put the URL in \"folded\"."
+      )
+    }
+    if matches("[\\w.-]+/[\\w./-]*\\.\\w{1,4}\\b") {
+      problems.append(
+        "\"spoken\" contains a file path. Say what that code does instead and put the path in \"folded\"."
+      )
+    }
+    // An id nobody would read out: six or more characters, upper case, with a
+    // digit in it — a Slack message id, a channel id, a commit.
+    if matches("\\b(?=[A-Z0-9]{6,}\\b)(?=[^\\s]*\\d)[A-Z0-9]+\\b") {
+      problems.append(
+        "\"spoken\" contains an identifier nobody would say out loud. Describe it in words and put the id in \"folded\"."
+      )
+    }
+
+    return problems
+  }
+
   /// Models occasionally wrap the object in prose or a fenced block. Same
   /// tolerance the capture path already applies.
   private static func extractJSONObject(from text: String) -> String {
@@ -425,7 +485,7 @@ enum StandupWriter {
 
     let spoken = spokenParts.isEmpty
       ? "Nothing to report since the last stand-up."
-      : spokenParts.joined(separator: " ")
+      : spokenParts.joined(separator: "\n\n")
 
     return StandupScript(
       spoken: spoken,

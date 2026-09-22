@@ -180,6 +180,53 @@ final class StandupWriterTests: XCTestCase {
     XCTAssertTrue(rules.contains("Spend the length target on that detail"))
   }
 
+  // MARK: - Can it be said out loud
+
+  /// The stand-up is read to a room. Every one of these was in a real script.
+  func testTheThingsNobodyCanSayOutLoudAreCaught() {
+    let cases: [(String, String)] = [
+      ("a link", "P1 is the Known Lead tagging, reported in https://docket-ai.slack.com/archives/C08GQ7YVBK8."),
+      ("a file path", "What is left is the account-domain fallback in inbound-se/services/booking/crm_owner_matching.py."),
+      ("an identifier", "The alert came through on C08GQ7YVBK8 this morning."),
+      ("markdown", "**P0** is the adapter today."),
+      ("a bullet list", "P0:\n- Wrap up the adapter.\n- Merge the PRs."),
+      ("a numbered list", "P0:\n1. Wrap up the adapter."),
+      ("a heading", "## P0\nWrap up the adapter."),
+      ("a backtick", "The fix goes in `crm_owner_matching`."),
+    ]
+
+    for (name, spoken) in cases {
+      XCTAssertFalse(
+        StandupWriter.speechProblems(in: spoken).isEmpty,
+        "\(name) should have been caught: \(spoken)"
+      )
+    }
+  }
+
+  /// The check has to leave a good stand-up alone, including the numbers and
+  /// domains people really do say in one.
+  func testASpeakableStandupIsLeftAlone() {
+    let spoken = """
+      P zero, and the one that has to land today: I’m wrapping up dynamic context injection to UDP.       The review comments took longer than I expected, and those two PRs should merge before this call.
+
+      P one is the Known Lead tagging firing for anonymous visitors — it goes off when there’s no       CRM record at all, rather than on a real match. Three things left on it: the account-domain       fallback in the owner matching code, the Thryv case, and making sure call duration isn’t the only       trigger. That’s PR 812, and I posted the thread in Slack.
+
+      P two, and this one can wait: asking for docket.io hands back docketai.com. I want to agree what       should happen there. Nothing landed since Friday, and I’m not blocked on anyone.
+      """
+
+    XCTAssertEqual(StandupWriter.speechProblems(in: spoken), [], "flagged a speakable stand-up")
+  }
+
+  func testTheRulesSayWhoIsListeningAndWhereTheLinksGo() {
+    let rules = StandupWriter.systemPrompt()
+
+    XCTAssertTrue(rules.contains("said out loud to a room of engineers and product managers"))
+    XCTAssertTrue(rules.contains("No URL, no file path"))
+    // The identifiers still have to survive somewhere.
+    XCTAssertTrue(rules.contains("Keep every number, identifier, PR reference, path and date in \"sections\""))
+    XCTAssertTrue(rules.contains("each URL, each path, each identifier"))
+  }
+
   // MARK: - Decoding
 
   func testACleanResponseDecodes() throws {
