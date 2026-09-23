@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 
 /// Stable type identifiers used in `pending_sync_changes.entity_type` and as
 /// CloudKit `recordType` names. Don't rename these — they're part of the
@@ -21,10 +22,10 @@ enum SyncEntityType {
 /// straight to the underlying repo and skip the ledger so we don't echo
 /// changes back out.
 final class SyncAwareTaskRepository: CoreTaskRepository {
-  private let underlying: CoreTaskRepository
+  private let underlying: GRDBTaskRepository
   private let pendingStore: PendingSyncChangeStore
 
-  init(underlying: CoreTaskRepository, pendingStore: PendingSyncChangeStore) {
+  init(underlying: GRDBTaskRepository, pendingStore: PendingSyncChangeStore) {
     self.underlying = underlying
     self.pendingStore = pendingStore
   }
@@ -38,13 +39,17 @@ final class SyncAwareTaskRepository: CoreTaskRepository {
   }
 
   func save(_ task: TaskEntity) throws {
-    try underlying.save(task)
-    try pendingStore.enqueue(entityType: SyncEntityType.task, entityId: task.id, operation: .upsert)
+    try underlying.dbQueue.write { db in
+      try underlying.save(task, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.task, entityId: task.id, operation: .upsert, in: db)
+    }
   }
 
   func delete(id: String) throws {
-    try underlying.delete(id: id)
-    try pendingStore.enqueue(entityType: SyncEntityType.task, entityId: id, operation: .delete)
+    try underlying.dbQueue.write { db in
+      try underlying.delete(id: id, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.task, entityId: id, operation: .delete, in: db)
+    }
   }
 
   func applyRemoteUpsert(_ task: TaskEntity) throws {
@@ -57,10 +62,10 @@ final class SyncAwareTaskRepository: CoreTaskRepository {
 }
 
 final class SyncAwareProjectRepository: CoreProjectRepository {
-  private let underlying: CoreProjectRepository
+  private let underlying: GRDBProjectRepository
   private let pendingStore: PendingSyncChangeStore
 
-  init(underlying: CoreProjectRepository, pendingStore: PendingSyncChangeStore) {
+  init(underlying: GRDBProjectRepository, pendingStore: PendingSyncChangeStore) {
     self.underlying = underlying
     self.pendingStore = pendingStore
   }
@@ -74,13 +79,17 @@ final class SyncAwareProjectRepository: CoreProjectRepository {
   }
 
   func save(_ project: ProjectEntity) throws {
-    try underlying.save(project)
-    try pendingStore.enqueue(entityType: SyncEntityType.project, entityId: project.id, operation: .upsert)
+    try underlying.dbQueue.write { db in
+      try underlying.save(project, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.project, entityId: project.id, operation: .upsert, in: db)
+    }
   }
 
   func delete(id: String) throws {
-    try underlying.delete(id: id)
-    try pendingStore.enqueue(entityType: SyncEntityType.project, entityId: id, operation: .delete)
+    try underlying.dbQueue.write { db in
+      try underlying.delete(id: id, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.project, entityId: id, operation: .delete, in: db)
+    }
   }
 
   func applyRemoteUpsert(_ project: ProjectEntity) throws {
@@ -93,10 +102,10 @@ final class SyncAwareProjectRepository: CoreProjectRepository {
 }
 
 final class SyncAwareJournalRepository: CoreJournalRepository {
-  private let underlying: CoreJournalRepository
+  private let underlying: GRDBJournalRepository
   private let pendingStore: PendingSyncChangeStore
 
-  init(underlying: CoreJournalRepository, pendingStore: PendingSyncChangeStore) {
+  init(underlying: GRDBJournalRepository, pendingStore: PendingSyncChangeStore) {
     self.underlying = underlying
     self.pendingStore = pendingStore
   }
@@ -114,13 +123,17 @@ final class SyncAwareJournalRepository: CoreJournalRepository {
   }
 
   func save(_ entry: JournalEntryEntity) throws {
-    try underlying.save(entry)
-    try pendingStore.enqueue(entityType: SyncEntityType.journalEntry, entityId: entry.id, operation: .upsert)
+    try underlying.dbQueue.write { db in
+      try underlying.save(entry, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.journalEntry, entityId: entry.id, operation: .upsert, in: db)
+    }
   }
 
   func delete(id: String) throws {
-    try underlying.delete(id: id)
-    try pendingStore.enqueue(entityType: SyncEntityType.journalEntry, entityId: id, operation: .delete)
+    try underlying.dbQueue.write { db in
+      try underlying.delete(id: id, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.journalEntry, entityId: id, operation: .delete, in: db)
+    }
   }
 
   func applyRemoteUpsert(_ entry: JournalEntryEntity) throws {
@@ -133,10 +146,10 @@ final class SyncAwareJournalRepository: CoreJournalRepository {
 }
 
 final class SyncAwareGoalRepository: CoreGoalRepository {
-  private let underlying: CoreGoalRepository
+  private let underlying: GRDBGoalRepository
   private let pendingStore: PendingSyncChangeStore
 
-  init(underlying: CoreGoalRepository, pendingStore: PendingSyncChangeStore) {
+  init(underlying: GRDBGoalRepository, pendingStore: PendingSyncChangeStore) {
     self.underlying = underlying
     self.pendingStore = pendingStore
   }
@@ -154,13 +167,17 @@ final class SyncAwareGoalRepository: CoreGoalRepository {
   }
 
   func save(_ goal: GoalEntity) throws {
-    try underlying.save(goal)
-    try pendingStore.enqueue(entityType: SyncEntityType.goal, entityId: goal.id, operation: .upsert)
+    try underlying.dbQueue.write { db in
+      try underlying.save(goal, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.goal, entityId: goal.id, operation: .upsert, in: db)
+    }
   }
 
   func delete(id: String) throws {
-    try underlying.delete(id: id)
-    try pendingStore.enqueue(entityType: SyncEntityType.goal, entityId: id, operation: .delete)
+    try underlying.dbQueue.write { db in
+      try underlying.delete(id: id, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.goal, entityId: id, operation: .delete, in: db)
+    }
   }
 
   func applyRemoteUpsert(_ goal: GoalEntity) throws {

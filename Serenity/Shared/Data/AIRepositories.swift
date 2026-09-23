@@ -82,7 +82,7 @@ protocol AISettingsRepository {
 }
 
 final class GRDBAIInsightRepository: AIInsightRepository {
-  private let dbQueue: DatabaseQueue
+  let dbQueue: DatabaseQueue
 
   init(dbQueue: DatabaseQueue) {
     self.dbQueue = dbQueue
@@ -125,77 +125,81 @@ final class GRDBAIInsightRepository: AIInsightRepository {
   }
 
   func save(_ insight: AIInsightEntity) throws {
+    try dbQueue.write { db in
+      try save(insight, in: db)
+    }
+  }
+
+  func save(_ insight: AIInsightEntity, in db: Database) throws {
     let suggestions = try CoreRepositoryCodec.encodeJSON(insight.actionabilitySuggestions)
 
-    try dbQueue.write { db in
-      try db.execute(
-        sql: """
-        INSERT INTO ai_insights (
-          id,
-          provider,
-          type,
-          title,
-          description,
-          confidence,
-          category,
-          actionable,
-          metadata,
-          created_at,
-          updated_at,
-          user_rating,
-          dismissed,
-          marked_helpful,
-          user_notes,
-          visualization_data,
-          actionability_suggestions,
-          theme_id,
-          is_recurring,
-          occurrence_number
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          provider = excluded.provider,
-          type = excluded.type,
-          title = excluded.title,
-          description = excluded.description,
-          confidence = excluded.confidence,
-          category = excluded.category,
-          actionable = excluded.actionable,
-          metadata = excluded.metadata,
-          updated_at = excluded.updated_at,
-          user_rating = excluded.user_rating,
-          dismissed = excluded.dismissed,
-          marked_helpful = excluded.marked_helpful,
-          user_notes = excluded.user_notes,
-          visualization_data = excluded.visualization_data,
-          actionability_suggestions = excluded.actionability_suggestions,
-          theme_id = excluded.theme_id,
-          is_recurring = excluded.is_recurring,
-          occurrence_number = excluded.occurrence_number;
-        """,
-        arguments: [
-          insight.id,
-          insight.provider.rawValue,
-          insight.type.rawValue,
-          insight.title,
-          insight.description,
-          insight.confidence,
-          insight.category.rawValue,
-          insight.actionable ? 1 : 0,
-          insight.metadataJSON,
-          CoreRepositoryCodec.encodeDate(insight.createdAt),
-          CoreRepositoryCodec.encodeDate(insight.updatedAt),
-          insight.userRating,
-          insight.dismissed ? 1 : 0,
-          insight.markedHelpful ? 1 : 0,
-          insight.userNotes,
-          insight.visualizationDataJSON,
-          suggestions,
-          insight.themeID,
-          insight.isRecurring ? 1 : 0,
-          insight.occurrenceNumber,
-        ]
-      )
-    }
+    try db.execute(
+      sql: """
+      INSERT INTO ai_insights (
+        id,
+        provider,
+        type,
+        title,
+        description,
+        confidence,
+        category,
+        actionable,
+        metadata,
+        created_at,
+        updated_at,
+        user_rating,
+        dismissed,
+        marked_helpful,
+        user_notes,
+        visualization_data,
+        actionability_suggestions,
+        theme_id,
+        is_recurring,
+        occurrence_number
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        provider = excluded.provider,
+        type = excluded.type,
+        title = excluded.title,
+        description = excluded.description,
+        confidence = excluded.confidence,
+        category = excluded.category,
+        actionable = excluded.actionable,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at,
+        user_rating = excluded.user_rating,
+        dismissed = excluded.dismissed,
+        marked_helpful = excluded.marked_helpful,
+        user_notes = excluded.user_notes,
+        visualization_data = excluded.visualization_data,
+        actionability_suggestions = excluded.actionability_suggestions,
+        theme_id = excluded.theme_id,
+        is_recurring = excluded.is_recurring,
+        occurrence_number = excluded.occurrence_number;
+      """,
+      arguments: [
+        insight.id,
+        insight.provider.rawValue,
+        insight.type.rawValue,
+        insight.title,
+        insight.description,
+        insight.confidence,
+        insight.category.rawValue,
+        insight.actionable ? 1 : 0,
+        insight.metadataJSON,
+        CoreRepositoryCodec.encodeDate(insight.createdAt),
+        CoreRepositoryCodec.encodeDate(insight.updatedAt),
+        insight.userRating,
+        insight.dismissed ? 1 : 0,
+        insight.markedHelpful ? 1 : 0,
+        insight.userNotes,
+        insight.visualizationDataJSON,
+        suggestions,
+        insight.themeID,
+        insight.isRecurring ? 1 : 0,
+        insight.occurrenceNumber,
+      ]
+    )
   }
 
   func updateFeedback(
@@ -206,33 +210,48 @@ final class GRDBAIInsightRepository: AIInsightRepository {
     userNotes: String?
   ) throws {
     try dbQueue.write { db in
-      try db.execute(
-        sql: """
-        UPDATE ai_insights
-        SET
-          user_rating = COALESCE(?, user_rating),
-          dismissed = COALESCE(?, dismissed),
-          marked_helpful = COALESCE(?, marked_helpful),
-          user_notes = COALESCE(?, user_notes),
-          updated_at = ?
-        WHERE id = ?;
-        """,
-        arguments: [
-          userRating,
-          dismissed.map { $0 ? 1 : 0 },
-          markedHelpful.map { $0 ? 1 : 0 },
-          userNotes,
-          CoreRepositoryCodec.encodeDate(Date()),
-          id,
-        ]
-      )
+      try updateFeedback(id: id, userRating: userRating, dismissed: dismissed, markedHelpful: markedHelpful, userNotes: userNotes, in: db)
     }
+  }
+
+  func updateFeedback(
+    id: String,
+    userRating: Int?,
+    dismissed: Bool?,
+    markedHelpful: Bool?,
+    userNotes: String?,
+    in db: Database
+  ) throws {
+    try db.execute(
+      sql: """
+      UPDATE ai_insights
+      SET
+        user_rating = COALESCE(?, user_rating),
+        dismissed = COALESCE(?, dismissed),
+        marked_helpful = COALESCE(?, marked_helpful),
+        user_notes = COALESCE(?, user_notes),
+        updated_at = ?
+      WHERE id = ?;
+      """,
+      arguments: [
+        userRating,
+        dismissed.map { $0 ? 1 : 0 },
+        markedHelpful.map { $0 ? 1 : 0 },
+        userNotes,
+        CoreRepositoryCodec.encodeDate(Date()),
+        id,
+      ]
+    )
   }
 
   func delete(id: String) throws {
     try dbQueue.write { db in
-      try db.execute(sql: "DELETE FROM ai_insights WHERE id = ?;", arguments: [id])
+      try delete(id: id, in: db)
     }
+  }
+
+  func delete(id: String, in db: Database) throws {
+    try db.execute(sql: "DELETE FROM ai_insights WHERE id = ?;", arguments: [id])
   }
 
   private static func makeInsight(from row: Row) throws -> AIInsightEntity {
@@ -268,7 +287,7 @@ final class GRDBAIInsightRepository: AIInsightRepository {
 }
 
 final class GRDBAIRecapRepository: AIRecapRepository {
-  private let dbQueue: DatabaseQueue
+  let dbQueue: DatabaseQueue
 
   init(dbQueue: DatabaseQueue) {
     self.dbQueue = dbQueue
@@ -309,94 +328,106 @@ final class GRDBAIRecapRepository: AIRecapRepository {
   }
 
   func save(_ recap: AIRecapEntity) throws {
+    try dbQueue.write { db in
+      try save(recap, in: db)
+    }
+  }
+
+  func save(_ recap: AIRecapEntity, in db: Database) throws {
     let highlights = try CoreRepositoryCodec.encodeJSON(recap.highlights)
     let challenges = try CoreRepositoryCodec.encodeJSON(recap.challenges)
     let recommendations = try CoreRepositoryCodec.encodeJSON(recap.recommendations)
     let period = try CoreRepositoryCodec.encodeJSON(recap.period)
 
-    try dbQueue.write { db in
-      try db.execute(
-        sql: """
-        INSERT INTO ai_recaps (
-          id,
-          provider,
-          type,
-          title,
-          summary,
-          highlights,
-          challenges,
-          recommendations,
-          period,
-          metadata,
-          created_at,
-          updated_at,
-          viewed,
-          favorited,
-          exported
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          provider = excluded.provider,
-          type = excluded.type,
-          title = excluded.title,
-          summary = excluded.summary,
-          highlights = excluded.highlights,
-          challenges = excluded.challenges,
-          recommendations = excluded.recommendations,
-          period = excluded.period,
-          metadata = excluded.metadata,
-          updated_at = excluded.updated_at,
-          viewed = excluded.viewed,
-          favorited = excluded.favorited,
-          exported = excluded.exported;
-        """,
-        arguments: [
-          recap.id,
-          recap.provider.rawValue,
-          recap.type.rawValue,
-          recap.title,
-          recap.summary,
-          highlights,
-          challenges,
-          recommendations,
-          period,
-          recap.metadataJSON,
-          CoreRepositoryCodec.encodeDate(recap.createdAt),
-          CoreRepositoryCodec.encodeDate(recap.updatedAt),
-          recap.viewed ? 1 : 0,
-          recap.favorited ? 1 : 0,
-          recap.exported ? 1 : 0,
-        ]
-      )
-    }
+    try db.execute(
+      sql: """
+      INSERT INTO ai_recaps (
+        id,
+        provider,
+        type,
+        title,
+        summary,
+        highlights,
+        challenges,
+        recommendations,
+        period,
+        metadata,
+        created_at,
+        updated_at,
+        viewed,
+        favorited,
+        exported
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        provider = excluded.provider,
+        type = excluded.type,
+        title = excluded.title,
+        summary = excluded.summary,
+        highlights = excluded.highlights,
+        challenges = excluded.challenges,
+        recommendations = excluded.recommendations,
+        period = excluded.period,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at,
+        viewed = excluded.viewed,
+        favorited = excluded.favorited,
+        exported = excluded.exported;
+      """,
+      arguments: [
+        recap.id,
+        recap.provider.rawValue,
+        recap.type.rawValue,
+        recap.title,
+        recap.summary,
+        highlights,
+        challenges,
+        recommendations,
+        period,
+        recap.metadataJSON,
+        CoreRepositoryCodec.encodeDate(recap.createdAt),
+        CoreRepositoryCodec.encodeDate(recap.updatedAt),
+        recap.viewed ? 1 : 0,
+        recap.favorited ? 1 : 0,
+        recap.exported ? 1 : 0,
+      ]
+    )
   }
 
   func updateInteraction(id: String, viewed: Bool?, favorited: Bool?, exported: Bool?) throws {
     try dbQueue.write { db in
-      try db.execute(
-        sql: """
-        UPDATE ai_recaps
-        SET
-          viewed = COALESCE(?, viewed),
-          favorited = COALESCE(?, favorited),
-          exported = COALESCE(?, exported),
-          updated_at = ?
-        WHERE id = ?;
-        """,
-        arguments: [
-          viewed.map { $0 ? 1 : 0 },
-          favorited.map { $0 ? 1 : 0 },
-          exported.map { $0 ? 1 : 0 },
-          CoreRepositoryCodec.encodeDate(Date()),
-          id,
-        ]
-      )
+      try updateInteraction(id: id, viewed: viewed, favorited: favorited, exported: exported, in: db)
     }
+  }
+
+  func updateInteraction(id: String, viewed: Bool?, favorited: Bool?, exported: Bool?, in db: Database) throws {
+    try db.execute(
+      sql: """
+      UPDATE ai_recaps
+      SET
+        viewed = COALESCE(?, viewed),
+        favorited = COALESCE(?, favorited),
+        exported = COALESCE(?, exported),
+        updated_at = ?
+      WHERE id = ?;
+      """,
+      arguments: [
+        viewed.map { $0 ? 1 : 0 },
+        favorited.map { $0 ? 1 : 0 },
+        exported.map { $0 ? 1 : 0 },
+        CoreRepositoryCodec.encodeDate(Date()),
+        id,
+      ]
+    )
   }
 
   func delete(id: String) throws {
     try dbQueue.write { db in
-      try db.execute(sql: "DELETE FROM ai_recaps WHERE id = ?;", arguments: [id])
+      try delete(id: id, in: db)
     }
+  }
+
+  func delete(id: String, in db: Database) throws {
+    try db.execute(sql: "DELETE FROM ai_recaps WHERE id = ?;", arguments: [id])
   }
 
   private static func makeRecap(from row: Row) throws -> AIRecapEntity {
@@ -647,7 +678,7 @@ final class GRDBAIModelRateRepository: AIModelRateRepository {
 }
 
 final class GRDBSummaryRepository: SummaryRepository {
-  private let dbQueue: DatabaseQueue
+  let dbQueue: DatabaseQueue
 
   init(dbQueue: DatabaseQueue) {
     self.dbQueue = dbQueue
@@ -702,65 +733,73 @@ final class GRDBSummaryRepository: SummaryRepository {
 
   func save(_ summary: SummaryEntity) throws {
     try dbQueue.write { db in
-      try db.execute(
-        sql: """
-        INSERT INTO summaries (
-          id,
-          title,
-          content,
-          summary_type,
-          start_date,
-          end_date,
-          generated_at,
-          word_count,
-          metadata,
-          provider,
-          prompt_tokens,
-          completion_tokens,
-          total_tokens,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          title = excluded.title,
-          content = excluded.content,
-          summary_type = excluded.summary_type,
-          start_date = excluded.start_date,
-          end_date = excluded.end_date,
-          generated_at = excluded.generated_at,
-          word_count = excluded.word_count,
-          metadata = excluded.metadata,
-          provider = excluded.provider,
-          prompt_tokens = excluded.prompt_tokens,
-          completion_tokens = excluded.completion_tokens,
-          total_tokens = excluded.total_tokens,
-          updated_at = excluded.updated_at;
-        """,
-        arguments: [
-          summary.id,
-          summary.title,
-          summary.content,
-          summary.summaryType.rawValue,
-          CoreRepositoryCodec.encodeDate(summary.startDate),
-          CoreRepositoryCodec.encodeDate(summary.endDate),
-          CoreRepositoryCodec.encodeDate(summary.generatedAt),
-          summary.wordCount,
-          summary.metadataJSON,
-          summary.provider.rawValue,
-          summary.promptTokens,
-          summary.completionTokens,
-          summary.totalTokens,
-          CoreRepositoryCodec.encodeDate(summary.createdAt),
-          CoreRepositoryCodec.encodeDate(summary.updatedAt),
-        ]
-      )
+      try save(summary, in: db)
     }
+  }
+
+  func save(_ summary: SummaryEntity, in db: Database) throws {
+    try db.execute(
+      sql: """
+      INSERT INTO summaries (
+        id,
+        title,
+        content,
+        summary_type,
+        start_date,
+        end_date,
+        generated_at,
+        word_count,
+        metadata,
+        provider,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        content = excluded.content,
+        summary_type = excluded.summary_type,
+        start_date = excluded.start_date,
+        end_date = excluded.end_date,
+        generated_at = excluded.generated_at,
+        word_count = excluded.word_count,
+        metadata = excluded.metadata,
+        provider = excluded.provider,
+        prompt_tokens = excluded.prompt_tokens,
+        completion_tokens = excluded.completion_tokens,
+        total_tokens = excluded.total_tokens,
+        updated_at = excluded.updated_at;
+      """,
+      arguments: [
+        summary.id,
+        summary.title,
+        summary.content,
+        summary.summaryType.rawValue,
+        CoreRepositoryCodec.encodeDate(summary.startDate),
+        CoreRepositoryCodec.encodeDate(summary.endDate),
+        CoreRepositoryCodec.encodeDate(summary.generatedAt),
+        summary.wordCount,
+        summary.metadataJSON,
+        summary.provider.rawValue,
+        summary.promptTokens,
+        summary.completionTokens,
+        summary.totalTokens,
+        CoreRepositoryCodec.encodeDate(summary.createdAt),
+        CoreRepositoryCodec.encodeDate(summary.updatedAt),
+      ]
+    )
   }
 
   func delete(id: String) throws {
     try dbQueue.write { db in
-      try db.execute(sql: "DELETE FROM summaries WHERE id = ?;", arguments: [id])
+      try delete(id: id, in: db)
     }
+  }
+
+  func delete(id: String, in db: Database) throws {
+    try db.execute(sql: "DELETE FROM summaries WHERE id = ?;", arguments: [id])
   }
 
   private static func makeSummary(from row: Row) throws -> SummaryEntity {
@@ -1042,7 +1081,7 @@ final class GRDBAISettingsRepository: AISettingsRepository {
 }
 
 final class GRDBStandupRepository: StandupRepository {
-  private let dbQueue: DatabaseQueue
+  let dbQueue: DatabaseQueue
 
   init(dbQueue: DatabaseQueue) {
     self.dbQueue = dbQueue
@@ -1086,75 +1125,83 @@ final class GRDBStandupRepository: StandupRepository {
   }
 
   func save(_ standup: StandupEntity) throws {
+    try dbQueue.write { db in
+      try save(standup, in: db)
+    }
+  }
+
+  func save(_ standup: StandupEntity, in db: Database) throws {
     let folded = try CoreRepositoryCodec.encodeJSON(standup.folded)
     let items = try CoreRepositoryCodec.encodeJSON(standup.items)
 
-    try dbQueue.write { db in
-      try db.execute(
-        sql: """
-        INSERT INTO standups (
-          id,
-          generated_at,
-          window_start,
-          window_end,
-          spoken,
-          paste,
-          folded,
-          items,
-          format_instruction,
-          length,
-          written_by_model,
-          provider,
-          prompt_tokens,
-          completion_tokens,
-          total_tokens,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          generated_at = excluded.generated_at,
-          window_start = excluded.window_start,
-          window_end = excluded.window_end,
-          spoken = excluded.spoken,
-          paste = excluded.paste,
-          folded = excluded.folded,
-          items = excluded.items,
-          format_instruction = excluded.format_instruction,
-          length = excluded.length,
-          written_by_model = excluded.written_by_model,
-          provider = excluded.provider,
-          prompt_tokens = excluded.prompt_tokens,
-          completion_tokens = excluded.completion_tokens,
-          total_tokens = excluded.total_tokens,
-          updated_at = excluded.updated_at;
-        """,
-        arguments: [
-          standup.id,
-          CoreRepositoryCodec.encodeDate(standup.generatedAt),
-          CoreRepositoryCodec.encodeDate(standup.windowStart),
-          CoreRepositoryCodec.encodeDate(standup.windowEnd),
-          standup.spoken,
-          standup.paste,
-          folded,
-          items,
-          standup.formatInstruction,
-          standup.length.rawValue,
-          standup.writtenByModel ? 1 : 0,
-          standup.provider.rawValue,
-          standup.promptTokens,
-          standup.completionTokens,
-          standup.totalTokens,
-          CoreRepositoryCodec.encodeDate(standup.createdAt),
-          CoreRepositoryCodec.encodeDate(standup.updatedAt),
-        ]
-      )
-    }
+    try db.execute(
+      sql: """
+      INSERT INTO standups (
+        id,
+        generated_at,
+        window_start,
+        window_end,
+        spoken,
+        paste,
+        folded,
+        items,
+        format_instruction,
+        length,
+        written_by_model,
+        provider,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        generated_at = excluded.generated_at,
+        window_start = excluded.window_start,
+        window_end = excluded.window_end,
+        spoken = excluded.spoken,
+        paste = excluded.paste,
+        folded = excluded.folded,
+        items = excluded.items,
+        format_instruction = excluded.format_instruction,
+        length = excluded.length,
+        written_by_model = excluded.written_by_model,
+        provider = excluded.provider,
+        prompt_tokens = excluded.prompt_tokens,
+        completion_tokens = excluded.completion_tokens,
+        total_tokens = excluded.total_tokens,
+        updated_at = excluded.updated_at;
+      """,
+      arguments: [
+        standup.id,
+        CoreRepositoryCodec.encodeDate(standup.generatedAt),
+        CoreRepositoryCodec.encodeDate(standup.windowStart),
+        CoreRepositoryCodec.encodeDate(standup.windowEnd),
+        standup.spoken,
+        standup.paste,
+        folded,
+        items,
+        standup.formatInstruction,
+        standup.length.rawValue,
+        standup.writtenByModel ? 1 : 0,
+        standup.provider.rawValue,
+        standup.promptTokens,
+        standup.completionTokens,
+        standup.totalTokens,
+        CoreRepositoryCodec.encodeDate(standup.createdAt),
+        CoreRepositoryCodec.encodeDate(standup.updatedAt),
+      ]
+    )
   }
 
   func delete(id: String) throws {
     try dbQueue.write { db in
-      try db.execute(sql: "DELETE FROM standups WHERE id = ?;", arguments: [id])
+      try delete(id: id, in: db)
     }
+  }
+
+  func delete(id: String, in db: Database) throws {
+    try db.execute(sql: "DELETE FROM standups WHERE id = ?;", arguments: [id])
   }
 
   private static func makeStandup(from row: Row) throws -> StandupEntity {
@@ -1194,12 +1241,13 @@ struct GRDBAIRepositorySet {
   let settings: GRDBAISettingsRepository
 
   static func make(databasePath: String, pendingStore: PendingSyncChangeStore? = nil) throws -> GRDBAIRepositorySet {
-    var configuration = Configuration()
-    configuration.prepareDatabase { db in
-      try db.execute(sql: "PRAGMA foreign_keys = ON")
-    }
+    make(
+      dbQueue: try DatabaseQueue(path: databasePath, configuration: DatabaseMigrationRunner.configuration()),
+      pendingStore: pendingStore
+    )
+  }
 
-    let dbQueue = try DatabaseQueue(path: databasePath, configuration: configuration)
+  static func make(dbQueue: DatabaseQueue, pendingStore: PendingSyncChangeStore? = nil) -> GRDBAIRepositorySet {
 
     let insights = GRDBAIInsightRepository(dbQueue: dbQueue)
     let recaps = GRDBAIRecapRepository(dbQueue: dbQueue)

@@ -29,12 +29,26 @@ actor DatabaseMigrationRunner {
       withIntermediateDirectories: true
     )
 
+    let dbQueue = try DatabaseQueue(path: databaseURL.path, configuration: Self.configuration())
+    return try migrate(dbQueue, databasePath: databaseURL.path)
+  }
+
+  /// Every connection to the file gets the same setup. The busy timeout covers a lock held outside
+  /// the app's one queue — a backup, the migration pass, another process.
+  static func configuration() -> Configuration {
     var configuration = Configuration()
+    configuration.busyMode = .timeout(5)
     configuration.prepareDatabase { db in
       try db.execute(sql: "PRAGMA foreign_keys = ON")
     }
+    return configuration
+  }
 
-    let dbQueue = try DatabaseQueue(path: databaseURL.path, configuration: configuration)
+  static var migrationIdentifiers: [String] {
+    migrations.map(\.identifier)
+  }
+
+  nonisolated func migrate(_ dbQueue: DatabaseQueue, databasePath: String) throws -> MigrationRunSummary {
     let identifiers = Self.migrations.map(\.identifier)
 
     let appliedBefore = try fetchAppliedMigrations(dbQueue)
@@ -49,7 +63,7 @@ actor DatabaseMigrationRunner {
     let skipped = identifiers.filter { appliedBefore.contains($0) }
 
     return MigrationRunSummary(
-      databasePath: databaseURL.path,
+      databasePath: databasePath,
       appliedMigrations: newlyApplied,
       skippedMigrations: skipped
     )
@@ -70,7 +84,7 @@ actor DatabaseMigrationRunner {
     return databaseDirectory.appendingPathComponent("serenity.sqlite3")
   }
 
-  private func fetchAppliedMigrations(_ dbQueue: DatabaseQueue) throws -> Set<String> {
+  private nonisolated func fetchAppliedMigrations(_ dbQueue: DatabaseQueue) throws -> Set<String> {
     try dbQueue.read { db in
       let migrationTableExists = try Bool.fetchOne(
         db,
@@ -91,7 +105,7 @@ actor DatabaseMigrationRunner {
     }
   }
 
-  private func registerMigrations(on migrator: inout DatabaseMigrator) {
+  private nonisolated func registerMigrations(on migrator: inout DatabaseMigrator) {
     for migration in Self.migrations {
       migrator.registerMigration(migration.identifier) { db in
         for statement in migration.statements {

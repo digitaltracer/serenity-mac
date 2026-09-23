@@ -23,6 +23,8 @@ struct PendingSyncChange: Equatable, Sendable {
 
 protocol PendingSyncChangeStore: Sendable {
   func enqueue(entityType: String, entityId: String, operation: PendingSyncChange.Operation) throws
+  /// Joins the caller's transaction, so the entity write and its ledger row commit together.
+  func enqueue(entityType: String, entityId: String, operation: PendingSyncChange.Operation, in db: Database) throws
   func fetchPending(limit: Int) throws -> [PendingSyncChange]
   func markCompleted(ids: [String]) throws
   func markFailed(ids: [String], error: String) throws
@@ -46,28 +48,32 @@ final class GRDBPendingSyncChangeStore: PendingSyncChangeStore, @unchecked Senda
   }
 
   func enqueue(entityType: String, entityId: String, operation: PendingSyncChange.Operation) throws {
-    let now = clock()
     try dbQueue.write { db in
-      try db.execute(
-        sql: """
-        INSERT INTO pending_sync_changes (id, entity_type, entity_id, operation, queued_at, attempts)
-        VALUES (?, ?, ?, ?, ?, 0)
-        ON CONFLICT(entity_type, entity_id) DO UPDATE SET
-          operation = excluded.operation,
-          queued_at = excluded.queued_at,
-          attempts = 0,
-          last_attempt_at = NULL,
-          last_error = NULL;
-        """,
-        arguments: [
-          UUID().uuidString,
-          entityType,
-          entityId,
-          operation.rawValue,
-          ISO8601DateFormatter().string(from: now),
-        ]
-      )
+      try enqueue(entityType: entityType, entityId: entityId, operation: operation, in: db)
     }
+  }
+
+  func enqueue(entityType: String, entityId: String, operation: PendingSyncChange.Operation, in db: Database) throws {
+    let now = clock()
+    try db.execute(
+      sql: """
+      INSERT INTO pending_sync_changes (id, entity_type, entity_id, operation, queued_at, attempts)
+      VALUES (?, ?, ?, ?, ?, 0)
+      ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+        operation = excluded.operation,
+        queued_at = excluded.queued_at,
+        attempts = 0,
+        last_attempt_at = NULL,
+        last_error = NULL;
+      """,
+      arguments: [
+        UUID().uuidString,
+        entityType,
+        entityId,
+        operation.rawValue,
+        ISO8601DateFormatter().string(from: now),
+      ]
+    )
   }
 
   func fetchPending(limit: Int) throws -> [PendingSyncChange] {

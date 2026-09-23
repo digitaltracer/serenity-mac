@@ -1,10 +1,11 @@
 import Foundation
+import GRDB
 
 final class SyncAwareAIInsightRepository: AIInsightRepository {
-  private let underlying: AIInsightRepository
+  private let underlying: GRDBAIInsightRepository
   private let pendingStore: PendingSyncChangeStore
 
-  init(underlying: AIInsightRepository, pendingStore: PendingSyncChangeStore) {
+  init(underlying: GRDBAIInsightRepository, pendingStore: PendingSyncChangeStore) {
     self.underlying = underlying
     self.pendingStore = pendingStore
   }
@@ -34,8 +35,10 @@ final class SyncAwareAIInsightRepository: AIInsightRepository {
   }
 
   func save(_ insight: AIInsightEntity) throws {
-    try underlying.save(insight)
-    try pendingStore.enqueue(entityType: SyncEntityType.aiInsight, entityId: insight.id, operation: .upsert)
+    try underlying.dbQueue.write { db in
+      try underlying.save(insight, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.aiInsight, entityId: insight.id, operation: .upsert, in: db)
+    }
   }
 
   func updateFeedback(
@@ -45,19 +48,24 @@ final class SyncAwareAIInsightRepository: AIInsightRepository {
     markedHelpful: Bool?,
     userNotes: String?
   ) throws {
-    try underlying.updateFeedback(
-      id: id,
-      userRating: userRating,
-      dismissed: dismissed,
-      markedHelpful: markedHelpful,
-      userNotes: userNotes
-    )
-    try pendingStore.enqueue(entityType: SyncEntityType.aiInsight, entityId: id, operation: .upsert)
+    try underlying.dbQueue.write { db in
+      try underlying.updateFeedback(
+        id: id,
+        userRating: userRating,
+        dismissed: dismissed,
+        markedHelpful: markedHelpful,
+        userNotes: userNotes,
+        in: db
+      )
+      try pendingStore.enqueue(entityType: SyncEntityType.aiInsight, entityId: id, operation: .upsert, in: db)
+    }
   }
 
   func delete(id: String) throws {
-    try underlying.delete(id: id)
-    try pendingStore.enqueue(entityType: SyncEntityType.aiInsight, entityId: id, operation: .delete)
+    try underlying.dbQueue.write { db in
+      try underlying.delete(id: id, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.aiInsight, entityId: id, operation: .delete, in: db)
+    }
   }
 
   func applyRemoteUpsert(_ insight: AIInsightEntity) throws {
@@ -70,10 +78,10 @@ final class SyncAwareAIInsightRepository: AIInsightRepository {
 }
 
 final class SyncAwareAIRecapRepository: AIRecapRepository {
-  private let underlying: AIRecapRepository
+  private let underlying: GRDBAIRecapRepository
   private let pendingStore: PendingSyncChangeStore
 
-  init(underlying: AIRecapRepository, pendingStore: PendingSyncChangeStore) {
+  init(underlying: GRDBAIRecapRepository, pendingStore: PendingSyncChangeStore) {
     self.underlying = underlying
     self.pendingStore = pendingStore
   }
@@ -91,18 +99,24 @@ final class SyncAwareAIRecapRepository: AIRecapRepository {
   }
 
   func save(_ recap: AIRecapEntity) throws {
-    try underlying.save(recap)
-    try pendingStore.enqueue(entityType: SyncEntityType.aiRecap, entityId: recap.id, operation: .upsert)
+    try underlying.dbQueue.write { db in
+      try underlying.save(recap, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.aiRecap, entityId: recap.id, operation: .upsert, in: db)
+    }
   }
 
   func updateInteraction(id: String, viewed: Bool?, favorited: Bool?, exported: Bool?) throws {
-    try underlying.updateInteraction(id: id, viewed: viewed, favorited: favorited, exported: exported)
-    try pendingStore.enqueue(entityType: SyncEntityType.aiRecap, entityId: id, operation: .upsert)
+    try underlying.dbQueue.write { db in
+      try underlying.updateInteraction(id: id, viewed: viewed, favorited: favorited, exported: exported, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.aiRecap, entityId: id, operation: .upsert, in: db)
+    }
   }
 
   func delete(id: String) throws {
-    try underlying.delete(id: id)
-    try pendingStore.enqueue(entityType: SyncEntityType.aiRecap, entityId: id, operation: .delete)
+    try underlying.dbQueue.write { db in
+      try underlying.delete(id: id, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.aiRecap, entityId: id, operation: .delete, in: db)
+    }
   }
 
   func applyRemoteUpsert(_ recap: AIRecapEntity) throws {
@@ -115,10 +129,10 @@ final class SyncAwareAIRecapRepository: AIRecapRepository {
 }
 
 final class SyncAwareSummaryRepository: SummaryRepository {
-  private let underlying: SummaryRepository
+  private let underlying: GRDBSummaryRepository
   private let pendingStore: PendingSyncChangeStore
 
-  init(underlying: SummaryRepository, pendingStore: PendingSyncChangeStore) {
+  init(underlying: GRDBSummaryRepository, pendingStore: PendingSyncChangeStore) {
     self.underlying = underlying
     self.pendingStore = pendingStore
   }
@@ -140,13 +154,17 @@ final class SyncAwareSummaryRepository: SummaryRepository {
   }
 
   func save(_ summary: SummaryEntity) throws {
-    try underlying.save(summary)
-    try pendingStore.enqueue(entityType: SyncEntityType.summary, entityId: summary.id, operation: .upsert)
+    try underlying.dbQueue.write { db in
+      try underlying.save(summary, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.summary, entityId: summary.id, operation: .upsert, in: db)
+    }
   }
 
   func delete(id: String) throws {
-    try underlying.delete(id: id)
-    try pendingStore.enqueue(entityType: SyncEntityType.summary, entityId: id, operation: .delete)
+    try underlying.dbQueue.write { db in
+      try underlying.delete(id: id, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.summary, entityId: id, operation: .delete, in: db)
+    }
   }
 
   func applyRemoteUpsert(_ summary: SummaryEntity) throws {
@@ -159,10 +177,10 @@ final class SyncAwareSummaryRepository: SummaryRepository {
 }
 
 final class SyncAwareStandupRepository: StandupRepository {
-  private let underlying: StandupRepository
+  private let underlying: GRDBStandupRepository
   private let pendingStore: PendingSyncChangeStore
 
-  init(underlying: StandupRepository, pendingStore: PendingSyncChangeStore) {
+  init(underlying: GRDBStandupRepository, pendingStore: PendingSyncChangeStore) {
     self.underlying = underlying
     self.pendingStore = pendingStore
   }
@@ -180,13 +198,17 @@ final class SyncAwareStandupRepository: StandupRepository {
   }
 
   func save(_ standup: StandupEntity) throws {
-    try underlying.save(standup)
-    try pendingStore.enqueue(entityType: SyncEntityType.standup, entityId: standup.id, operation: .upsert)
+    try underlying.dbQueue.write { db in
+      try underlying.save(standup, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.standup, entityId: standup.id, operation: .upsert, in: db)
+    }
   }
 
   func delete(id: String) throws {
-    try underlying.delete(id: id)
-    try pendingStore.enqueue(entityType: SyncEntityType.standup, entityId: id, operation: .delete)
+    try underlying.dbQueue.write { db in
+      try underlying.delete(id: id, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.standup, entityId: id, operation: .delete, in: db)
+    }
   }
 
   func applyRemoteUpsert(_ standup: StandupEntity) throws {

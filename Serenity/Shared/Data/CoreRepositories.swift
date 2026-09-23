@@ -154,7 +154,7 @@ protocol CoreGoalRepository {
 }
 
 final class GRDBTaskRepository: CoreTaskRepository {
-  private let dbQueue: DatabaseQueue
+  let dbQueue: DatabaseQueue
 
   init(dbQueue: DatabaseQueue) {
     self.dbQueue = dbQueue
@@ -178,77 +178,85 @@ final class GRDBTaskRepository: CoreTaskRepository {
   }
 
   func save(_ task: TaskEntity) throws {
+    try dbQueue.write { db in
+      try save(task, in: db)
+    }
+  }
+
+  func save(_ task: TaskEntity, in db: Database) throws {
     let tagsJSON = try CoreRepositoryCodec.encodeJSON(task.tags)
     let subtasksJSON = try CoreRepositoryCodec.encodeJSON(task.subtasks)
     let activityJSON = try CoreRepositoryCodec.encodeJSON(task.activity)
     let recurringJSON = try task.recurring.map { try CoreRepositoryCodec.encodeJSON($0) }
 
-    try dbQueue.write { db in
-      try db.execute(
-        sql: """
-        INSERT INTO tasks (
-          id,
-          title,
-          notes,
-          description,
-          completed,
-          completed_at,
-          priority,
-          due_at,
-          due_date,
-          project_id,
-          tags_json,
-          subtasks_json,
-          activity_json,
-          recurring_json,
-          user_id,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          title = excluded.title,
-          notes = excluded.notes,
-          description = excluded.description,
-          completed = excluded.completed,
-          completed_at = excluded.completed_at,
-          priority = excluded.priority,
-          due_at = excluded.due_at,
-          due_date = excluded.due_date,
-          project_id = excluded.project_id,
-          tags_json = excluded.tags_json,
-          subtasks_json = excluded.subtasks_json,
-          activity_json = excluded.activity_json,
-          recurring_json = excluded.recurring_json,
-          user_id = excluded.user_id,
-          updated_at = excluded.updated_at;
-        """,
-        arguments: [
-          task.id,
-          task.title,
-          task.description,
-          task.description,
-          task.completed ? 1 : 0,
-          task.completedAt.map(CoreRepositoryCodec.encodeDate),
-          task.priority.rawValue,
-          task.dueDate.map(CoreRepositoryCodec.encodeDate),
-          task.dueDate.map(CoreRepositoryCodec.encodeDate),
-          task.projectId,
-          tagsJSON,
-          subtasksJSON,
-          activityJSON,
-          recurringJSON,
-          task.userId,
-          CoreRepositoryCodec.encodeDate(task.createdAt),
-          CoreRepositoryCodec.encodeDate(task.updatedAt),
-        ]
-      )
-    }
+    try db.execute(
+      sql: """
+      INSERT INTO tasks (
+        id,
+        title,
+        notes,
+        description,
+        completed,
+        completed_at,
+        priority,
+        due_at,
+        due_date,
+        project_id,
+        tags_json,
+        subtasks_json,
+        activity_json,
+        recurring_json,
+        user_id,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        notes = excluded.notes,
+        description = excluded.description,
+        completed = excluded.completed,
+        completed_at = excluded.completed_at,
+        priority = excluded.priority,
+        due_at = excluded.due_at,
+        due_date = excluded.due_date,
+        project_id = excluded.project_id,
+        tags_json = excluded.tags_json,
+        subtasks_json = excluded.subtasks_json,
+        activity_json = excluded.activity_json,
+        recurring_json = excluded.recurring_json,
+        user_id = excluded.user_id,
+        updated_at = excluded.updated_at;
+      """,
+      arguments: [
+        task.id,
+        task.title,
+        task.description,
+        task.description,
+        task.completed ? 1 : 0,
+        task.completedAt.map(CoreRepositoryCodec.encodeDate),
+        task.priority.rawValue,
+        task.dueDate.map(CoreRepositoryCodec.encodeDate),
+        task.dueDate.map(CoreRepositoryCodec.encodeDate),
+        task.projectId,
+        tagsJSON,
+        subtasksJSON,
+        activityJSON,
+        recurringJSON,
+        task.userId,
+        CoreRepositoryCodec.encodeDate(task.createdAt),
+        CoreRepositoryCodec.encodeDate(task.updatedAt),
+      ]
+    )
   }
 
   func delete(id: String) throws {
     try dbQueue.write { db in
-      try db.execute(sql: "DELETE FROM tasks WHERE id = ?;", arguments: [id])
+      try delete(id: id, in: db)
     }
+  }
+
+  func delete(id: String, in db: Database) throws {
+    try db.execute(sql: "DELETE FROM tasks WHERE id = ?;", arguments: [id])
   }
 
   private static func makeTask(from row: Row) throws -> TaskEntity {
@@ -284,7 +292,7 @@ final class GRDBTaskRepository: CoreTaskRepository {
 }
 
 final class GRDBProjectRepository: CoreProjectRepository {
-  private let dbQueue: DatabaseQueue
+  let dbQueue: DatabaseQueue
 
   init(dbQueue: DatabaseQueue) {
     self.dbQueue = dbQueue
@@ -315,47 +323,55 @@ final class GRDBProjectRepository: CoreProjectRepository {
 
   func save(_ project: ProjectEntity) throws {
     try dbQueue.write { db in
-      try db.execute(
-        sql: """
-        INSERT INTO projects (
-          id,
-          name,
-          description,
-          color,
-          icon,
-          archived,
-          user_id,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          name = excluded.name,
-          description = excluded.description,
-          color = excluded.color,
-          icon = excluded.icon,
-          archived = excluded.archived,
-          user_id = excluded.user_id,
-          updated_at = excluded.updated_at;
-        """,
-        arguments: [
-          project.id,
-          project.name,
-          project.description,
-          project.color,
-          project.icon,
-          project.archived ? 1 : 0,
-          project.userId,
-          CoreRepositoryCodec.encodeDate(project.createdAt),
-          CoreRepositoryCodec.encodeDate(project.updatedAt),
-        ]
-      )
+      try save(project, in: db)
     }
+  }
+
+  func save(_ project: ProjectEntity, in db: Database) throws {
+    try db.execute(
+      sql: """
+      INSERT INTO projects (
+        id,
+        name,
+        description,
+        color,
+        icon,
+        archived,
+        user_id,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        description = excluded.description,
+        color = excluded.color,
+        icon = excluded.icon,
+        archived = excluded.archived,
+        user_id = excluded.user_id,
+        updated_at = excluded.updated_at;
+      """,
+      arguments: [
+        project.id,
+        project.name,
+        project.description,
+        project.color,
+        project.icon,
+        project.archived ? 1 : 0,
+        project.userId,
+        CoreRepositoryCodec.encodeDate(project.createdAt),
+        CoreRepositoryCodec.encodeDate(project.updatedAt),
+      ]
+    )
   }
 
   func delete(id: String) throws {
     try dbQueue.write { db in
-      try db.execute(sql: "DELETE FROM projects WHERE id = ?;", arguments: [id])
+      try delete(id: id, in: db)
     }
+  }
+
+  func delete(id: String, in db: Database) throws {
+    try db.execute(sql: "DELETE FROM projects WHERE id = ?;", arguments: [id])
   }
 
   private static func makeProject(from row: Row) throws -> ProjectEntity {
@@ -374,7 +390,7 @@ final class GRDBProjectRepository: CoreProjectRepository {
 }
 
 final class GRDBJournalRepository: CoreJournalRepository {
-  private let dbQueue: DatabaseQueue
+  let dbQueue: DatabaseQueue
 
   init(dbQueue: DatabaseQueue) {
     self.dbQueue = dbQueue
@@ -413,57 +429,65 @@ final class GRDBJournalRepository: CoreJournalRepository {
   }
 
   func save(_ entry: JournalEntryEntity) throws {
+    try dbQueue.write { db in
+      try save(entry, in: db)
+    }
+  }
+
+  func save(_ entry: JournalEntryEntity, in db: Database) throws {
     let tagsJSON = try CoreRepositoryCodec.encodeJSON(entry.tags)
     let attachmentsJSON = try CoreRepositoryCodec.encodeJSON(entry.attachments)
 
-    try dbQueue.write { db in
-      try db.execute(
-        sql: """
-        INSERT INTO journal_entries (
-          id,
-          title,
-          content,
-          date,
-          tags_json,
-          pinned,
-          mood,
-          attachments_json,
-          user_id,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          title = excluded.title,
-          content = excluded.content,
-          date = excluded.date,
-          tags_json = excluded.tags_json,
-          pinned = excluded.pinned,
-          mood = excluded.mood,
-          attachments_json = excluded.attachments_json,
-          user_id = excluded.user_id,
-          updated_at = excluded.updated_at;
-        """,
-        arguments: [
-          entry.id,
-          entry.title,
-          entry.content,
-          CoreRepositoryCodec.encodeDate(entry.date),
-          tagsJSON,
-          entry.pinned ? 1 : 0,
-          entry.mood?.rawValue,
-          attachmentsJSON,
-          entry.userId,
-          CoreRepositoryCodec.encodeDate(entry.createdAt),
-          CoreRepositoryCodec.encodeDate(entry.updatedAt),
-        ]
-      )
-    }
+    try db.execute(
+      sql: """
+      INSERT INTO journal_entries (
+        id,
+        title,
+        content,
+        date,
+        tags_json,
+        pinned,
+        mood,
+        attachments_json,
+        user_id,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        content = excluded.content,
+        date = excluded.date,
+        tags_json = excluded.tags_json,
+        pinned = excluded.pinned,
+        mood = excluded.mood,
+        attachments_json = excluded.attachments_json,
+        user_id = excluded.user_id,
+        updated_at = excluded.updated_at;
+      """,
+      arguments: [
+        entry.id,
+        entry.title,
+        entry.content,
+        CoreRepositoryCodec.encodeDate(entry.date),
+        tagsJSON,
+        entry.pinned ? 1 : 0,
+        entry.mood?.rawValue,
+        attachmentsJSON,
+        entry.userId,
+        CoreRepositoryCodec.encodeDate(entry.createdAt),
+        CoreRepositoryCodec.encodeDate(entry.updatedAt),
+      ]
+    )
   }
 
   func delete(id: String) throws {
     try dbQueue.write { db in
-      try db.execute(sql: "DELETE FROM journal_entries WHERE id = ?;", arguments: [id])
+      try delete(id: id, in: db)
     }
+  }
+
+  func delete(id: String, in db: Database) throws {
+    try db.execute(sql: "DELETE FROM journal_entries WHERE id = ?;", arguments: [id])
   }
 
   private static func makeEntry(from row: Row) throws -> JournalEntryEntity {
@@ -494,7 +518,7 @@ final class GRDBJournalRepository: CoreJournalRepository {
 }
 
 final class GRDBGoalRepository: CoreGoalRepository {
-  private let dbQueue: DatabaseQueue
+  let dbQueue: DatabaseQueue
 
   init(dbQueue: DatabaseQueue) {
     self.dbQueue = dbQueue
@@ -525,67 +549,75 @@ final class GRDBGoalRepository: CoreGoalRepository {
   }
 
   func save(_ goal: GoalEntity) throws {
+    try dbQueue.write { db in
+      try save(goal, in: db)
+    }
+  }
+
+  func save(_ goal: GoalEntity, in db: Database) throws {
     let configJSON = try CoreRepositoryCodec.encodeJSON(goal.config)
     let progressJSON = try CoreRepositoryCodec.encodeJSON(goal.progress)
     let remindersJSON = try CoreRepositoryCodec.encodeJSON(goal.reminders)
 
-    try dbQueue.write { db in
-      try db.execute(
-        sql: """
-        INSERT INTO goals (
-          id,
-          title,
-          description,
-          type,
-          config_json,
-          progress_json,
-          status,
-          priority,
-          reminders_json,
-          user_id,
-          target_value,
-          progress_value,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          title = excluded.title,
-          description = excluded.description,
-          type = excluded.type,
-          config_json = excluded.config_json,
-          progress_json = excluded.progress_json,
-          status = excluded.status,
-          priority = excluded.priority,
-          reminders_json = excluded.reminders_json,
-          user_id = excluded.user_id,
-          target_value = excluded.target_value,
-          progress_value = excluded.progress_value,
-          updated_at = excluded.updated_at;
-        """,
-        arguments: [
-          goal.id,
-          goal.title,
-          goal.description,
-          goal.type.rawValue,
-          configJSON,
-          progressJSON,
-          goal.status.rawValue,
-          goal.priority.rawValue,
-          remindersJSON,
-          goal.userId,
-          goal.progress.target,
-          goal.progress.current,
-          CoreRepositoryCodec.encodeDate(goal.createdAt),
-          CoreRepositoryCodec.encodeDate(goal.updatedAt),
-        ]
-      )
-    }
+    try db.execute(
+      sql: """
+      INSERT INTO goals (
+        id,
+        title,
+        description,
+        type,
+        config_json,
+        progress_json,
+        status,
+        priority,
+        reminders_json,
+        user_id,
+        target_value,
+        progress_value,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        description = excluded.description,
+        type = excluded.type,
+        config_json = excluded.config_json,
+        progress_json = excluded.progress_json,
+        status = excluded.status,
+        priority = excluded.priority,
+        reminders_json = excluded.reminders_json,
+        user_id = excluded.user_id,
+        target_value = excluded.target_value,
+        progress_value = excluded.progress_value,
+        updated_at = excluded.updated_at;
+      """,
+      arguments: [
+        goal.id,
+        goal.title,
+        goal.description,
+        goal.type.rawValue,
+        configJSON,
+        progressJSON,
+        goal.status.rawValue,
+        goal.priority.rawValue,
+        remindersJSON,
+        goal.userId,
+        goal.progress.target,
+        goal.progress.current,
+        CoreRepositoryCodec.encodeDate(goal.createdAt),
+        CoreRepositoryCodec.encodeDate(goal.updatedAt),
+      ]
+    )
   }
 
   func delete(id: String) throws {
     try dbQueue.write { db in
-      try db.execute(sql: "DELETE FROM goals WHERE id = ?;", arguments: [id])
+      try delete(id: id, in: db)
     }
+  }
+
+  func delete(id: String, in db: Database) throws {
+    try db.execute(sql: "DELETE FROM goals WHERE id = ?;", arguments: [id])
   }
 
   private static func makeGoal(from row: Row) throws -> GoalEntity {
@@ -643,12 +675,10 @@ struct GRDBCoreRepositorySet {
   let cloudSyncState: CloudSyncStateStore
 
   static func make(databasePath: String) throws -> GRDBCoreRepositorySet {
-    var configuration = Configuration()
-    configuration.prepareDatabase { db in
-      try db.execute(sql: "PRAGMA foreign_keys = ON")
-    }
+    make(dbQueue: try DatabaseQueue(path: databasePath, configuration: DatabaseMigrationRunner.configuration()))
+  }
 
-    let dbQueue = try DatabaseQueue(path: databasePath, configuration: configuration)
+  static func make(dbQueue: DatabaseQueue) -> GRDBCoreRepositorySet {
     let pendingStore = GRDBPendingSyncChangeStore(dbQueue: dbQueue)
 
     return GRDBCoreRepositorySet(
