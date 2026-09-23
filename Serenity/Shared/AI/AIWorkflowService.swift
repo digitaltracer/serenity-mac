@@ -306,8 +306,7 @@ actor AIWorkflowService {
       AppLogger.error(
         """
         AI Slack decode failed: \(reason). \
-        Payload keys: \(Self.topLevelKeys(of: data)), \(data.count) bytes. \
-        Starts with: \(jsonText.prefix(200))
+        Payload keys: \(Self.topLevelKeys(of: data)), \(data.count) bytes.
         """
       )
       throw AIWorkflowError.invalidSlackResponse(reason)
@@ -483,8 +482,7 @@ actor AIWorkflowService {
       AppLogger.error(
         """
         AI capture-command decode failed: \(reason). \
-        Payload keys: \(Self.topLevelKeys(of: data)), \(data.count) bytes. \
-        Starts with: \(jsonText.prefix(200))
+        Payload keys: \(Self.topLevelKeys(of: data)), \(data.count) bytes.
         """
       )
       throw AIWorkflowError.invalidCaptureDraftResponse(reason)
@@ -1317,18 +1315,13 @@ actor AIWorkflowService {
       raw = try JSONDecoder().decode(RawQuickCaptureClassification.self, from: data)
     } catch {
       let reason = Self.describeDecodingFailure(error)
-      // The opening of the reply is what identifies the failure — reasoning prose, a markdown
-      // fence, an apology — so it is logged even in release, where DEBUG is not defined.
+      // The reply is the user's own text played back, so only its shape is logged.
       AppLogger.error(
         """
         AI quick capture decode failed: \(reason). \
-        Payload keys: \(Self.topLevelKeys(of: data)), \(data.count) bytes. \
-        Starts with: \(jsonText.prefix(200))
+        Payload keys: \(Self.topLevelKeys(of: data)), \(data.count) bytes.
         """
       )
-      #if DEBUG
-      AppLogger.error("AI quick capture raw payload: \(jsonText.prefix(2_000))")
-      #endif
       throw AIWorkflowError.invalidQuickCaptureResponse(reason)
     }
 
