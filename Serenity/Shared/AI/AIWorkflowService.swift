@@ -231,7 +231,7 @@ actor AIWorkflowService {
         return classification
       }
     } catch {
-      try? repositories.credentials.recordError(id: selection.credential.id, message: error.localizedDescription, at: Date())
+      recordFailure(error, repositories: repositories, selection: selection)
       throw error
     }
   }
@@ -305,11 +305,7 @@ actor AIWorkflowService {
       } catch {
         failed.append(contentsOf: batch.map(\.id))
         lastError = error.localizedDescription
-        try? repositories.credentials.recordError(
-          id: selection.credential.id,
-          message: error.localizedDescription,
-          at: Date()
-        )
+        recordFailure(error, repositories: repositories, selection: selection)
       }
     }
 
@@ -483,11 +479,7 @@ actor AIWorkflowService {
 
       return CaptureCommandDrafter.redirectingDuplicates(drafts, sources: sources, tasks: openTasks)
     } catch {
-      try? repositories.credentials.recordError(
-        id: selection.credential.id,
-        message: error.localizedDescription,
-        at: Date()
-      )
+      recordFailure(error, repositories: repositories, selection: selection)
       throw error
     }
   }
@@ -898,17 +890,10 @@ actor AIWorkflowService {
       )
     )
 
+    // Written from templates, not by a model, so there is no usage to log.
     for insight in created {
       try repositories.insights.save(insight)
     }
-
-    try recordUsage(
-      repositories: repositories,
-      selection: selection,
-      operation: .analyze,
-      promptTokens: 180,
-      completionTokens: 120
-    )
 
     return created
   }
@@ -969,14 +954,8 @@ actor AIWorkflowService {
       exported: false
     )
 
+    // Written from templates, not by a model, so there is no usage to log.
     try repositories.recaps.save(recap)
-    try recordUsage(
-      repositories: repositories,
-      selection: selection,
-      operation: .recap,
-      promptTokens: 120,
-      completionTokens: 140
-    )
 
     return recap
   }
@@ -1140,11 +1119,7 @@ actor AIWorkflowService {
         completionTokens: completionTokens
       )
     } catch {
-      try? repositories.credentials.recordError(
-        id: selection.credential.id,
-        message: error.localizedDescription,
-        at: Date()
-      )
+      recordFailure(error, repositories: repositories, selection: selection)
       throw error
     }
   }
@@ -1213,21 +1188,15 @@ actor AIWorkflowService {
       wordCount: content.split(separator: " ").count,
       metadataJSON: #"{"generated":"deterministic"}"#,
       provider: providerForCredential(selection.credential.provider),
-      promptTokens: 90,
-      completionTokens: 160,
-      totalTokens: 250,
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
       createdAt: now,
       updatedAt: now
     )
 
+    // Written from templates, not by a model, so there is no usage to log.
     try repositories.summaries.save(summary)
-    try recordUsage(
-      repositories: repositories,
-      selection: selection,
-      operation: .summary,
-      promptTokens: summary.promptTokens,
-      completionTokens: summary.completionTokens
-    )
 
     return summary
   }
@@ -1802,6 +1771,31 @@ actor AIWorkflowService {
     case .custom:
       // A custom domain has no compiled-in catalog; its models are whatever it verified.
       return ""
+    }
+  }
+
+  /// A key that fails is marked on its credential. Unusable output is the model's fault, not the
+  /// key's, so it counts as a request and is logged without touching the credential's error state.
+  private func recordFailure(_ error: Error, repositories: GRDBAIRepositorySet, selection: AICredentialSelectionResult) {
+    guard Self.isOutputError(error) else {
+      try? repositories.credentials.recordError(id: selection.credential.id, message: error.localizedDescription, at: Date())
+      return
+    }
+    AppLogger.error("AI output error from \(selection.model): \(error.localizedDescription)")
+    try? repositories.credentials.recordOutputError(id: selection.credential.id, at: Date())
+  }
+
+  static func isOutputError(_ error: Error) -> Bool {
+    switch error {
+    case AIWorkflowError.invalidQuickCaptureResponse,
+         AIWorkflowError.invalidSlackResponse,
+         AIWorkflowError.invalidCaptureDraftResponse,
+         AIWorkflowError.invalidStandupResponse:
+      return true
+    case AIProviderAPIError.decoding, AIProviderAPIError.invalidResponse, AIProviderAPIError.incompleteResponse:
+      return true
+    default:
+      return false
     }
   }
 

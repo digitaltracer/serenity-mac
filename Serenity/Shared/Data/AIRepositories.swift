@@ -941,6 +941,17 @@ final class GRDBAICredentialRepository: AICredentialRepository {
     }
   }
 
+  /// A request whose reply was unusable: it counts, but says nothing about the key.
+  func recordOutputError(id: String, at timestamp: Date = Date()) throws {
+    let now = CoreRepositoryCodec.encodeDate(timestamp)
+    try dbQueue.write { db in
+      try db.execute(
+        sql: "UPDATE ai_provider_credentials SET total_requests = total_requests + 1, updated_at = ? WHERE id = ?;",
+        arguments: [now, id]
+      )
+    }
+  }
+
   func recordError(id: String, message: String, at timestamp: Date = Date()) throws {
     let now = CoreRepositoryCodec.encodeDate(timestamp)
     try dbQueue.write { db in

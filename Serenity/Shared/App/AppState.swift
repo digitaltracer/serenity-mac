@@ -1843,10 +1843,22 @@ final class AppState: ObservableObject {
   }
 
   private func defaultSlackCredential() -> AICredentialEntity? {
-    aiCredentials
+    Self.preferredCredential(in: aiCredentials, activeProvider: aiSettings.activeProvider)
+  }
+
+  /// Slack sync and capture commands pick a key the way the stand-up does: the active provider
+  /// first, then priority.
+  nonisolated static func preferredCredential(
+    in credentials: [AICredentialEntity],
+    activeProvider: AICredentialProvider?
+  ) -> AICredentialEntity? {
+    credentials
       .filter(\.enabled)
       .sorted { lhs, rhs in
-        lhs.priority == rhs.priority ? lhs.createdAt < rhs.createdAt : lhs.priority < rhs.priority
+        if let activeProvider, (lhs.provider == activeProvider) != (rhs.provider == activeProvider) {
+          return lhs.provider == activeProvider
+        }
+        return lhs.priority == rhs.priority ? lhs.createdAt < rhs.createdAt : lhs.priority < rhs.priority
       }
       .first
   }

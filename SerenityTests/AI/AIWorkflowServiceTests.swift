@@ -53,10 +53,20 @@ final class AIWorkflowServiceTests: XCTestCase {
 
     let snapshot = try await service.fetchSnapshot(limit: 20)
     XCTAssertEqual(snapshot.summaries.count, 1)
-    XCTAssertEqual(snapshot.usage.count, 1)
-    XCTAssertEqual(snapshot.usage.first?.provider, .gemini)
-    XCTAssertEqual(snapshot.usage.first?.model, "gemini-3-flash-preview")
-    XCTAssertNotNil(snapshot.usage.first?.totalCostUSD)
+    // A template summary makes no model call, so it logs no made-up usage.
+    XCTAssertTrue(snapshot.usage.isEmpty)
+    XCTAssertEqual(summary.totalTokens, 0)
+  }
+
+  func testTemplateInsightsAndRecapsLogNoUsage() async throws {
+    let (service, _, _) = try makeService()
+    _ = try await service.addCredential(provider: .openai, name: "OpenAI", apiKey: "sk", modelPreference: "gpt-5.5")
+
+    _ = try await service.generateInsights(tasks: [], journalEntries: [], projects: [], goals: [])
+    _ = try await service.generateRecap(type: .weekly, tasks: [], journalEntries: [], projects: [])
+
+    let snapshot = try await service.fetchSnapshot(limit: 20)
+    XCTAssertTrue(snapshot.usage.isEmpty)
   }
 
   func testClassifyQuickCaptureSplitsMultipleTasksAndKeepsNewProject() async throws {
