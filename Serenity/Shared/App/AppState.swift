@@ -1934,6 +1934,7 @@ final class AppState: ObservableObject {
       )
     }
 
+    let wasCompleted = task.completed
     switch payload.statusChange {
     case .completed:
       task.completed = true
@@ -1948,6 +1949,10 @@ final class AppState: ObservableObject {
     task.updatedAt = now
     task.activity.append(attribution)
     try await saveTask(task)
+
+    if task.completed, !wasCompleted, let successor = RecurrenceEngine.successor(for: task) {
+      try await saveTask(successor)
+    }
   }
 
   private func slackAttribution(for proposal: SlackProposal, at now: Date) -> TaskActivityEntry {
@@ -3286,12 +3291,16 @@ final class AppState: ObservableObject {
 
     do {
       for id in selectedTaskIDs {
-        guard let task = tasks.first(where: { $0.id == id }) else { continue }
+        guard let task = tasks.first(where: { $0.id == id }), !task.completed else { continue }
         var updated = task
         updated.completed = true
         updated.completedAt = Date()
         updated.updatedAt = Date()
         try await saveTask(updated)
+        // The same roll-forward a single tick does, so a repeating task done in bulk still repeats.
+        if let successor = RecurrenceEngine.successor(for: updated) {
+          try await saveTask(successor)
+        }
       }
 
       showToast("Updated \(selectedTaskIDs.count) tasks")
