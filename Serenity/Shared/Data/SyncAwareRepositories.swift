@@ -59,6 +59,14 @@ final class SyncAwareTaskRepository: CoreTaskRepository {
   func applyRemoteDelete(id: String) throws {
     try underlying.delete(id: id)
   }
+
+  func applyRemoteUpsert(_ task: TaskEntity, in db: Database) throws {
+    try underlying.save(task, in: db)
+  }
+
+  func applyRemoteDelete(id: String, in db: Database) throws {
+    try underlying.delete(id: id, in: db)
+  }
 }
 
 final class SyncAwareProjectRepository: CoreProjectRepository {
@@ -98,6 +106,14 @@ final class SyncAwareProjectRepository: CoreProjectRepository {
 
   func applyRemoteDelete(id: String) throws {
     try underlying.delete(id: id)
+  }
+
+  func applyRemoteUpsert(_ project: ProjectEntity, in db: Database) throws {
+    try underlying.save(project, in: db)
+  }
+
+  func applyRemoteDelete(id: String, in db: Database) throws {
+    try underlying.delete(id: id, in: db)
   }
 }
 
@@ -143,6 +159,14 @@ final class SyncAwareJournalRepository: CoreJournalRepository {
   func applyRemoteDelete(id: String) throws {
     try underlying.delete(id: id)
   }
+
+  func applyRemoteUpsert(_ entry: JournalEntryEntity, in db: Database) throws {
+    try underlying.save(entry, in: db)
+  }
+
+  func applyRemoteDelete(id: String, in db: Database) throws {
+    try underlying.delete(id: id, in: db)
+  }
 }
 
 final class SyncAwareGoalRepository: CoreGoalRepository {
@@ -186,5 +210,13 @@ final class SyncAwareGoalRepository: CoreGoalRepository {
 
   func applyRemoteDelete(id: String) throws {
     try underlying.delete(id: id)
+  }
+
+  func applyRemoteUpsert(_ goal: GoalEntity, in db: Database) throws {
+    try underlying.save(goal, in: db)
+  }
+
+  func applyRemoteDelete(id: String, in db: Database) throws {
+    try underlying.delete(id: id, in: db)
   }
 }

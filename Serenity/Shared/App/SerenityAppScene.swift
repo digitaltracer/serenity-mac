@@ -3400,7 +3400,7 @@ struct IntegrationsSectionView: View {
 
   private var iCloudLastSync: String {
     switch appState.iCloudSyncState {
-    case .succeeded(let syncedAt, _):
+    case .succeeded(let syncedAt, _, _):
       return relativeSync(syncedAt)
     case .syncing:
       return "Syncing"
@@ -3415,8 +3415,9 @@ struct IntegrationsSectionView: View {
       return "Ready to sync tasks, projects, journal entries, goals, insights, recaps, and summaries."
     case .syncing:
       return "Uploading local changes and checking for updates from iCloud."
-    case .succeeded(let syncedAt, let pending):
-      return "Last synced \(relativeSync(syncedAt)). Pending changes: \(pending)."
+    case .succeeded(let syncedAt, let pending, let setAside):
+      let skipped = setAside == 0 ? "" : " \(setAside) change(s) from iCloud could not be applied."
+      return "Last synced \(relativeSync(syncedAt)). Pending changes: \(pending).\(skipped)"
     case .unavailable(let reason):
       return reason
     case .failed(let message):

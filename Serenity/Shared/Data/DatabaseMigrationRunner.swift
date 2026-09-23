@@ -939,5 +939,51 @@ actor DatabaseMigrationRunner {
         "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '11');",
       ]
     ),
+    DatabaseMigration(
+      identifier: "20260923_014_cloud_sync_bookkeeping",
+      statements: [
+        // Only a database seeded without the sync tables lacks this; the ALTER below needs it.
+        """
+        CREATE TABLE IF NOT EXISTS pending_sync_changes (
+          id TEXT PRIMARY KEY,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          operation TEXT NOT NULL CHECK (operation IN ('upsert', 'delete')),
+          queued_at TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_attempt_at TEXT,
+          last_error TEXT
+        );
+        """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_sync_unique_target ON pending_sync_changes(entity_type, entity_id);",
+        // A failed push waits before it is tried again, rather than being picked up straight away.
+        "ALTER TABLE pending_sync_changes ADD COLUMN next_attempt_at TEXT;",
+        // The CloudKit system fields of the last server copy seen, so a push can say which version
+        // it edits and CloudKit can report a conflict.
+        """
+        CREATE TABLE IF NOT EXISTS cloud_sync_record_metadata (
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          system_fields BLOB NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (entity_type, entity_id)
+        );
+        """,
+        // Pulled records that failed to apply. After a few tries a record is set aside, so one bad
+        // record cannot hold the change token back for good.
+        """
+        CREATE TABLE IF NOT EXISTS cloud_sync_apply_failures (
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          set_aside INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (entity_type, entity_id)
+        );
+        """,
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '12');",
+      ]
+    ),
   ]
 }

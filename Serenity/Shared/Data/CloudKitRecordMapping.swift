@@ -1,5 +1,6 @@
 import Foundation
 import CloudKit
+import GRDB
 
 /// Stable CloudKit container + zone identifiers. The container ID matches the
 /// `com.apple.developer.icloud-container-identifiers` entitlement; the zone
@@ -44,18 +45,32 @@ protocol SyncRecordKind {
   /// `CKRecord.recordType`, and the `SyncEntityType.*` constants.
   var entityType: String { get }
 
-  /// Fetches the local entity by id and serializes it into a `CKRecord` ready
-  /// for `CKModifyRecordsOperation`. Returns nil when the local row is gone
-  /// (caller should treat as a "delete" rather than an upsert).
-  func makeRecord(forID id: String) throws -> CKRecord?
+  /// The local table; its `updated_at` settles conflicts with the server copy.
+  var tableName: String { get }
 
-  /// Applies a CKRecord pulled from CloudKit to the local store. Must use the
+  /// Writes the local entity's fields into `record`, which carries the last known server version.
+  /// Returns false when the local row is gone (caller should treat as a "delete").
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool
+
+  /// Applies a CKRecord pulled from CloudKit inside the caller's transaction. Must use the
   /// repository's `applyRemote*` paths so it doesn't re-enqueue.
-  func applyPulled(_ record: CKRecord) throws
+  func applyPulled(_ record: CKRecord, in db: Database) throws
 
-  /// Applies a CloudKit-side delete (record-id received via fetch-changes
-  /// `recordWithIDWasDeletedBlock`). Must use `applyRemote*` paths.
-  func applyPulledDelete(recordName: String) throws
+  /// Applies a CloudKit-side delete inside the caller's transaction. Must use `applyRemote*` paths.
+  func applyPulledDelete(recordName: String, in db: Database) throws
+}
+
+extension SyncRecordKind {
+  func localUpdatedAt(id: String, in db: Database) throws -> Date? {
+    guard let raw = try String.fetchOne(
+      db,
+      sql: "SELECT updated_at FROM \(tableName) WHERE id = ?;",
+      arguments: [id]
+    ) else {
+      return nil
+    }
+    return try CoreRepositoryCodec.decodeDate(raw)
+  }
 }
 
 // MARK: - Tasks
@@ -64,22 +79,21 @@ struct TaskSyncRecordKind: SyncRecordKind {
   let repository: SyncAwareTaskRepository
 
   let entityType = SyncEntityType.task
+  let tableName = "tasks"
 
-  func makeRecord(forID id: String) throws -> CKRecord? {
-    guard let task = try repository.fetchByID(id) else { return nil }
-    let recordID = CKRecord.ID(recordName: task.id, zoneID: SerenityCloudKit.zoneID)
-    let record = CKRecord(recordType: entityType, recordID: recordID)
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool {
+    guard let task = try repository.fetchByID(id) else { return false }
     try Self.encode(task, into: record)
-    return record
+    return true
   }
 
-  func applyPulled(_ record: CKRecord) throws {
+  func applyPulled(_ record: CKRecord, in db: Database) throws {
     let task = try Self.decode(record)
-    try repository.applyRemoteUpsert(task)
+    try repository.applyRemoteUpsert(task, in: db)
   }
 
-  func applyPulledDelete(recordName: String) throws {
-    try repository.applyRemoteDelete(id: recordName)
+  func applyPulledDelete(recordName: String, in db: Database) throws {
+    try repository.applyRemoteDelete(id: recordName, in: db)
   }
 
   // MARK: encode/decode
@@ -140,22 +154,21 @@ struct ProjectSyncRecordKind: SyncRecordKind {
   let repository: SyncAwareProjectRepository
 
   let entityType = SyncEntityType.project
+  let tableName = "projects"
 
-  func makeRecord(forID id: String) throws -> CKRecord? {
-    guard let project = try repository.fetchByID(id) else { return nil }
-    let recordID = CKRecord.ID(recordName: project.id, zoneID: SerenityCloudKit.zoneID)
-    let record = CKRecord(recordType: entityType, recordID: recordID)
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool {
+    guard let project = try repository.fetchByID(id) else { return false }
     try Self.encode(project, into: record)
-    return record
+    return true
   }
 
-  func applyPulled(_ record: CKRecord) throws {
+  func applyPulled(_ record: CKRecord, in db: Database) throws {
     let project = try Self.decode(record)
-    try repository.applyRemoteUpsert(project)
+    try repository.applyRemoteUpsert(project, in: db)
   }
 
-  func applyPulledDelete(recordName: String) throws {
-    try repository.applyRemoteDelete(id: recordName)
+  func applyPulledDelete(recordName: String, in db: Database) throws {
+    try repository.applyRemoteDelete(id: recordName, in: db)
   }
 
   static func encode(_ project: ProjectEntity, into record: CKRecord) throws {
@@ -196,22 +209,21 @@ struct JournalEntrySyncRecordKind: SyncRecordKind {
   let repository: SyncAwareJournalRepository
 
   let entityType = SyncEntityType.journalEntry
+  let tableName = "journal_entries"
 
-  func makeRecord(forID id: String) throws -> CKRecord? {
-    guard let entry = try repository.fetchByID(id) else { return nil }
-    let recordID = CKRecord.ID(recordName: entry.id, zoneID: SerenityCloudKit.zoneID)
-    let record = CKRecord(recordType: entityType, recordID: recordID)
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool {
+    guard let entry = try repository.fetchByID(id) else { return false }
     try Self.encode(entry, into: record)
-    return record
+    return true
   }
 
-  func applyPulled(_ record: CKRecord) throws {
+  func applyPulled(_ record: CKRecord, in db: Database) throws {
     let entry = try Self.decode(record)
-    try repository.applyRemoteUpsert(entry)
+    try repository.applyRemoteUpsert(entry, in: db)
   }
 
-  func applyPulledDelete(recordName: String) throws {
-    try repository.applyRemoteDelete(id: recordName)
+  func applyPulledDelete(recordName: String, in db: Database) throws {
+    try repository.applyRemoteDelete(id: recordName, in: db)
   }
 
   static func encode(_ entry: JournalEntryEntity, into record: CKRecord) throws {
@@ -261,22 +273,21 @@ struct GoalSyncRecordKind: SyncRecordKind {
   let repository: SyncAwareGoalRepository
 
   let entityType = SyncEntityType.goal
+  let tableName = "goals"
 
-  func makeRecord(forID id: String) throws -> CKRecord? {
-    guard let goal = try repository.fetchByID(id) else { return nil }
-    let recordID = CKRecord.ID(recordName: goal.id, zoneID: SerenityCloudKit.zoneID)
-    let record = CKRecord(recordType: entityType, recordID: recordID)
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool {
+    guard let goal = try repository.fetchByID(id) else { return false }
     try Self.encode(goal, into: record)
-    return record
+    return true
   }
 
-  func applyPulled(_ record: CKRecord) throws {
+  func applyPulled(_ record: CKRecord, in db: Database) throws {
     let goal = try Self.decode(record)
-    try repository.applyRemoteUpsert(goal)
+    try repository.applyRemoteUpsert(goal, in: db)
   }
 
-  func applyPulledDelete(recordName: String) throws {
-    try repository.applyRemoteDelete(id: recordName)
+  func applyPulledDelete(recordName: String, in db: Database) throws {
+    try repository.applyRemoteDelete(id: recordName, in: db)
   }
 
   static func encode(_ goal: GoalEntity, into record: CKRecord) throws {
@@ -348,22 +359,21 @@ struct AIInsightSyncRecordKind: SyncRecordKind {
   let repository: SyncAwareAIInsightRepository
 
   let entityType = SyncEntityType.aiInsight
+  let tableName = "ai_insights"
 
-  func makeRecord(forID id: String) throws -> CKRecord? {
-    guard let insight = try repository.fetchByID(id) else { return nil }
-    let recordID = CKRecord.ID(recordName: insight.id, zoneID: SerenityCloudKit.zoneID)
-    let record = CKRecord(recordType: entityType, recordID: recordID)
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool {
+    guard let insight = try repository.fetchByID(id) else { return false }
     try Self.encode(insight, into: record)
-    return record
+    return true
   }
 
-  func applyPulled(_ record: CKRecord) throws {
+  func applyPulled(_ record: CKRecord, in db: Database) throws {
     let insight = try Self.decode(record)
-    try repository.applyRemoteUpsert(insight)
+    try repository.applyRemoteUpsert(insight, in: db)
   }
 
-  func applyPulledDelete(recordName: String) throws {
-    try repository.applyRemoteDelete(id: recordName)
+  func applyPulledDelete(recordName: String, in db: Database) throws {
+    try repository.applyRemoteDelete(id: recordName, in: db)
   }
 
   static func encode(_ insight: AIInsightEntity, into record: CKRecord) throws {
@@ -431,22 +441,21 @@ struct AIRecapSyncRecordKind: SyncRecordKind {
   let repository: SyncAwareAIRecapRepository
 
   let entityType = SyncEntityType.aiRecap
+  let tableName = "ai_recaps"
 
-  func makeRecord(forID id: String) throws -> CKRecord? {
-    guard let recap = try repository.fetchByID(id) else { return nil }
-    let recordID = CKRecord.ID(recordName: recap.id, zoneID: SerenityCloudKit.zoneID)
-    let record = CKRecord(recordType: entityType, recordID: recordID)
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool {
+    guard let recap = try repository.fetchByID(id) else { return false }
     try Self.encode(recap, into: record)
-    return record
+    return true
   }
 
-  func applyPulled(_ record: CKRecord) throws {
+  func applyPulled(_ record: CKRecord, in db: Database) throws {
     let recap = try Self.decode(record)
-    try repository.applyRemoteUpsert(recap)
+    try repository.applyRemoteUpsert(recap, in: db)
   }
 
-  func applyPulledDelete(recordName: String) throws {
-    try repository.applyRemoteDelete(id: recordName)
+  func applyPulledDelete(recordName: String, in db: Database) throws {
+    try repository.applyRemoteDelete(id: recordName, in: db)
   }
 
   static func encode(_ recap: AIRecapEntity, into record: CKRecord) throws {
@@ -508,22 +517,21 @@ struct StandupSyncRecordKind: SyncRecordKind {
   let repository: SyncAwareStandupRepository
 
   let entityType = SyncEntityType.standup
+  let tableName = "standups"
 
-  func makeRecord(forID id: String) throws -> CKRecord? {
-    guard let standup = try repository.fetchByID(id) else { return nil }
-    let recordID = CKRecord.ID(recordName: standup.id, zoneID: SerenityCloudKit.zoneID)
-    let record = CKRecord(recordType: entityType, recordID: recordID)
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool {
+    guard let standup = try repository.fetchByID(id) else { return false }
     try Self.encode(standup, into: record)
-    return record
+    return true
   }
 
-  func applyPulled(_ record: CKRecord) throws {
+  func applyPulled(_ record: CKRecord, in db: Database) throws {
     let standup = try Self.decode(record)
-    try repository.applyRemoteUpsert(standup)
+    try repository.applyRemoteUpsert(standup, in: db)
   }
 
-  func applyPulledDelete(recordName: String) throws {
-    try repository.applyRemoteDelete(id: recordName)
+  func applyPulledDelete(recordName: String, in db: Database) throws {
+    try repository.applyRemoteDelete(id: recordName, in: db)
   }
 
   static func encode(_ standup: StandupEntity, into record: CKRecord) throws {
@@ -582,22 +590,21 @@ struct SummarySyncRecordKind: SyncRecordKind {
   let repository: SyncAwareSummaryRepository
 
   let entityType = SyncEntityType.summary
+  let tableName = "summaries"
 
-  func makeRecord(forID id: String) throws -> CKRecord? {
-    guard let summary = try repository.fetchByID(id) else { return nil }
-    let recordID = CKRecord.ID(recordName: summary.id, zoneID: SerenityCloudKit.zoneID)
-    let record = CKRecord(recordType: entityType, recordID: recordID)
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool {
+    guard let summary = try repository.fetchByID(id) else { return false }
     try Self.encode(summary, into: record)
-    return record
+    return true
   }
 
-  func applyPulled(_ record: CKRecord) throws {
+  func applyPulled(_ record: CKRecord, in db: Database) throws {
     let summary = try Self.decode(record)
-    try repository.applyRemoteUpsert(summary)
+    try repository.applyRemoteUpsert(summary, in: db)
   }
 
-  func applyPulledDelete(recordName: String) throws {
-    try repository.applyRemoteDelete(id: recordName)
+  func applyPulledDelete(recordName: String, in db: Database) throws {
+    try repository.applyRemoteDelete(id: recordName, in: db)
   }
 
   static func encode(_ summary: SummaryEntity, into record: CKRecord) throws {

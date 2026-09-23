@@ -26,6 +26,10 @@ protocol PendingSyncChangeStore: Sendable {
   /// Joins the caller's transaction, so the entity write and its ledger row commit together.
   func enqueue(entityType: String, entityId: String, operation: PendingSyncChange.Operation, in db: Database) throws
   func fetchPending(limit: Int) throws -> [PendingSyncChange]
+  /// Like `fetchPending`, minus rows still waiting out the delay after a failed push.
+  func fetchDue(limit: Int) throws -> [PendingSyncChange]
+  func pendingChange(entityType: String, entityId: String, in db: Database) throws -> PendingSyncChange?
+  func deletePending(id: String, in db: Database) throws
   func markCompleted(ids: [String]) throws
   func markFailed(ids: [String], error: String) throws
   func count() throws -> Int
@@ -53,6 +57,8 @@ final class GRDBPendingSyncChangeStore: PendingSyncChangeStore, @unchecked Senda
     }
   }
 
+  /// Every enqueue gives the row a new id. A push that finishes afterwards deletes by the id it
+  /// read, so it deletes nothing and the newer edit stays queued — even within the same second.
   func enqueue(entityType: String, entityId: String, operation: PendingSyncChange.Operation, in db: Database) throws {
     let now = clock()
     try db.execute(
@@ -60,11 +66,13 @@ final class GRDBPendingSyncChangeStore: PendingSyncChangeStore, @unchecked Senda
       INSERT INTO pending_sync_changes (id, entity_type, entity_id, operation, queued_at, attempts)
       VALUES (?, ?, ?, ?, ?, 0)
       ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+        id = excluded.id,
         operation = excluded.operation,
         queued_at = excluded.queued_at,
         attempts = 0,
         last_attempt_at = NULL,
-        last_error = NULL;
+        last_error = NULL,
+        next_attempt_at = NULL;
       """,
       arguments: [
         UUID().uuidString,
@@ -92,6 +100,46 @@ final class GRDBPendingSyncChangeStore: PendingSyncChangeStore, @unchecked Senda
     }
   }
 
+  func fetchDue(limit: Int) throws -> [PendingSyncChange] {
+    let now = ISO8601DateFormatter().string(from: clock())
+    return try dbQueue.read { db in
+      let rows = try Row.fetchAll(
+        db,
+        sql: """
+        SELECT id, entity_type, entity_id, operation, queued_at, attempts, last_attempt_at, last_error
+        FROM pending_sync_changes
+        WHERE next_attempt_at IS NULL OR next_attempt_at <= ?
+        ORDER BY queued_at ASC
+        LIMIT ?;
+        """,
+        arguments: [now, limit]
+      )
+      return rows.compactMap(Self.makeChange(from:))
+    }
+  }
+
+  func pendingChange(entityType: String, entityId: String, in db: Database) throws -> PendingSyncChange? {
+    let row = try Row.fetchOne(
+      db,
+      sql: """
+      SELECT id, entity_type, entity_id, operation, queued_at, attempts, last_attempt_at, last_error
+      FROM pending_sync_changes
+      WHERE entity_type = ? AND entity_id = ?;
+      """,
+      arguments: [entityType, entityId]
+    )
+    return row.flatMap(Self.makeChange(from:))
+  }
+
+  func deletePending(id: String, in db: Database) throws {
+    try db.execute(sql: "DELETE FROM pending_sync_changes WHERE id = ?;", arguments: [id])
+  }
+
+  /// Doubles from 30 seconds to at most an hour.
+  static func retryDelay(afterAttempts attempts: Int) -> TimeInterval {
+    min(3_600, 30 * pow(2, Double(max(0, attempts - 1))))
+  }
+
   func markCompleted(ids: [String]) throws {
     guard !ids.isEmpty else { return }
     try dbQueue.write { db in
@@ -106,23 +154,27 @@ final class GRDBPendingSyncChangeStore: PendingSyncChangeStore, @unchecked Senda
   func markFailed(ids: [String], error: String) throws {
     guard !ids.isEmpty else { return }
     let now = clock()
+    let formatter = ISO8601DateFormatter()
     try dbQueue.write { db in
-      let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ", ")
-      var arguments: [DatabaseValueConvertible] = [
-        ISO8601DateFormatter().string(from: now),
-        error,
-      ]
-      arguments.append(contentsOf: ids)
-      try db.execute(
-        sql: """
-        UPDATE pending_sync_changes
-        SET attempts = attempts + 1,
-            last_attempt_at = ?,
-            last_error = ?
-        WHERE id IN (\(placeholders));
-        """,
-        arguments: StatementArguments(arguments)
-      )
+      for id in ids {
+        guard let attempts = try Int.fetchOne(
+          db,
+          sql: "SELECT attempts FROM pending_sync_changes WHERE id = ?;",
+          arguments: [id]
+        ) else { continue }
+        let nextAttempt = now.addingTimeInterval(Self.retryDelay(afterAttempts: attempts + 1))
+        try db.execute(
+          sql: """
+          UPDATE pending_sync_changes
+          SET attempts = attempts + 1,
+              last_attempt_at = ?,
+              last_error = ?,
+              next_attempt_at = ?
+          WHERE id = ?;
+          """,
+          arguments: [formatter.string(from: now), error, formatter.string(from: nextAttempt), id]
+        )
+      }
     }
   }
 
@@ -196,6 +248,102 @@ final class GRDBCloudSyncStateStore: CloudSyncStateStore, @unchecked Sendable {
           arguments: [key]
         )
       }
+    }
+  }
+}
+
+
+/// What the engine remembers per record beyond the entity itself: the CloudKit system fields of the
+/// last server copy, and pulled records that failed to apply.
+final class GRDBCloudSyncRecordStore: @unchecked Sendable {
+  let dbQueue: DatabaseQueue
+  private let clock: () -> Date
+
+  init(dbQueue: DatabaseQueue, clock: @escaping () -> Date = { Date() }) {
+    self.dbQueue = dbQueue
+    self.clock = clock
+  }
+
+  func systemFields(entityType: String, entityId: String) throws -> Data? {
+    try dbQueue.read { db in
+      try Data.fetchOne(
+        db,
+        sql: "SELECT system_fields FROM cloud_sync_record_metadata WHERE entity_type = ? AND entity_id = ?;",
+        arguments: [entityType, entityId]
+      )
+    }
+  }
+
+  func saveSystemFields(_ data: Data, entityType: String, entityId: String, in db: Database) throws {
+    try db.execute(
+      sql: """
+      INSERT INTO cloud_sync_record_metadata (entity_type, entity_id, system_fields, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+        system_fields = excluded.system_fields,
+        updated_at = excluded.updated_at;
+      """,
+      arguments: [entityType, entityId, data, ISO8601DateFormatter().string(from: clock())]
+    )
+  }
+
+  func deleteSystemFields(entityType: String, entityId: String, in db: Database) throws {
+    try db.execute(
+      sql: "DELETE FROM cloud_sync_record_metadata WHERE entity_type = ? AND entity_id = ?;",
+      arguments: [entityType, entityId]
+    )
+  }
+
+  /// A zone that was deleted takes every server copy with it.
+  func deleteAllSystemFields() throws {
+    try dbQueue.write { db in
+      try db.execute(sql: "DELETE FROM cloud_sync_record_metadata;")
+    }
+  }
+
+  /// Returns the attempt count after this failure.
+  @discardableResult
+  func recordApplyFailure(entityType: String, entityId: String, error: String, setAsideAfter limit: Int) throws -> Int {
+    try dbQueue.write { db in
+      let previous = try Int.fetchOne(
+        db,
+        sql: "SELECT attempts FROM cloud_sync_apply_failures WHERE entity_type = ? AND entity_id = ?;",
+        arguments: [entityType, entityId]
+      ) ?? 0
+      let attempts = previous + 1
+      try db.execute(
+        sql: """
+        INSERT INTO cloud_sync_apply_failures (entity_type, entity_id, attempts, last_error, set_aside, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+          attempts = excluded.attempts,
+          last_error = excluded.last_error,
+          set_aside = excluded.set_aside,
+          updated_at = excluded.updated_at;
+        """,
+        arguments: [
+          entityType,
+          entityId,
+          attempts,
+          error,
+          attempts >= limit ? 1 : 0,
+          ISO8601DateFormatter().string(from: clock()),
+        ]
+      )
+      return attempts
+    }
+  }
+
+  func clearApplyFailure(entityType: String, entityId: String, in db: Database) throws {
+    try db.execute(
+      sql: "DELETE FROM cloud_sync_apply_failures WHERE entity_type = ? AND entity_id = ?;",
+      arguments: [entityType, entityId]
+    )
+  }
+
+  func setAsideCount() throws -> Int {
+    try dbQueue.read { db in
+      try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM cloud_sync_apply_failures WHERE set_aside = 1;") ?? 0
     }
   }
 }

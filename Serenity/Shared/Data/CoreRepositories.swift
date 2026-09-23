@@ -673,6 +673,7 @@ struct GRDBCoreRepositorySet {
   let goals: SyncAwareGoalRepository
   let pendingSyncChanges: PendingSyncChangeStore
   let cloudSyncState: CloudSyncStateStore
+  let cloudSyncRecords: GRDBCloudSyncRecordStore
 
   static func make(databasePath: String) throws -> GRDBCoreRepositorySet {
     make(dbQueue: try DatabaseQueue(path: databasePath, configuration: DatabaseMigrationRunner.configuration()))
@@ -699,7 +700,8 @@ struct GRDBCoreRepositorySet {
         pendingStore: pendingStore
       ),
       pendingSyncChanges: pendingStore,
-      cloudSyncState: GRDBCloudSyncStateStore(dbQueue: dbQueue)
+      cloudSyncState: GRDBCloudSyncStateStore(dbQueue: dbQueue),
+      cloudSyncRecords: GRDBCloudSyncRecordStore(dbQueue: dbQueue)
     )
   }
 }

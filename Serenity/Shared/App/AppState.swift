@@ -3941,9 +3941,11 @@ final class AppState: ObservableObject {
       return
     }
 
+    let exporter = CloudSyncInitialExporter(coreRepositories: repositories, aiRepositories: aiRepositories)
     let engine = ICloudSyncEngine(
       pendingStore: repositories.pendingSyncChanges,
       stateStore: repositories.cloudSyncState,
+      recordStore: repositories.cloudSyncRecords,
       recordKinds: [
         TaskSyncRecordKind(repository: repositories.tasks),
         ProjectSyncRecordKind(repository: repositories.projects),
@@ -3959,6 +3961,15 @@ final class AppState: ObservableObject {
           self?.iCloudSyncState = state
         }
       },
+      changesApplied: { [weak self] applied in
+        Task { @MainActor [weak self] in
+          await self?.reloadAfterICloudPull(entityTypes: Set(applied.keys))
+        }
+      },
+      zoneReset: {
+        // The engine has cleared the "exported" flag, so this queues every local record again.
+        try exporter.enqueueIfNeeded()
+      },
       logger: { message in
         AppLogger.info("iCloudSync: \(message)")
       }
@@ -3970,8 +3981,20 @@ final class AppState: ObservableObject {
     triggerICloudSync()
   }
 
-  /// Fire-and-forget kick to the engine. Coalesces internally — calling this
-  /// from many save/delete sites is fine.
+  /// Pulled records are already in SQLite; reloading the affected collections puts them on screen,
+  /// and later edits start from the pulled copy instead of reverting it.
+  func reloadAfterICloudPull(entityTypes: Set<String>) async {
+    let core: Set<String> = [SyncEntityType.task, SyncEntityType.project, SyncEntityType.journalEntry, SyncEntityType.goal]
+    if !entityTypes.isDisjoint(with: core) {
+      await refreshCoreWorkflowData()
+    }
+    if !entityTypes.isSubset(of: core) {
+      await refreshAIWorkflows()
+    }
+  }
+
+  /// Fire-and-forget kick to the engine. A call made mid-sync queues one more pass, so calling
+  /// this from many save/delete sites is fine.
   func triggerICloudSync() {
     guard let engine = iCloudSyncEngine else { return }
     Task.detached(priority: .utility) {
@@ -4108,6 +4131,7 @@ final class AppState: ObservableObject {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.projects.save(project)
+      triggerICloudSync()
     case .serenityCloud:
       guard let serenityCloudAdapter else {
         throw CoreWorkflowError.unavailableBackend("Serenity Cloud adapter is not configured")
@@ -4126,6 +4150,7 @@ final class AppState: ObservableObject {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.projects.save(project)
+      triggerICloudSync()
     case .serenityCloud:
       guard let serenityCloudAdapter else {
         throw CoreWorkflowError.unavailableBackend("Serenity Cloud adapter is not configured")
@@ -4144,6 +4169,7 @@ final class AppState: ObservableObject {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.projects.delete(id: id)
+      triggerICloudSync()
     case .serenityCloud:
       guard let serenityCloudAdapter else {
         throw CoreWorkflowError.unavailableBackend("Serenity Cloud adapter is not configured")
@@ -4266,6 +4292,7 @@ final class AppState: ObservableObject {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.goals.save(goal)
+      triggerICloudSync()
     case .serenityCloud:
       guard let serenityCloudAdapter else {
         throw CoreWorkflowError.unavailableBackend("Serenity Cloud adapter is not configured")
@@ -4284,6 +4311,7 @@ final class AppState: ObservableObject {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.goals.save(goal)
+      triggerICloudSync()
     case .serenityCloud:
       guard let serenityCloudAdapter else {
         throw CoreWorkflowError.unavailableBackend("Serenity Cloud adapter is not configured")
@@ -4302,6 +4330,7 @@ final class AppState: ObservableObject {
     case .sqliteLocal:
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.goals.delete(id: id)
+      triggerICloudSync()
     case .serenityCloud:
       guard let serenityCloudAdapter else {
         throw CoreWorkflowError.unavailableBackend("Serenity Cloud adapter is not configured")

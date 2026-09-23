@@ -75,6 +75,14 @@ final class SyncAwareAIInsightRepository: AIInsightRepository {
   func applyRemoteDelete(id: String) throws {
     try underlying.delete(id: id)
   }
+
+  func applyRemoteUpsert(_ insight: AIInsightEntity, in db: Database) throws {
+    try underlying.save(insight, in: db)
+  }
+
+  func applyRemoteDelete(id: String, in db: Database) throws {
+    try underlying.delete(id: id, in: db)
+  }
 }
 
 final class SyncAwareAIRecapRepository: AIRecapRepository {
@@ -126,6 +134,14 @@ final class SyncAwareAIRecapRepository: AIRecapRepository {
   func applyRemoteDelete(id: String) throws {
     try underlying.delete(id: id)
   }
+
+  func applyRemoteUpsert(_ recap: AIRecapEntity, in db: Database) throws {
+    try underlying.save(recap, in: db)
+  }
+
+  func applyRemoteDelete(id: String, in db: Database) throws {
+    try underlying.delete(id: id, in: db)
+  }
 }
 
 final class SyncAwareSummaryRepository: SummaryRepository {
@@ -174,6 +190,14 @@ final class SyncAwareSummaryRepository: SummaryRepository {
   func applyRemoteDelete(id: String) throws {
     try underlying.delete(id: id)
   }
+
+  func applyRemoteUpsert(_ summary: SummaryEntity, in db: Database) throws {
+    try underlying.save(summary, in: db)
+  }
+
+  func applyRemoteDelete(id: String, in db: Database) throws {
+    try underlying.delete(id: id, in: db)
+  }
 }
 
 final class SyncAwareStandupRepository: StandupRepository {
@@ -217,5 +241,13 @@ final class SyncAwareStandupRepository: StandupRepository {
 
   func applyRemoteDelete(id: String) throws {
     try underlying.delete(id: id)
+  }
+
+  func applyRemoteUpsert(_ standup: StandupEntity, in db: Database) throws {
+    try underlying.save(standup, in: db)
+  }
+
+  func applyRemoteDelete(id: String, in db: Database) throws {
+    try underlying.delete(id: id, in: db)
   }
 }

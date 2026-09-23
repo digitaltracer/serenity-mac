@@ -325,6 +325,7 @@ final class ICloudSyncTests: XCTestCase {
       container: FakeICloudSyncContainer(),
       pendingStore: repositories.pendingSyncChanges,
       stateStore: repositories.cloudSyncState,
+      recordStore: repositories.cloudSyncRecords,
       recordKinds: [
         TaskSyncRecordKind(repository: repositories.tasks),
         ProjectSyncRecordKind(repository: repositories.projects),
@@ -576,7 +577,7 @@ private struct FakeICloudSyncContainer: ICloudSyncContainer {
     .available
   }
 
-  func privateDatabase() -> CKDatabase {
-    CKContainer.default().privateCloudDatabase
+  func privateDatabase() -> CloudSyncDatabase {
+    FakeCloudDatabase()
   }
 }
