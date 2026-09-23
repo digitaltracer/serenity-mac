@@ -12624,7 +12624,7 @@ private struct HelpCenterSheet: View {
               HelpShortcutRow(action: "Help Center", shortcut: "Cmd+/")
               HelpShortcutRow(action: "Quick Capture", shortcut: "Cmd+Shift+N")
               HelpShortcutRow(action: "Capture (in the capture field)", shortcut: "Cmd+Return")
-              HelpShortcutRow(action: "Switch section", shortcut: "Cmd+1 … Cmd+8")
+              HelpShortcutRow(action: "Switch section", shortcut: "Cmd+1 … Cmd+9")
             }
             .padding(.top, 8)
           }
