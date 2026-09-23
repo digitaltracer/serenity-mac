@@ -177,6 +177,9 @@ enum StandupWriter {
     you put into words. That is what answers "what was the link again?" when somebody asks. If you left \
     nothing out, return an empty array.
     - Where the format instruction and the length target disagree, the format instruction wins.
+    - The format instruction never overrides the rules for "spoken". When it asks for links, headings, \
+    bullets or markdown, those go in "sections"; "spoken" keeps the order and emphasis it asks for, in \
+    words a person can say.
     """
   }
 
@@ -254,6 +257,14 @@ enum StandupWriter {
     <<<CURRENT
     \(StandupScript.paste(from: script.sections).nilIfEmpty ?? script.paste)
     CURRENT
+
+    What you wrote to be said out loud:
+    <<<SPOKEN
+    \(script.spoken.trimmingCharacters(in: .whitespacesAndNewlines))
+    SPOKEN
+
+    The specifics you folded out of it:
+    \(script.folded.isEmpty ? "(none)" : script.folded.map { "- \($0)" }.joined(separator: "\n"))
 
     What they want changed:
     <<<CHANGE

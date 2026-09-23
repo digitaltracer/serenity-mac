@@ -186,6 +186,9 @@ final class AppState: ObservableObject {
   @Published var standups: [StandupEntity] = []
   @Published var standupBoard: StandupBoard?
   @Published var standupScript: StandupScript?
+  /// The instruction the current script was written to, including a just-for-today one, so a
+  /// revision keeps to it instead of falling back to the standing format.
+  private var standupScriptInstruction: String?
   @Published var standupWrittenByModel = false
   @Published var standupIsWriting = false
   @Published var standupIsRevising = false
@@ -2373,6 +2376,7 @@ final class AppState: ObservableObject {
   func buildStandupBoard(now: Date = Date()) async {
     let previous = await latestStandup()
     standupScript = nil
+    standupScriptInstruction = nil
     standupBoardEdited = false
     standupBoard = StandupPlanner.build(tasks: tasks, recall: previous?.recall, now: now)
   }
@@ -2457,15 +2461,17 @@ final class AppState: ObservableObject {
     standupIsWriting = true
     defer { standupIsWriting = false }
 
+    let instruction = instructionOverride?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      ?? aiSettings.resolvedStandupFormat
     do {
       let draft = try await aiWorkflowService.writeStandup(
         board: board,
-        instruction: instructionOverride?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-          ?? aiSettings.resolvedStandupFormat,
+        instruction: instruction,
         length: aiSettings.resolvedStandupLength,
         now: now
       )
       standupScript = draft.script
+      standupScriptInstruction = instruction
       standupWrittenByModel = draft.writtenByModel
       pendingStandupDraft = draft
     } catch {
@@ -2488,7 +2494,7 @@ final class AppState: ObservableObject {
         board: board,
         script: script,
         ask: trimmed,
-        instruction: aiSettings.resolvedStandupFormat,
+        instruction: standupScriptInstruction ?? aiSettings.resolvedStandupFormat,
         length: aiSettings.resolvedStandupLength,
         now: now
       )
@@ -2550,7 +2556,7 @@ final class AppState: ObservableObject {
           source: $0.source
         )
       },
-      formatInstruction: aiSettings.resolvedStandupFormat,
+      formatInstruction: standupScriptInstruction ?? aiSettings.resolvedStandupFormat,
       length: aiSettings.resolvedStandupLength,
       writtenByModel: draft.writtenByModel,
       provider: draft.provider,
@@ -2602,6 +2608,7 @@ final class AppState: ObservableObject {
     standupBoard = nil
     standupBoardEdited = false
     standupScript = nil
+    standupScriptInstruction = nil
     standupWrittenByModel = false
     pendingStandupDraft = nil
   }
