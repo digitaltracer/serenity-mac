@@ -2050,51 +2050,9 @@ private struct HomeSectionView: View {
     submitting = true
     defer { submitting = false }
 
-    do {
-      if let command = try CaptureCommandParser.parse(text) {
-        appState.discardPendingAIQuickCapturePreview()
-        if await appState.submitCaptureCommand(command, typedText: text) {
-          quickCapture = ""
-        }
-        return
-      }
-    } catch {
-      appState.showError(title: "That command could not run", message: error.localizedDescription)
-      return
+    if await appState.submitCapture(text, credentialID: selectedQuickCaptureCredential?.id) {
+      quickCapture = ""
     }
-
-    if let credential = selectedQuickCaptureCredential {
-      let saved = await appState.submitAIQuickCapture(input: text, credentialID: credential.id)
-      if saved {
-        quickCapture = ""
-      }
-      return
-    }
-
-    appState.discardPendingAIQuickCapturePreview()
-
-    if text.lowercased().hasPrefix("journal:") {
-      let content = text.replacingOccurrences(of: "journal:", with: "", options: [.caseInsensitive])
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      await appState.createJournalEntry(
-        title: "",
-        content: content.isEmpty ? text : content,
-        mood: nil,
-        tags: []
-      )
-    } else {
-      let parsed = QuickCaptureDateParser.parse(text)
-      await appState.createTask(
-        title: parsed.title,
-        priority: .medium,
-        dueDate: parsed.dueDate,
-        tags: [],
-        subtaskTitles: []
-      )
-    }
-
-    quickCapture = ""
-    await appState.refreshCoreWorkflowData()
   }
 
   /// The confirmation surface for a command. Always shown, whatever the
@@ -5792,19 +5750,19 @@ private struct JournalSectionView: View {
     let tags = tagsIncludingPendingInput(newEntryTagList, input: tagInputText)
 
     Task {
-      await appState.createJournalEntry(
+      let saved = await appState.createJournalEntry(
         title: title,
         content: content,
         mood: mood,
         tags: tags
       )
+      guard saved else { return }
+      newEntryTitle = ""
+      newEntryContent = ""
+      newEntryMood = nil
+      newEntryTagList = []
+      tagInputText = ""
     }
-
-    newEntryTitle = ""
-    newEntryContent = ""
-    newEntryMood = nil
-    newEntryTagList = []
-    tagInputText = ""
   }
 
   private var saveDisabled: Bool {

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Capture without raising the app. Reuses `QuickCaptureDateParser`, so "call
-/// the bank tomorrow at 3pm" behaves here exactly as it does on Home.
+/// Capture without raising the app. It takes the same path as Home, so `/slack`,
+/// `/github`, `journal:` and the AI all work here too.
 struct MenuBarCaptureView: View {
   @ObservedObject var appState: AppState
 
@@ -31,6 +31,12 @@ struct MenuBarCaptureView: View {
         }
         .buttonStyle(.borderedProminent)
         .disabled(!canSubmit)
+      }
+
+      if appState.pendingAIQuickCapturePreview != nil || appState.pendingCaptureDraft != nil {
+        Text("A draft is waiting for your review in Serenity.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
       }
 
       Divider()
@@ -95,17 +101,8 @@ struct MenuBarCaptureView: View {
 
     Task {
       defer { submitting = false }
-      let parsed = QuickCaptureDateParser.parse(input)
-      let created = await appState.createTask(
-        title: parsed.title,
-        priority: .medium,
-        dueDate: parsed.dueDate,
-        tags: [],
-        subtaskTitles: []
-      )
-      if created {
+      if await appState.submitCapture(input, credentialID: appState.defaultQuickCaptureCredentialID) {
         text = ""
-        await appState.refreshCoreWorkflowData()
       }
     }
   }

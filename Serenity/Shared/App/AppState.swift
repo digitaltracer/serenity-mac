@@ -2710,6 +2710,62 @@ final class AppState: ObservableObject {
   }
 
   @discardableResult
+  /// The one path every capture box takes — the main window and the menu bar alike: a `/slack` or
+  /// `/github` command, the AI when a key is chosen, `journal:`, or a plain task. Returns whether the
+  /// text was used up, so the box clears only then; a failed save keeps what was typed.
+  func submitCapture(_ text: String, credentialID: String?) async -> Bool {
+    let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else { return false }
+
+    do {
+      if let command = try CaptureCommandParser.parse(text) {
+        discardPendingAIQuickCapturePreview()
+        return await submitCaptureCommand(command, typedText: text)
+      }
+    } catch {
+      showError(title: "That command could not run", message: error.localizedDescription)
+      return false
+    }
+
+    if let credentialID {
+      return await submitAIQuickCapture(input: text, credentialID: credentialID)
+    }
+
+    discardPendingAIQuickCapturePreview()
+
+    let saved: Bool
+    if text.lowercased().hasPrefix("journal:") {
+      let content = text.replacingOccurrences(of: "journal:", with: "", options: [.caseInsensitive])
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      saved = await createJournalEntry(
+        title: "",
+        content: content.isEmpty ? text : content,
+        mood: nil,
+        tags: []
+      )
+    } else {
+      let parsed = QuickCaptureDateParser.parse(text)
+      saved = await createTask(
+        title: parsed.title,
+        priority: .medium,
+        dueDate: parsed.dueDate,
+        tags: [],
+        subtaskTitles: []
+      )
+    }
+    await refreshCoreWorkflowData()
+    return saved
+  }
+
+  /// The key a capture box uses when nobody picked one: the first enabled, by priority.
+  var defaultQuickCaptureCredentialID: String? {
+    aiCredentials
+      .filter(\.enabled)
+      .sorted { $0.priority == $1.priority ? $0.createdAt < $1.createdAt : $0.priority < $1.priority }
+      .first?
+      .id
+  }
+
   func submitAIQuickCapture(input: String, credentialID: String) async -> Bool {
     let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedInput.isEmpty else {
@@ -3453,16 +3509,17 @@ final class AppState: ObservableObject {
     }
   }
 
+  @discardableResult
   func createJournalEntry(
     title: String,
     content: String,
     mood: JournalMood?,
     tags: [String]
-  ) async {
+  ) async -> Bool {
     let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedContent.isEmpty else {
       showToast("Journal content cannot be empty")
-      return
+      return false
     }
 
     let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3485,8 +3542,10 @@ final class AppState: ObservableObject {
       try await createJournalEntry(entry)
       showToast("Journal entry created")
       await refreshCoreWorkflowData()
+      return true
     } catch {
       showError(title: "Failed to create journal entry", message: error.localizedDescription)
+      return false
     }
   }
 
