@@ -203,10 +203,10 @@ actor AIWorkflowService {
         )
         return classification
       } catch {
-        let repairPrompt = quickCaptureRepairPrompt(
+        let repairPrompt = repairPrompt(
+          originalPrompt: userPrompt,
           invalidResponse: response.text,
-          validationError: Self.describeDecodingFailure(error),
-          schema: schema
+          problem: "it could not be decoded: \(Self.describeDecodingFailure(error))"
         )
         let repaired = try await quickCaptureGenerator(
           endpoint(for: selection.credential),
@@ -449,10 +449,10 @@ actor AIWorkflowService {
           selection.apiKey,
           selection.model,
           systemPrompt,
-          quickCaptureRepairPrompt(
+          repairPrompt(
+            originalPrompt: userPrompt,
             invalidResponse: response.text,
-            validationError: Self.describeDecodingFailure(error),
-            schema: schema
+            problem: "it could not be decoded: \(Self.describeDecodingFailure(error))"
           ),
           schema
         )
@@ -1061,10 +1061,10 @@ actor AIWorkflowService {
           selection.apiKey,
           selection.model,
           systemPrompt,
-          quickCaptureRepairPrompt(
+          repairPrompt(
+            originalPrompt: userPrompt,
             invalidResponse: text,
-            validationError: Self.describeDecodingFailure(error),
-            schema: schema
+            problem: "it could not be decoded: \(Self.describeDecodingFailure(error))"
           ),
           schema
         )
@@ -1085,10 +1085,11 @@ actor AIWorkflowService {
           selection.apiKey,
           selection.model,
           systemPrompt,
-          quickCaptureRepairPrompt(
+          repairPrompt(
+            originalPrompt: userPrompt,
             invalidResponse: text,
-            validationError: problems.joined(separator: " "),
-            schema: schema
+            problem: "\"spoken\" cannot be read aloud as written. \(problems.joined(separator: " ")) "
+              + "Put those specifics into words in \"spoken\" and list them in \"folded\"; keep \"sections\" as it was."
           ),
           schema
         )
@@ -1494,6 +1495,12 @@ actor AIWorkflowService {
   }
 
   private func parseQuickCaptureDueDate(_ rawDate: String?) -> Date? {
+    Self.parseModelDueDate(rawDate)
+  }
+
+  /// A date with no time of day is due at the end of that day, 23:59 local — not at the midnight
+  /// that starts it, which would make "due Friday" overdue all of Friday.
+  static func parseModelDueDate(_ rawDate: String?, timeZone: TimeZone = .current) -> Date? {
     guard let trimmed = rawDate?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
       return nil
     }
@@ -1511,9 +1518,13 @@ actor AIWorkflowService {
 
     let dateFormatter = DateFormatter()
     dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-    dateFormatter.timeZone = .current
+    dateFormatter.timeZone = timeZone
     dateFormatter.dateFormat = "yyyy-MM-dd"
-    return dateFormatter.date(from: trimmed)
+    guard let day = dateFormatter.date(from: trimmed) else { return nil }
+
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    return calendar.date(bySettingHour: 23, minute: 59, second: 0, of: day)
   }
 
   private func quickCaptureSystemPrompt() -> String {
@@ -1522,17 +1533,18 @@ actor AIWorkflowService {
     Choose exactly one mode for the whole input: tasks or journal.
     Do not require or rely on the user saying this is a journal or task list.
     If the input is actionable, split it into separate tasks. If it is reflective, emotional, observational, or narrative, return one journal entry.
-    Prefer active existing projects and available tags when they fit.
-    Do not use archived projects. Return null when no project fits.
+    When a note mixes reflection with something to do, choose tasks if it names at least one concrete action, and carry the reflective part into that task's description; otherwise choose journal.
+    Prefer the listed projects and available tags when they fit. Return null when no project fits.
     If existing tags are insufficient, create concise new tags in the task or journal tags array.
     Create a new project only when the task clearly belongs to a durable project that is not represented by an active existing project.
     For new projects, add them to newProjects and reference them from tasks by exact projectName.
-    Return dueDate as an ISO 8601 string when the user implies a date or time, otherwise null.
+    Return dueDate as an ISO 8601 string when the user implies a date or time, otherwise null. A day with no time of day is a plain yyyy-MM-dd date; it means the end of that day.
     Resolve every relative date against the current time and timezone given below, and include that
     same UTC offset in the dueDate you return — never assume UTC.
     "Tonight", "today" and "by end of day" all mean the end of the current local day, not the start
     of the next one.
-    Return concise task titles and preserve journal content faithfully.
+    Return concise task titles. Journal content is the user's text copied verbatim: no rewording, summarising or correcting.
+    confidence is the probability, from 0 to 1, that the user saves your draft without changing anything.
     """
   }
 
@@ -1542,7 +1554,8 @@ actor AIWorkflowService {
     availableTags: [String],
     now: Date
   ) -> String {
-    let encodedProjects = (try? jsonString(projects)) ?? "[]"
+    // Archived projects are left out rather than listed with an instruction to ignore them.
+    let encodedProjects = (try? jsonString(projects.filter { !$0.archived })) ?? "[]"
     let encodedTags = (try? jsonString(availableTags)) ?? "[]"
     let localFormatter = ISO8601DateFormatter()
     localFormatter.timeZone = .current
@@ -1552,7 +1565,7 @@ actor AIWorkflowService {
     return """
     Current time: \(nowText) (timezone \(TimeZone.current.identifier))
 
-    Active and archived project context:
+    Projects:
     \(encodedProjects)
 
     Available tags:
@@ -1563,21 +1576,19 @@ actor AIWorkflowService {
     """
   }
 
-  private func quickCaptureRepairPrompt(
-    invalidResponse: String,
-    validationError: String,
-    schema: [String: Any]
-  ) -> String {
-    let schemaText = (try? jsonString(schema)) ?? "{}"
-    return """
-    The previous response could not be decoded or validated.
-    Validation error: \(validationError)
+  /// A second try at the same request. The original prompt goes back in full — input, format, length
+  /// target — because a reply rewritten without it drifts from what was asked. The schema is not
+  /// repeated: the provider call attaches or enforces it.
+  func repairPrompt(originalPrompt: String, invalidResponse: String, problem: String) -> String {
+    """
+    \(originalPrompt)
 
-    Previous response:
+    Your previous reply to this request was not usable: \(problem)
+
+    Previous reply:
     \(invalidResponse)
 
-    Return only one corrected JSON object matching this schema:
-    \(schemaText)
+    Answer the same request again as one corrected JSON object.
     """
   }
 
