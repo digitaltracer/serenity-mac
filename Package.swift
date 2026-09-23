@@ -23,7 +23,6 @@ let package = Package(
       ],
       path: "Serenity",
       exclude: [
-        "Config",
         "iOS",
         "Support",
       ],
