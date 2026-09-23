@@ -364,6 +364,7 @@ enum StandupWriter {
 
   static func schema() -> [String: Any] {
     [
+      "title": "standup_script",
       "type": "object",
       "additionalProperties": false,
       "required": ["spoken", "sections", "folded"],

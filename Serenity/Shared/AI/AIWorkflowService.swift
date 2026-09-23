@@ -59,6 +59,11 @@ struct AIProviderModelCatalog {
       "deepseek-ai/deepseek-v4-flash-0731",
     ],
     .anthropic: [
+      "claude-sonnet-5",
+      "claude-opus-5-5",
+      "claude-opus-5",
+      "claude-fable-5-1",
+      "claude-opus-4-8",
       "claude-opus-4-7",
       "claude-opus-4-6",
       "claude-sonnet-4-6",
@@ -67,6 +72,30 @@ struct AIProviderModelCatalog {
       "claude-haiku-4-5",
     ],
   ]
+
+  /// Each provider's list opens with Serenity's pick for these short classification calls, because
+  /// providers sort verified lists by name — Anthropic's newest-first put a retired model on top.
+  static func defaultModel(for provider: AICredentialProvider, verifiedModels: [String]) -> String {
+    let catalog = models[provider] ?? []
+    guard !verifiedModels.isEmpty else {
+      return catalog.first ?? ""
+    }
+    let curated = catalog.first { candidate in
+      verifiedModels.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
+    }
+    return curated ?? verifiedModels[0]
+  }
+
+  static func verifiedModels(inMetadata metadataJSON: String) -> [String] {
+    guard
+      let data = metadataJSON.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let models = object["availableModels"] as? [String]
+    else {
+      return []
+    }
+    return models.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+  }
 }
 
 struct AICredentialSelectionResult {
@@ -1585,6 +1614,7 @@ actor AIWorkflowService {
 
   private func quickCaptureSchema() -> [String: Any] {
     [
+      "title": "quick_capture_classification",
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "confidence", "newProjects", "tasks", "journal"],
@@ -1710,9 +1740,9 @@ actor AIWorkflowService {
     return AICredentialSelectionResult(credential: credential, apiKey: secret, model: model)
   }
 
-  /// Resolution order: the credential's own model, then the provider-wide setting, then the list
-  /// verified against the live API when the key was added, and only then the compiled-in catalog —
-  /// which goes stale as hosted models reach end of life.
+  /// Resolution order: the credential's own model, then the provider-wide setting, then the curated
+  /// default when the key's verified list carries it, then that list's first entry, and only then
+  /// the compiled-in catalog — which goes stale as hosted models reach end of life.
   private func resolvedModel(for credential: AICredentialEntity, settings: AISettingsEntity) -> String {
     if let preference = credential.modelPreference?.trimmingCharacters(in: .whitespacesAndNewlines),
        !preference.isEmpty {
@@ -1721,8 +1751,9 @@ actor AIWorkflowService {
     if let configured = settingsPreferredModel(for: credential.provider, settings: settings) {
       return configured
     }
-    if let verified = decodeAvailableModels(from: credential.metadataJSON).first {
-      return verified
+    let verified = decodeAvailableModels(from: credential.metadataJSON)
+    if !verified.isEmpty {
+      return AIProviderModelCatalog.defaultModel(for: credential.provider, verifiedModels: verified)
     }
     return catalogFallbackModel(for: credential.provider)
   }
@@ -1752,14 +1783,7 @@ actor AIWorkflowService {
   }
 
   func decodeAvailableModels(from metadataJSON: String) -> [String] {
-    guard
-      let data = metadataJSON.data(using: .utf8),
-      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let models = object["availableModels"] as? [String]
-    else {
-      return []
-    }
-    return models.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    AIProviderModelCatalog.verifiedModels(inMetadata: metadataJSON)
   }
 
   private func catalogFallbackModel(for provider: AICredentialProvider) -> String {
@@ -1772,7 +1796,7 @@ actor AIWorkflowService {
     case .gemini:
       return "gemini-3-pro-preview"
     case .anthropic:
-      return "claude-opus-4-7"
+      return "claude-sonnet-5"
     case .nvidia:
       return "nvidia/nemotron-3.5-lightning-30b-a3b"
     case .custom:
@@ -1893,6 +1917,11 @@ enum AIUsageCostService {
     AIModelRateEntity(provider: .openai, model: "gpt-5.4-pro", inputUSDPerMillion: 30.0, outputUSDPerMillion: 180.0, source: .seeded),
     AIModelRateEntity(provider: .openai, model: "gpt-5.4-mini", inputUSDPerMillion: 0.75, outputUSDPerMillion: 4.5, source: .seeded),
     AIModelRateEntity(provider: .openai, model: "gpt-5.4-nano", inputUSDPerMillion: 0.2, outputUSDPerMillion: 1.25, source: .seeded),
+    AIModelRateEntity(provider: .anthropic, model: "claude-sonnet-5", inputUSDPerMillion: 2.0, outputUSDPerMillion: 10.0, source: .seeded),
+    AIModelRateEntity(provider: .anthropic, model: "claude-opus-5-5", inputUSDPerMillion: 4.0, outputUSDPerMillion: 20.0, source: .seeded),
+    AIModelRateEntity(provider: .anthropic, model: "claude-opus-5", inputUSDPerMillion: 5.0, outputUSDPerMillion: 25.0, source: .seeded),
+    AIModelRateEntity(provider: .anthropic, model: "claude-fable-5-1", inputUSDPerMillion: 10.0, outputUSDPerMillion: 50.0, source: .seeded),
+    AIModelRateEntity(provider: .anthropic, model: "claude-opus-4-8", inputUSDPerMillion: 5.0, outputUSDPerMillion: 25.0, source: .seeded),
     AIModelRateEntity(provider: .anthropic, model: "claude-opus-4-7", inputUSDPerMillion: 5.0, outputUSDPerMillion: 25.0, source: .seeded),
     AIModelRateEntity(provider: .anthropic, model: "claude-opus-4-6", inputUSDPerMillion: 5.0, outputUSDPerMillion: 25.0, source: .seeded),
     AIModelRateEntity(provider: .anthropic, model: "claude-sonnet-4-6", inputUSDPerMillion: 3.0, outputUSDPerMillion: 15.0, source: .seeded),

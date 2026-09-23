@@ -2528,7 +2528,11 @@ private struct HomeSectionView: View {
       break
     }
 
-    return appState.aiModelCatalog[credential.provider]?.first ?? "Default model"
+    let resolved = AIProviderModelCatalog.defaultModel(
+      for: credential.provider,
+      verifiedModels: AIProviderModelCatalog.verifiedModels(inMetadata: credential.metadataJSON)
+    )
+    return resolved.isEmpty ? "Default model" : resolved
   }
 
   private func providerTitle(_ provider: AICredentialProvider) -> String {
@@ -10733,7 +10737,9 @@ private struct SettingsSectionView: View {
   }
 
   private func modelDropdownOptions(for provider: AICredentialProvider) -> [SerenityDropdownOption<String>] {
-    [SerenityDropdownOption(value: "", title: "Default", subtitle: "Use Serenity's recommended model", systemImage: "sparkles", tint: SerenityPalette.accent)]
+    let resolvedDefault = AIProviderModelCatalog.defaultModel(for: provider, verifiedModels: [])
+    let subtitle = resolvedDefault.isEmpty ? "Use Serenity's recommended model" : "Uses \(resolvedDefault)"
+    return [SerenityDropdownOption(value: "", title: "Default", subtitle: subtitle, systemImage: "sparkles", tint: SerenityPalette.accent)]
       + (appState.aiModelCatalog[provider] ?? []).map { model in
         SerenityDropdownOption(value: model, title: model, systemImage: "cpu", tint: providerTint(provider))
       }
@@ -10747,11 +10753,12 @@ private struct SettingsSectionView: View {
     guard !models.isEmpty else {
       return modelDropdownOptions(for: credential.provider)
     }
+    let resolvedDefault = AIProviderModelCatalog.defaultModel(for: credential.provider, verifiedModels: models)
     return [
       SerenityDropdownOption(
         value: "",
         title: "Default",
-        subtitle: "Use Serenity's recommended model",
+        subtitle: resolvedDefault.isEmpty ? "Use Serenity's recommended model" : "Uses \(resolvedDefault)",
         systemImage: "sparkles",
         tint: SerenityPalette.accent
       )

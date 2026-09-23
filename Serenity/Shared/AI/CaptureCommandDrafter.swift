@@ -435,6 +435,7 @@ enum CaptureCommandDrafter {
 
   static func schema() -> [String: Any] {
     [
+      "title": "capture_drafts",
       "type": "object",
       "additionalProperties": false,
       "required": ["tasks"],

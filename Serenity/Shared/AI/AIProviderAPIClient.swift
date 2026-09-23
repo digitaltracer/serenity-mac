@@ -2,6 +2,8 @@ import Foundation
 
 enum AIProviderAPIError: Error, LocalizedError, Equatable {
   case invalidKey
+  /// The key works but may not do this: a model it has no access to, or an org restriction.
+  case permissionDenied(String?)
   case rateLimited
   case network(String)
   case decoding
@@ -15,6 +17,11 @@ enum AIProviderAPIError: Error, LocalizedError, Equatable {
     switch self {
     case .invalidKey:
       return "Invalid API key"
+    case .permissionDenied(let detail):
+      guard let detail, !detail.isEmpty else {
+        return "This API key is not allowed to make this request"
+      }
+      return "This API key is not allowed to make this request: \(detail)"
     case .rateLimited:
       return "Rate limited — try again shortly"
     case .network(let message):
@@ -113,6 +120,7 @@ enum AIProviderAPIClient {
   ) async throws -> AIProviderTextGenerationResponse {
     let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { throw AIProviderAPIError.invalidKey }
+    let (schemaName, schema) = namedSchema(schema)
 
     switch endpoint.provider {
     case .openai:
@@ -121,7 +129,8 @@ enum AIProviderAPIClient {
         model: model,
         systemPrompt: systemPrompt,
         userPrompt: userPrompt,
-        schema: schema
+        schema: schema,
+        schemaName: schemaName
       )
     case .anthropic:
       return try await generateAnthropicJSON(
@@ -154,9 +163,18 @@ enum AIProviderAPIClient {
         model: model,
         systemPrompt: systemPrompt,
         userPrompt: userPrompt,
-        schema: schema
+        schema: schema,
+        schemaName: schemaName
       )
     }
+  }
+
+  /// Each feature names its schema in the root `title`. It becomes the name OpenAI-style APIs ask
+  /// for and is dropped from the schema itself.
+  static func namedSchema(_ schema: [String: Any]) -> (name: String, schema: [String: Any]) {
+    var schema = schema
+    let name = (schema.removeValue(forKey: "title") as? String) ?? "response"
+    return (name, schema)
   }
 
   // MARK: - OpenAI
@@ -221,7 +239,8 @@ enum AIProviderAPIClient {
     model: String,
     systemPrompt: String,
     userPrompt: String,
-    schema: [String: Any]
+    schema: [String: Any],
+    schemaName: String
   ) async throws -> AIProviderTextGenerationResponse {
     var request = URLRequest(url: URL(string: "https://api.openai.com/v1/responses")!)
     request.httpMethod = "POST"
@@ -238,7 +257,7 @@ enum AIProviderAPIClient {
       "text": [
         "format": [
           "type": "json_schema",
-          "name": "quick_capture_classification",
+          "name": schemaName,
           "strict": true,
           "schema": schema,
         ],
@@ -299,6 +318,98 @@ enum AIProviderAPIClient {
 
     let content: [ContentItem]
     let usage: Usage?
+    let stopReason: String?
+
+    enum CodingKeys: String, CodingKey {
+      case content
+      case usage
+      case stopReason = "stop_reason"
+    }
+  }
+
+  /// Room for adaptive thinking on the models that think by default, while staying non-streaming.
+  static let anthropicMaxTokens = 16_000
+
+  /// Effort arrived with Opus 4.5 and Sonnet 4.6; Haiku and older Sonnets reject the field.
+  static func anthropicAcceptsEffort(_ model: String) -> Bool {
+    if isFableOrMythos(model) { return true }
+    guard let (family, version) = anthropicFamilyVersion(model) else { return false }
+    switch family {
+    case "opus":
+      return version >= 405
+    case "sonnet":
+      return version >= 406
+    default:
+      return false
+    }
+  }
+
+  /// The models Anthropic documents for `output_config.format`; the rest get the schema in the prompt.
+  static func anthropicSupportsStructuredOutputs(_ model: String) -> Bool {
+    if isFableOrMythos(model) { return true }
+    guard let (family, version) = anthropicFamilyVersion(model) else { return false }
+    switch family {
+    case "opus":
+      return version >= 408 || version == 405 || version == 401
+    case "sonnet":
+      return version >= 500
+    case "haiku":
+      return version >= 405
+    default:
+      return false
+    }
+  }
+
+  private static func isFableOrMythos(_ model: String) -> Bool {
+    let lowered = model.lowercased()
+    return lowered.contains("fable") || lowered.contains("mythos")
+  }
+
+  /// `claude-opus-4-8` → ("opus", 408). A dated id such as `claude-opus-4-20250514` is the .0
+  /// release, not minor 20250514.
+  private static func anthropicFamilyVersion(_ model: String) -> (String, Int)? {
+    let parts = model.lowercased().split(separator: "-").map(String.init)
+    guard let familyIndex = parts.firstIndex(where: { ["opus", "sonnet", "haiku"].contains($0) }),
+          familyIndex + 1 < parts.count,
+          let major = Int(parts[familyIndex + 1])
+    else {
+      return nil
+    }
+    let minor = parts.indices.contains(familyIndex + 2)
+      ? (parts[familyIndex + 2].count <= 2 ? Int(parts[familyIndex + 2]) ?? 0 : 0)
+      : 0
+    return (parts[familyIndex], major * 100 + minor)
+  }
+
+  /// Structured outputs reject numeric, length and array-size limits. They are dropped here and the
+  /// decoders enforce them instead (confidence is clamped to 0...1 where it is read).
+  static func strippingUnsupportedConstraints(_ schema: [String: Any]) -> [String: Any] {
+    let unsupported: Set<String> = [
+      "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+      "minLength", "maxLength", "minItems", "maxItems", "uniqueItems",
+    ]
+    var node = schema.filter { !unsupported.contains($0.key) }
+    if let properties = node["properties"] as? [String: Any] {
+      node["properties"] = properties.mapValues { value -> Any in
+        (value as? [String: Any]).map(strippingUnsupportedConstraints) ?? value
+      }
+    }
+    if let items = node["items"] as? [String: Any] {
+      node["items"] = strippingUnsupportedConstraints(items)
+    }
+    for key in ["anyOf", "allOf", "oneOf"] {
+      if let options = node[key] as? [[String: Any]] {
+        node[key] = options.map(strippingUnsupportedConstraints)
+      }
+    }
+    for key in ["$defs", "definitions"] {
+      if let definitions = node[key] as? [String: Any] {
+        node[key] = definitions.mapValues { value -> Any in
+          (value as? [String: Any]).map(strippingUnsupportedConstraints) ?? value
+        }
+      }
+    }
+    return node
   }
 
   private static func generateAnthropicJSON(
@@ -314,27 +425,50 @@ enum AIProviderAPIClient {
     request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-    let schemaText = try jsonString(schema)
-    request.httpBody = try jsonData([
+    // Structured outputs enforce the schema, so it is sent once, there, instead of in the prompt.
+    let structured = anthropicSupportsStructuredOutputs(model)
+    let content = structured ? userPrompt : """
+      \(userPrompt)
+
+      Return only one JSON object matching this JSON Schema. Do not wrap it in markdown:
+      \(try jsonString(schema))
+      """
+    // No sampling parameters: current Claude models reject `temperature` with a 400.
+    var body: [String: Any] = [
       "model": model,
-      "max_tokens": 1_200,
-      "temperature": 0,
+      "max_tokens": anthropicMaxTokens,
       "system": systemPrompt,
       "messages": [
-        [
-          "role": "user",
-          "content": """
-          \(userPrompt)
-
-          Return only one JSON object matching this JSON Schema. Do not wrap it in markdown:
-          \(schemaText)
-          """,
-        ],
+        ["role": "user", "content": content],
       ],
-    ])
+    ]
+    var outputConfig: [String: Any] = [:]
+    if anthropicAcceptsEffort(model) {
+      outputConfig["effort"] = "low"
+    }
+    if structured {
+      outputConfig["format"] = ["type": "json_schema", "schema": strippingUnsupportedConstraints(schema)]
+    }
+    if !outputConfig.isEmpty {
+      body["output_config"] = outputConfig
+    }
+    request.httpBody = try jsonData(body)
 
     let payload: AnthropicMessagesPayload = try await perform(request)
-    let text = payload.content.compactMap(\.text).joined(separator: "\n")
+    switch payload.stopReason {
+    case "max_tokens":
+      throw AIProviderAPIError.incompleteResponse(
+        "the reply hit the \(anthropicMaxTokens)-token limit before it finished"
+      )
+    case "refusal":
+      throw AIProviderAPIError.incompleteResponse("the model declined to answer this request")
+    default:
+      break
+    }
+    let text = payload.content
+      .filter { $0.type == nil || $0.type == "text" }
+      .compactMap(\.text)
+      .joined(separator: "\n")
     guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       throw AIProviderAPIError.invalidResponse
     }
@@ -624,7 +758,8 @@ enum AIProviderAPIClient {
     model: String,
     systemPrompt: String,
     userPrompt: String,
-    schema: [String: Any]
+    schema: [String: Any],
+    schemaName: String
   ) async throws -> AIProviderTextGenerationResponse {
     var request = URLRequest(url: try endpoint.customURL(path: "/chat/completions"))
     request.httpMethod = "POST"
@@ -640,7 +775,7 @@ enum AIProviderAPIClient {
       "response_format": [
         "type": "json_schema",
         "json_schema": [
-          "name": "quick_capture_classification",
+          "name": schemaName,
           "strict": true,
           "schema": schema,
         ],
@@ -669,33 +804,81 @@ enum AIProviderAPIClient {
 
   // MARK: - Common
 
+  /// Long enough for a reasoning model on a long prompt; URLRequest's default is 60 seconds.
+  static let requestTimeout: TimeInterval = 180
+  static let maxRetries = 3
+  /// Tests replace this so backoff costs no wall-clock time.
+  static var sleep: (TimeInterval) async throws -> Void = { seconds in
+    try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+  }
+
+  /// Retries throttling, server errors and "overloaded" with backoff, honouring `retry-after`.
   private static func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
+    var request = request
+    request.timeoutInterval = max(request.timeoutInterval, requestTimeout)
     let session = URLSession.shared
-    let data: Data
-    let response: URLResponse
-    do {
-      (data, response) = try await session.data(for: request)
-    } catch {
-      throw AIProviderAPIError.network(error.localizedDescription)
+    var attempt = 0
+
+    while true {
+      let data: Data
+      let response: URLResponse
+      do {
+        (data, response) = try await session.data(for: request)
+      } catch {
+        throw AIProviderAPIError.network(error.localizedDescription)
+      }
+      guard let http = response as? HTTPURLResponse else {
+        throw AIProviderAPIError.decoding
+      }
+
+      if isRetryable(status: http.statusCode, body: data), attempt < maxRetries {
+        try await sleep(retryDelay(for: http, attempt: attempt))
+        attempt += 1
+        continue
+      }
+
+      switch http.statusCode {
+      case 200...299:
+        break
+      case 401:
+        throw AIProviderAPIError.invalidKey
+      case 403:
+        throw AIProviderAPIError.permissionDenied(providerErrorDetail(from: data))
+      case 429:
+        throw AIProviderAPIError.rateLimited
+      default:
+        throw AIProviderAPIError.unexpected(http.statusCode, providerErrorDetail(from: data))
+      }
+      do {
+        return try JSONDecoder().decode(T.self, from: data)
+      } catch {
+        throw AIProviderAPIError.decoding
+      }
     }
-    guard let http = response as? HTTPURLResponse else {
-      throw AIProviderAPIError.decoding
+  }
+
+  static func isRetryable(status: Int, body: Data) -> Bool {
+    if status == 429 || (500...599).contains(status) {
+      return true
     }
-    switch http.statusCode {
-    case 200...299:
-      break
-    case 401, 403:
-      throw AIProviderAPIError.invalidKey
-    case 429:
-      throw AIProviderAPIError.rateLimited
-    default:
-      throw AIProviderAPIError.unexpected(http.statusCode, providerErrorDetail(from: data))
+    guard !(200...299).contains(status),
+          let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+          let error = object["error"] as? [String: Any]
+    else {
+      return false
     }
-    do {
-      return try JSONDecoder().decode(T.self, from: data)
-    } catch {
-      throw AIProviderAPIError.decoding
+    return (error["type"] as? String) == "overloaded_error"
+  }
+
+  /// The provider's `retry-after` when it gives one (capped at a minute), else 1s, 2s, 4s.
+  static func retryDelay(for response: HTTPURLResponse, attempt: Int) -> TimeInterval {
+    if let milliseconds = response.value(forHTTPHeaderField: "retry-after-ms").flatMap(Double.init) {
+      return min(60, max(0, milliseconds / 1_000))
     }
+    if let seconds = response.value(forHTTPHeaderField: "retry-after").flatMap(Double.init) {
+      return min(60, max(0, seconds))
+    }
+    return pow(2, Double(attempt))
   }
 
   /// Providers explain a 4xx in the body; without it a bad model id or payload field is unguessable.

@@ -190,6 +190,7 @@ enum SlackProposalPlanner {
 
   static func schema() -> [String: Any] {
     [
+      "title": "slack_decisions",
       "type": "object",
       "additionalProperties": false,
       "required": ["decisions"],
