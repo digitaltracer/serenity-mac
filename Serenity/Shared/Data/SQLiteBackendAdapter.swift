@@ -72,6 +72,10 @@ final class SQLiteBackendAdapter {
     GRDBSlackRepositorySet(dbQueue: try databaseQueue())
   }
 
+  func makeGitHubImportLedger() throws -> GRDBGitHubImportLedger {
+    GRDBGitHubImportLedger(dbQueue: try databaseQueue())
+  }
+
   func makeSecurityAuditRepository() throws -> GRDBSecurityAuditRepository {
     GRDBSecurityAuditRepository(dbQueue: try databaseQueue())
   }

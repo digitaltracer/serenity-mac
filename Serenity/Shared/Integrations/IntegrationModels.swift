@@ -145,9 +145,12 @@ struct GoogleCalendarSyncPayload: Sendable {
 }
 
 struct GitHubSyncPayload: Sendable {
+  /// New tasks and the existing ones whose pull request moved on.
   var tasks: [TaskEntity]
   var project: ProjectEntity?
   var importedCount: Int
+  /// Pull requests imported for the first time on this sync, to remember even after their task is deleted.
+  var newlyImportedIDs: [Int64] = []
 }
 
 enum SlackConfiguration {

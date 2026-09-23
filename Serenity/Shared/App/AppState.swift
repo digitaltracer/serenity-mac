@@ -1205,9 +1205,12 @@ final class AppState: ObservableObject {
 
     if githubIntegrationState.syncEnabled && !githubIntegrationState.tokens.isEmpty {
       do {
+        _ = try await sqliteBackendAdapter.bootstrap()
+        let ledger = try sqliteBackendAdapter.makeGitHubImportLedger()
         let payload = try await githubIntegrationService.syncGitHubPullRequests(
           existingTasks: tasks,
-          existingProjects: projects
+          existingProjects: projects,
+          alreadyImported: try ledger.importedIDs()
         )
         if let project = payload.project {
           try await saveProject(project)
@@ -1215,6 +1218,7 @@ final class AppState: ObservableObject {
         for task in payload.tasks {
           try await saveTask(task)
         }
+        try ledger.record(payload.newlyImportedIDs)
         githubIntegrationState.tokens = (try? await githubIntegrationService.listTokens()) ?? githubIntegrationState.tokens
         githubIntegrationState.lastSyncAt = Date()
         githubIntegrationState.lastError = nil

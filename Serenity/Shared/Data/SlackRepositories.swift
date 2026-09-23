@@ -397,3 +397,32 @@ struct GRDBSlackRepositorySet {
     proposals = GRDBSlackProposalRepository(dbQueue: dbQueue)
   }
 }
+
+
+/// The pull requests the GitHub sync has imported. Device-local, like the Slack cursors.
+final class GRDBGitHubImportLedger {
+  private let dbQueue: DatabaseQueue
+
+  init(dbQueue: DatabaseQueue) {
+    self.dbQueue = dbQueue
+  }
+
+  func importedIDs() throws -> Set<Int64> {
+    try dbQueue.read { db in
+      Set(try Int64.fetchAll(db, sql: "SELECT pr_id FROM github_imported_pull_requests;"))
+    }
+  }
+
+  func record(_ ids: [Int64], at date: Date = Date()) throws {
+    guard !ids.isEmpty else { return }
+    let stamp = CoreRepositoryCodec.encodeDate(date)
+    try dbQueue.write { db in
+      for id in ids {
+        try db.execute(
+          sql: "INSERT OR IGNORE INTO github_imported_pull_requests (pr_id, imported_at) VALUES (?, ?);",
+          arguments: [id, stamp]
+        )
+      }
+    }
+  }
+}

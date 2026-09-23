@@ -985,5 +985,18 @@ actor DatabaseMigrationRunner {
         "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '12');",
       ]
     ),
+    DatabaseMigration(
+      identifier: "20260923_015_github_imported_pull_requests",
+      statements: [
+        // Every pull request ever imported, so one whose task was deleted is not imported again.
+        """
+        CREATE TABLE IF NOT EXISTS github_imported_pull_requests (
+          pr_id INTEGER PRIMARY KEY,
+          imported_at TEXT NOT NULL
+        );
+        """,
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '13');",
+      ]
+    ),
   ]
 }

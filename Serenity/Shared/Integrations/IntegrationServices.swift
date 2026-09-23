@@ -537,9 +537,13 @@ actor GitHubIntegrationService {
     return tokens
   }
 
+  /// `alreadyImported` holds every pull request imported before, so one whose task was deleted
+  /// stays deleted. A tracked pull request refreshes its task: the title follows it, and the task
+  /// completes once the pull request is merged or closed.
   func syncGitHubPullRequests(
     existingTasks: [TaskEntity],
     existingProjects: [ProjectEntity],
+    alreadyImported: Set<Int64> = [],
     lookbackDays: Int = 14
   ) async throws -> GitHubSyncPayload {
     var tokens = try loadTokens().filter(\.isActive)
@@ -568,13 +572,16 @@ actor GitHubIntegrationService {
         userId: nil
       )
 
-    let existingPRTags = Set(
-      existingTasks
-        .flatMap(\.tags)
-        .filter { $0.hasPrefix("github-pr-") }
-    )
+    var trackedByTag: [String: TaskEntity] = [:]
+    for task in existingTasks {
+      for tag in task.tags where tag.hasPrefix("github-pr-") {
+        trackedByTag[tag] = task
+      }
+    }
 
     var importedTasks: [TaskEntity] = []
+    var refreshedTasks: [TaskEntity] = []
+    var newlyImported: [Int64] = []
     var seenPRIDs: Set<Int64> = []
 
     for tokenIndex in tokens.indices {
@@ -612,18 +619,36 @@ actor GitHubIntegrationService {
         seenPRIDs.insert(item.id)
 
         let tag = "github-pr-\(item.id)"
-        if existingPRTags.contains(tag) {
+        let isOpen = item.state.lowercased() == "open"
+
+        if var tracked = trackedByTag[tag] {
+          var changed = false
+          if tracked.title != item.title {
+            tracked.title = item.title
+            changed = true
+          }
+          if !isOpen, !tracked.completed {
+            tracked.completed = true
+            tracked.completedAt = now
+            changed = true
+          }
+          if changed {
+            tracked.updatedAt = now
+            refreshedTasks.append(tracked)
+          }
           continue
         }
+        guard !alreadyImported.contains(item.id) else { continue }
 
+        // No due date: a pull request has no deadline of its own, and "due now" made every one overdue.
         let task = TaskEntity(
           id: "github-pr-\(item.id)",
           title: item.title,
           description: [item.body ?? "", item.htmlURL].joined(separator: "\n\n"),
-          completed: item.state.lowercased() != "open",
-          completedAt: item.state.lowercased() != "open" ? now : nil,
+          completed: !isOpen,
+          completedAt: isOpen ? nil : now,
           priority: .medium,
-          dueDate: now,
+          dueDate: nil,
           projectId: project.id,
           tags: ["github", "pull-request", tag],
           createdAt: item.createdAt,
@@ -633,6 +658,7 @@ actor GitHubIntegrationService {
           userId: nil
         )
         importedTasks.append(task)
+        newlyImported.append(item.id)
       }
 
       tokens[tokenIndex].lastSyncAt = now
@@ -641,9 +667,10 @@ actor GitHubIntegrationService {
 
     try saveTokens(tokens)
     return GitHubSyncPayload(
-      tasks: importedTasks,
+      tasks: importedTasks + refreshedTasks,
       project: existingProjects.contains(where: { $0.id == project.id }) ? nil : project,
-      importedCount: importedTasks.count
+      importedCount: importedTasks.count,
+      newlyImportedIDs: newlyImported
     )
   }
 
