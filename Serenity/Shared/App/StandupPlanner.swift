@@ -303,7 +303,7 @@ enum StandupPlanner {
       let mention = task.id.isEmpty ? nil : recall?.mentions[task.id]
       let isCalendarEvent = task.tags.contains(calendarTag)
 
-      if let card = sinceCard(for: task, window: window, mention: mention, calendar: calendar) {
+      if let card = sinceCard(for: task, window: window, mention: mention, now: now, calendar: calendar) {
         if isCalendarEvent {
           leftOut.append(divert(card))
         } else {
@@ -360,6 +360,7 @@ enum StandupPlanner {
     for task: TaskEntity,
     window: StandupWindow,
     mention: StandupMention?,
+    now: Date,
     calendar: Calendar
   ) -> StandupCard? {
     let card = { (fact: String, source: StandupCardSource) in
@@ -376,7 +377,7 @@ enum StandupPlanner {
     }
 
     if task.completed, let completedAt = task.completedAt, inWindow(completedAt, window) {
-      return card("Finished \(StandupDateText.dayAndTime(completedAt, calendar: calendar))", .completed)
+      return card("Finished \(StandupDateText.dayAndTime(completedAt, now: now, calendar: calendar))", .completed)
     }
 
     guard !task.completed else { return nil }
@@ -386,7 +387,7 @@ enum StandupPlanner {
     if let comment = recent.last(where: { $0.kind == .comment }) {
       let quoted = StandupDateText.shorten(comment.text)
       return card(
-        "You wrote: \u{201C}\(quoted)\u{201D} \u{00B7} \(StandupDateText.dayAndTime(comment.createdAt, calendar: calendar))",
+        "You wrote: \u{201C}\(quoted)\u{201D} \u{00B7} \(StandupDateText.dayAndTime(comment.createdAt, now: now, calendar: calendar))",
         .comment
       )
     }
@@ -394,7 +395,7 @@ enum StandupPlanner {
     let events = recent.filter { $0.kind == .event }
     guard let latestEvent = events.last else {
       if inWindow(task.createdAt, window) {
-        return card("Picked up \(StandupDateText.day(task.createdAt, calendar: calendar))", .progress)
+        return card("Picked up \(StandupDateText.day(task.createdAt, now: now, calendar: calendar))", .progress)
       }
       return nil
     }
@@ -403,13 +404,13 @@ enum StandupPlanner {
     if closedSubtasks > 0, !task.subtasks.isEmpty {
       let noun = closedSubtasks == 1 ? "subtask" : "subtasks"
       return card(
-        "\(closedSubtasks) of \(task.subtasks.count) \(noun) done \(StandupDateText.day(latestEvent.createdAt, calendar: calendar))",
+        "\(closedSubtasks) of \(task.subtasks.count) \(noun) done \(StandupDateText.day(latestEvent.createdAt, now: now, calendar: calendar))",
         .progress
       )
     }
 
     return card(
-      "\(latestEvent.text) \u{00B7} \(StandupDateText.day(latestEvent.createdAt, calendar: calendar))",
+      "\(latestEvent.text) \u{00B7} \(StandupDateText.day(latestEvent.createdAt, now: now, calendar: calendar))",
       .progress
     )
   }
@@ -443,7 +444,7 @@ enum StandupPlanner {
       schedule = "Due today"
       rank = 1
     } else if let dueDate = task.dueDate {
-      schedule = "Due \(StandupDateText.day(dueDate, calendar: calendar))"
+      schedule = "Due \(StandupDateText.day(dueDate, now: now, calendar: calendar))"
       rank = 2
     } else {
       schedule = nil
@@ -584,7 +585,7 @@ enum StandupDateText {
   static let weekdayHorizon = 6
   static let commentLimit = 60
 
-  static func day(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+  static func day(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
     if calendar.isDate(date, inSameDayAs: now) { return "today" }
     if let yesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now)),
        calendar.isDate(date, inSameDayAs: yesterday) {
@@ -604,12 +605,12 @@ enum StandupDateText {
     return date.formatted(.dateTime.day().month(.abbreviated))
   }
 
-  static func dayAndTime(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+  static func dayAndTime(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
     "\(day(date, now: now, calendar: calendar)) \(date.formatted(date: .omitted, time: .shortened))"
   }
 
   /// What a column header calls the start of the window.
-  static func windowLabel(_ window: StandupWindow, now: Date = Date(), calendar: Calendar = .current) -> String {
+  static func windowLabel(_ window: StandupWindow, now: Date, calendar: Calendar = .current) -> String {
     switch window.anchor {
     case .sameDay:
       return "Since this morning"

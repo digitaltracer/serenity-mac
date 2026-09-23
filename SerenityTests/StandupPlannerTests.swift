@@ -399,6 +399,50 @@ final class StandupPlannerTests: XCTestCase {
     XCTAssertTrue(card.detail.comments.isEmpty)
   }
 
+  /// Day words come from the board's clock, never the machine's, so the same
+  /// board built two weeks apart reads the same.
+  func testDayWordsFollowTheGivenClockInAnyWeek() throws {
+    let wednesdays = [
+      date(year: 2026, month: 9, day: 23, hour: 10, minute: 0),
+      date(year: 2026, month: 10, day: 7, hour: 10, minute: 0),
+    ]
+    for now in wednesdays {
+      func shifted(days: Int, hour: Int) -> Date {
+        let day = calendar.date(byAdding: .day, value: days, to: calendar.startOfDay(for: now))!
+        return calendar.date(byAdding: .hour, value: hour, to: day)!
+      }
+      let moved = task(
+        id: "a",
+        title: "Moved yesterday",
+        activity: [event("Priority set to High", at: shifted(days: -1, hour: 11))]
+      )
+      let due = task(id: "b", title: "Due Friday", dueDate: shifted(days: 2, hour: 17), activity: [
+        event("Priority set to Low", at: shifted(days: 0, hour: 9)),
+      ])
+      let done = task(id: "c", title: "Done today", completed: true, completedAt: shifted(days: 0, hour: 9))
+
+      let board = StandupPlanner.build(
+        tasks: [moved, due, done],
+        window: StandupWindow(start: shifted(days: -2, hour: 0), end: now, anchor: .lastStandup),
+        recall: nil,
+        now: now,
+        calendar: calendar
+      )
+
+      let since = Dictionary(uniqueKeysWithValues: board.cards(in: .since).compactMap { card in
+        card.taskID.map { ($0, card.fact) }
+      })
+      XCTAssertEqual(since["a"], "Priority set to High \u{00B7} yesterday")
+      XCTAssertTrue(since["c"]?.hasPrefix("Finished today ") ?? false, since["c"] ?? "")
+      let today = board.cards(in: .today).first { $0.taskID == "b" }
+      XCTAssertEqual(today?.fact, "Due Friday")
+      XCTAssertEqual(
+        StandupDateText.windowLabel(board.window, now: now, calendar: calendar),
+        "Since Monday"
+      )
+    }
+  }
+
   // MARK: - Helpers
 
   private func build(tasks: [TaskEntity], recall: StandupRecall? = nil) -> StandupBoard {

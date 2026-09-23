@@ -8602,7 +8602,7 @@ struct StandupSectionView: View {
   /// Says how the window was arrived at, because a suspiciously thin or fat
   /// stand-up should explain itself rather than look broken.
   private func windowSubtitle(_ window: StandupWindow) -> String {
-    let span = StandupDateText.windowLabel(window).lowercased()
+    let span = StandupDateText.windowLabel(window, now: Date()).lowercased()
     switch window.anchor {
     case .lastStandup:
       return "\(span.prefix(1).uppercased() + span.dropFirst()) — your last stand-up. Drag a card to move it between columns."
@@ -8686,7 +8686,7 @@ struct StandupSectionView: View {
 
   private func columnTitle(_ column: StandupColumn) -> String {
     guard column == .since, let window = appState.standupBoard?.window else { return column.title }
-    return StandupDateText.windowLabel(window)
+    return StandupDateText.windowLabel(window, now: Date())
   }
 
   private func tint(for column: StandupColumn) -> Color {
