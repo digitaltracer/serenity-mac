@@ -131,6 +131,7 @@ struct IntegrationSyncOutcome: Equatable, Sendable {
   var provider: IntegrationProvider
   var importedTasks: Int
   var detail: String
+  var failed = false
 }
 
 struct IntegrationDiagnosticsSnapshot: Equatable, Sendable {

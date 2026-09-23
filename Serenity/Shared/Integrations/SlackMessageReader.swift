@@ -67,6 +67,14 @@ struct SlackActivityBatch: Sendable {
   var cursors: [SlackChannelCursor]
   var channelsScanned: Int
   var reachedDeadline: Bool
+  var failures: [SlackChannelFailure] = []
+}
+
+/// A channel whose pass threw. Its cursor is returned unchanged so the next sync re-reads it.
+struct SlackChannelFailure: Equatable, Sendable {
+  var channelID: String
+  var channelName: String
+  var message: String
 }
 
 /// One conversation the user named by pasting its link. Deliberately not a
@@ -158,6 +166,10 @@ actor SlackMessageReader {
       now.addingTimeInterval(-Double(max(1, backfillDays)) * 86_400).timeIntervalSince1970
     )
 
+    var failures: [SlackChannelFailure] = []
+    let participationFloor = now.addingTimeInterval(-Double(Self.participatedThreadHorizonDays) * 86_400)
+      .timeIntervalSince1970
+
     for channel in channels {
       if let deadline, Date() >= deadline {
         reachedDeadline = true
@@ -169,57 +181,90 @@ actor SlackMessageReader {
       cursor.channelName = channel.name
 
       let oldest = cursor.lastTS ?? backfillFloor
-      let history = try await fetchHistory(
-        channel: channel,
-        token: token,
-        oldest: oldest,
-        ownUserID: ownUserID
-      )
-      scanned += 1
-
-      var messages = history.messages
-      var participated = Set(cursor.participatedThreadTS)
-
-      // A thread the user has spoken in stays interesting even when later
-      // replies never mention them again.
-      for message in messages where message.isOwn {
-        if let threadTS = message.threadTS {
-          participated.insert(threadTS)
-        }
-      }
-
-      for parent in history.threadParents {
-        let isParticipated = participated.contains(parent.ts)
-        let mentionsUser = parent.text.contains("<@\(session.userID)>")
-        guard isParticipated || mentionsUser else { continue }
-        guard parent.latestReply.map({ SlackTimestamp.isAfter($0, oldest) }) ?? false else { continue }
-
-        let replies = try await fetchReplies(
+      do {
+        let history = try await fetchHistory(
           channel: channel,
-          threadTS: parent.ts,
           token: token,
           oldest: oldest,
           ownUserID: ownUserID
         )
-        if replies.contains(where: \.isOwn) {
-          participated.insert(parent.ts)
+        scanned += 1
+
+        var messages = history.messages
+        var participated = Set(cursor.participatedThreadTS)
+
+        // A thread the user has spoken in stays interesting even when later
+        // replies never mention them again.
+        for message in messages where message.isOwn {
+          if let threadTS = message.threadTS {
+            participated.insert(threadTS)
+          }
         }
-        messages.append(contentsOf: replies)
-      }
 
-      // Only advance once the whole channel pass succeeded — a throw above
-      // leaves the old cursor in place so the next sync re-reads rather than
-      // skipping the window.
-      if let newest = messages.map(\.ts).max(by: { SlackTimestamp.isAfter($1, $0) }) {
-        cursor.lastTS = SlackTimestamp.newer(newest, cursor.lastTS ?? newest)
-      } else if cursor.lastTS == nil {
-        cursor.lastTS = backfillFloor
-      }
-      cursor.participatedThreadTS = participated.sorted()
-      cursor.updatedAt = now
-      cursorsByChannel[channel.id] = cursor
+        var readThreads: Set<String> = []
+        for parent in history.threadParents {
+          let isParticipated = participated.contains(parent.ts)
+          let mentionsUser = parent.text.contains("<@\(session.userID)>")
+          guard isParticipated || mentionsUser else { continue }
+          guard parent.latestReply.map({ SlackTimestamp.isAfter($0, oldest) }) ?? false else { continue }
 
-      collected.append(contentsOf: messages)
+          let replies = try await fetchReplies(
+            channel: channel,
+            threadTS: parent.ts,
+            token: token,
+            oldest: oldest,
+            ownUserID: ownUserID
+          )
+          readThreads.insert(parent.ts)
+          if replies.contains(where: \.isOwn) {
+            participated.insert(parent.ts)
+          }
+          messages.append(contentsOf: replies)
+        }
+
+        // History only lists parents inside the window, so replies under an older
+        // thread you took part in would otherwise never be read.
+        let olderThreads = participated.filter { threadTS in
+          !readThreads.contains(threadTS)
+            && !SlackTimestamp.isAfter(threadTS, oldest)
+            && SlackTimestamp.value(threadTS) >= participationFloor
+        }
+        for threadTS in olderThreads.sorted() {
+          let replies = try await fetchReplies(
+            channel: channel,
+            threadTS: threadTS,
+            token: token,
+            oldest: oldest,
+            ownUserID: ownUserID
+          )
+          messages.append(contentsOf: replies.filter { SlackTimestamp.isAfter($0.ts, oldest) })
+        }
+
+        // Only advance once the whole channel pass succeeded — a throw above
+        // leaves the old cursor in place so the next sync re-reads rather than
+        // skipping the window.
+        if let newest = messages.map(\.ts).max(by: { SlackTimestamp.isAfter($1, $0) }) {
+          cursor.lastTS = SlackTimestamp.newer(newest, cursor.lastTS ?? newest)
+        } else if cursor.lastTS == nil {
+          cursor.lastTS = backfillFloor
+        }
+        // Past the horizon an older thread is dropped, so the list cannot grow forever.
+        cursor.participatedThreadTS = participated.filter { threadTS in
+          SlackTimestamp.value(threadTS) >= participationFloor || SlackTimestamp.isAfter(threadTS, oldest)
+        }.sorted()
+        cursor.updatedAt = now
+        cursorsByChannel[channel.id] = cursor
+
+        collected.append(contentsOf: messages)
+      } catch {
+        if Self.failsTheWholeWorkspace(error) {
+          throw error
+        }
+        AppLogger.error("Slack channel \(channel.id) failed: \(error.localizedDescription)")
+        failures.append(
+          SlackChannelFailure(channelID: channel.id, channelName: channel.name, message: error.localizedDescription)
+        )
+      }
     }
 
     let deduplicated = Dictionary(collected.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -228,8 +273,19 @@ actor SlackMessageReader {
       messages: deduplicated.values.sorted { SlackTimestamp.isAfter($1.ts, $0.ts) },
       cursors: Array(cursorsByChannel.values),
       channelsScanned: scanned,
-      reachedDeadline: reachedDeadline
+      reachedDeadline: reachedDeadline,
+      failures: failures
     )
+  }
+
+  /// How long a thread you replied in keeps being re-read after its parent leaves the window.
+  static let participatedThreadHorizonDays = 14
+
+  /// A revoked token or a cancelled task fails every channel alike, so it ends the pass instead.
+  private static func failsTheWholeWorkspace(_ error: Error) -> Bool {
+    if error is CancellationError { return true }
+    guard case IntegrationServiceError.slackAPIError(let code) = error else { return false }
+    return ["invalid_auth", "not_authed", "token_revoked", "token_expired", "account_inactive"].contains(code)
   }
 
   /// Reads one conversation named by a link. This lives on the reader rather

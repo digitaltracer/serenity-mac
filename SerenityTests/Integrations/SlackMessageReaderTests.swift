@@ -211,3 +211,112 @@ extension SlackMessageReaderTests {
     XCTAssertTrue(groups.isEmpty)
   }
 }
+
+extension SlackMessageReaderTests {
+  /// One channel you were removed from must not cost every other channel its cursor.
+  func testAFailingChannelKeepsItsCursorAndTheOthersAdvance() async throws {
+    let slack = ChannelSlack(channels: ["C_OK": "eng", "C_GONE": "old-team"])
+    await slack.setHistory("C_OK", #"{"ok":true,"messages":[{"ts":"300.0","user":"U_JANE","text":"hello"}]}"#)
+    await slack.setHistory("C_GONE", #"{"ok":false,"error":"not_in_channel"}"#)
+
+    let reader = SlackMessageReader(client: SlackAPIClient(requestHandler: { try await slack.respond(to: $0) }))
+    let cursors = [
+      SlackChannelCursor(channelID: "C_OK", channelName: "eng", lastTS: "100.0"),
+      SlackChannelCursor(channelID: "C_GONE", channelName: "old-team", lastTS: "90.0"),
+    ]
+    let batch = try await reader.fetchNewActivity(session: session(), cursors: cursors)
+
+    let byChannel = Dictionary(uniqueKeysWithValues: batch.cursors.map { ($0.channelID, $0.lastTS) })
+    XCTAssertEqual(byChannel["C_OK"], "300.0")
+    XCTAssertEqual(byChannel["C_GONE"], "90.0")
+    XCTAssertEqual(batch.failures.map(\.channelID), ["C_GONE"])
+    XCTAssertEqual(batch.messages.map(\.ts), ["300.0"])
+  }
+
+  func testARevokedTokenStillFailsTheWholePass() async {
+    let slack = ChannelSlack(channels: ["C_OK": "eng"])
+    await slack.setHistory("C_OK", #"{"ok":false,"error":"token_revoked"}"#)
+
+    let reader = SlackMessageReader(client: SlackAPIClient(requestHandler: { try await slack.respond(to: $0) }))
+    do {
+      _ = try await reader.fetchNewActivity(session: session(), cursors: [])
+      XCTFail("Expected the pass to throw")
+    } catch {
+      XCTAssertNotNil(error as? IntegrationServiceError)
+    }
+  }
+
+  /// History only lists parents inside the window, so an older thread you replied in is read by id.
+  func testRepliesUnderAnOlderThreadYouJoinedAreStillRead() async throws {
+    let now = Date(timeIntervalSince1970: 2_000_000)
+    let slack = ChannelSlack(channels: ["C_OK": "eng"])
+    await slack.setHistory("C_OK", #"{"ok":true,"messages":[]}"#)
+    await slack.setReplies(
+      "1000000.0",
+      #"{"ok":true,"messages":[{"ts":"1000000.0","user":"U_ME","text":"parent"},"#
+        + #"{"ts":"1995000.0","user":"U_JANE","text":"any update?","thread_ts":"1000000.0"}]}"#
+    )
+
+    let reader = SlackMessageReader(client: SlackAPIClient(requestHandler: { try await slack.respond(to: $0) }))
+    let cursor = SlackChannelCursor(
+      channelID: "C_OK",
+      channelName: "eng",
+      lastTS: "1990000.0",
+      // Inside the two-week horizon, and one well past it.
+      participatedThreadTS: ["1000000.0", "500000.0"]
+    )
+    let batch = try await reader.fetchNewActivity(session: session(), cursors: [cursor], now: now)
+
+    XCTAssertEqual(batch.messages.map(\.ts), ["1995000.0"], "The old parent is not re-read as new")
+    let threadsRead = await slack.threadsRead()
+    XCTAssertEqual(threadsRead, ["1000000.0"])
+    XCTAssertEqual(batch.cursors.first?.participatedThreadTS, ["1000000.0"], "A thread past the horizon is dropped")
+  }
+}
+
+private actor ChannelSlack {
+  private let channels: [String: String]
+  private var history: [String: String] = [:]
+  private var replies: [String: String] = [:]
+  private var repliesRequested: [String] = []
+
+  init(channels: [String: String]) {
+    self.channels = channels
+  }
+
+  func setHistory(_ channelID: String, _ payload: String) {
+    history[channelID] = payload
+  }
+
+  func setReplies(_ threadTS: String, _ payload: String) {
+    replies[threadTS] = payload
+  }
+
+  func threadsRead() -> [String] {
+    repliesRequested
+  }
+
+  func respond(to request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    let url = request.url!
+    let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+    let query = Dictionary(items.compactMap { item in item.value.map { (item.name, $0) } }, uniquingKeysWith: { a, _ in a })
+
+    let json: String
+    switch url.path {
+    case "/api/users.conversations":
+      let list = channels.keys.sorted().map { #"{"id":"\#($0)","name":"\#(channels[$0]!)"}"# }.joined(separator: ",")
+      json = #"{"ok":true,"channels":[\#(list)]}"#
+    case "/api/users.list":
+      json = #"{"ok":true,"members":[]}"#
+    case "/api/conversations.history":
+      json = history[query["channel"] ?? ""] ?? #"{"ok":true,"messages":[]}"#
+    case "/api/conversations.replies":
+      let ts = query["ts"] ?? ""
+      repliesRequested.append(ts)
+      json = replies[ts] ?? #"{"ok":true,"messages":[]}"#
+    default:
+      json = #"{"ok":true}"#
+    }
+    return (Data(json.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+  }
+}

@@ -217,6 +217,7 @@ final class AppState: ObservableObject {
   private var slackMessageReader: SlackMessageReader?
   private var slackRepositories: GRDBSlackRepositorySet?
   private var slackPollTask: Task<Void, Never>?
+  private var slackSyncInFlight: Task<IntegrationSyncOutcome?, Never>?
   private let aiWorkflowService: AIWorkflowService
   private let notificationCenter: NotificationCenterAdapter = SystemNotificationCenter()
   private lazy var notificationScheduler = NotificationScheduler(center: notificationCenter)
@@ -1100,7 +1101,10 @@ final class AppState: ObservableObject {
     await refreshIntegrationDiagnostics()
   }
 
-  func syncIntegrationsNow() async {
+  /// Each provider runs on its own, so one expired token reports its failure without costing the
+  /// others their sync.
+  @discardableResult
+  func syncIntegrationsNow() async -> [IntegrationSyncOutcome] {
     integrationSyncInProgress = true
     var outcomes: [IntegrationSyncOutcome] = []
 
@@ -1108,8 +1112,8 @@ final class AppState: ObservableObject {
       integrationSyncInProgress = false
     }
 
-    do {
-      if googleIntegrationState.connected && googleIntegrationState.syncEnabled {
+    if googleIntegrationState.connected && googleIntegrationState.syncEnabled {
+      do {
         let payload = try await googleIntegrationService.syncCalendarTasks(
           existingTasks: tasks,
           existingProjects: projects
@@ -1121,6 +1125,7 @@ final class AppState: ObservableObject {
           try await saveTask(task)
         }
         googleIntegrationState.lastSyncAt = Date()
+        googleIntegrationState.lastError = nil
         outcomes.append(
           IntegrationSyncOutcome(
             provider: .google,
@@ -1128,9 +1133,21 @@ final class AppState: ObservableObject {
             detail: "Imported \(payload.importedCount) Google calendar task(s)"
           )
         )
+      } catch {
+        googleIntegrationState.lastError = error.localizedDescription
+        outcomes.append(
+          IntegrationSyncOutcome(
+            provider: .google,
+            importedTasks: 0,
+            detail: "Google Calendar failed: \(error.localizedDescription)",
+            failed: true
+          )
+        )
       }
+    }
 
-      if githubIntegrationState.syncEnabled && !githubIntegrationState.tokens.isEmpty {
+    if githubIntegrationState.syncEnabled && !githubIntegrationState.tokens.isEmpty {
+      do {
         let payload = try await githubIntegrationService.syncGitHubPullRequests(
           existingTasks: tasks,
           existingProjects: projects
@@ -1143,6 +1160,7 @@ final class AppState: ObservableObject {
         }
         githubIntegrationState.tokens = (try? await githubIntegrationService.listTokens()) ?? githubIntegrationState.tokens
         githubIntegrationState.lastSyncAt = Date()
+        githubIntegrationState.lastError = nil
         outcomes.append(
           IntegrationSyncOutcome(
             provider: .github,
@@ -1150,25 +1168,48 @@ final class AppState: ObservableObject {
             detail: "Imported \(payload.importedCount) GitHub PR task(s)"
           )
         )
+      } catch {
+        githubIntegrationState.lastError = error.localizedDescription
+        outcomes.append(
+          IntegrationSyncOutcome(
+            provider: .github,
+            importedTasks: 0,
+            detail: "GitHub failed: \(error.localizedDescription)",
+            failed: true
+          )
+        )
       }
+    }
 
+    if slackIntegrationState.connected && slackIntegrationState.syncEnabled {
       if let slackOutcome = await syncSlackNow() {
         outcomes.append(slackOutcome)
-      }
-
-      if outcomes.isEmpty {
-        showToast("No integrations were enabled for sync")
       } else {
-        let summary = outcomes.map(\.detail).joined(separator: " • ")
-        showToast(summary)
+        outcomes.append(
+          IntegrationSyncOutcome(
+            provider: .slack,
+            importedTasks: 0,
+            detail: "Slack failed: \(slackIntegrationState.lastError ?? "sync did not finish")",
+            failed: true
+          )
+        )
       }
-
-      await refreshCoreWorkflowData()
-      await refreshIntegrationDiagnostics()
-    } catch {
-      showError(title: "Integration sync failed", message: error.localizedDescription)
-      await refreshIntegrationDiagnostics()
     }
+
+    if outcomes.isEmpty {
+      showToast("No integrations were enabled for sync")
+    } else if outcomes.contains(where: \.failed) {
+      showError(
+        title: "Some integrations did not sync",
+        message: outcomes.map(\.detail).joined(separator: "\n")
+      )
+    } else {
+      showToast(outcomes.map(\.detail).joined(separator: " • "))
+    }
+
+    await refreshCoreWorkflowData()
+    await refreshIntegrationDiagnostics()
+    return outcomes
   }
 
   // MARK: Slack
@@ -1270,6 +1311,17 @@ final class AppState: ObservableObject {
   func syncSlackNow(now: Date = Date()) async -> IntegrationSyncOutcome? {
     guard slackIntegrationState.connected, slackIntegrationState.syncEnabled else { return nil }
 
+    // Two passes over the same window would queue duplicate proposals, so a caller joins the running one.
+    if let running = slackSyncInFlight {
+      return await running.value
+    }
+    let pass = Task { await self.runSlackSync(now: now) }
+    slackSyncInFlight = pass
+    defer { slackSyncInFlight = nil }
+    return await pass.value
+  }
+
+  private func runSlackSync(now: Date) async -> IntegrationSyncOutcome? {
     do {
       let session = try await slackIntegrationService.activeSession()
       slackIntegrationState.expiresAt = session.expiresAt
@@ -1379,6 +1431,14 @@ final class AppState: ObservableObject {
         slackIntegrationState.lastError = outcome.lastError
       } else {
         slackIntegrationState.lastError = nil
+      }
+
+      if !batch.failures.isEmpty {
+        let channels = batch.failures.map { "#\($0.channelName): \($0.message)" }.joined(separator: "; ")
+        let channelError = "Could not read \(batch.failures.count) channel(s) — \(channels)"
+        slackIntegrationState.lastError = [slackIntegrationState.lastError, channelError]
+          .compactMap { $0 }
+          .joined(separator: " · ")
       }
 
       // Cursors advance last, and not at all for a channel whose signals failed:

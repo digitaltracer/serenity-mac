@@ -178,6 +178,8 @@ final class SlackIntegrationService {
   private let apiClient: SlackAPIClient
   private let authorizer: SlackWebAuthorizing
   private let configuredClientID: String?
+  /// Slack rotates the refresh token on use, so a second concurrent refresh would spend a dead one.
+  private var refreshInFlight: Task<SlackIntegrationSession, Error>?
   private let sessionKey = "integrations.slack.session"
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
@@ -288,18 +290,26 @@ final class SlackIntegrationService {
       throw IntegrationServiceError.missingSlackConfiguration
     }
 
-    let response: SlackOAuthResponse = try await apiClient.postForm(
-      SlackConfiguration.accessURL,
-      fields: [
-        "client_id": clientID,
-        "grant_type": "refresh_token",
-        "refresh_token": refreshToken,
-      ]
-    )
+    if let running = refreshInFlight {
+      return try await running.value
+    }
 
-    let refreshed = try Self.session(from: response, previous: session)
-    try saveSession(refreshed)
-    return refreshed
+    let refresh = Task { [apiClient] in
+      let response: SlackOAuthResponse = try await apiClient.postForm(
+        SlackConfiguration.accessURL,
+        fields: [
+          "client_id": clientID,
+          "grant_type": "refresh_token",
+          "refresh_token": refreshToken,
+        ]
+      )
+      let refreshed = try Self.session(from: response, previous: session)
+      try self.saveSession(refreshed)
+      return refreshed
+    }
+    refreshInFlight = refresh
+    defer { refreshInFlight = nil }
+    return try await refresh.value
   }
 
   func disconnect() async throws {

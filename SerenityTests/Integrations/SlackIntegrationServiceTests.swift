@@ -110,6 +110,25 @@ final class SlackIntegrationServiceTests: XCTestCase {
     XCTAssertEqual(calls, after)
   }
 
+  /// Slack rotates the refresh token on use, so two overlapping refreshes would spend it twice.
+  func testOverlappingCallersShareOneRefresh() async throws {
+    let recorder = RequestRecorder()
+    let service = makeService(authorizer: StubAuthorizer(), recorder: recorder)
+
+    _ = try await service.signIn()
+    await recorder.setRefreshing(true)
+    let later = Date().addingTimeInterval(12 * 3600)
+
+    async let first = service.activeSession(now: later)
+    async let second = service.activeSession(now: later)
+    let (a, b) = try await (first, second)
+
+    XCTAssertEqual(a.accessToken, "xoxp-rotated-token")
+    XCTAssertEqual(b.accessToken, "xoxp-rotated-token")
+    let refreshes = await recorder.count(forPath: "/api/oauth.v2.access") - 1
+    XCTAssertEqual(refreshes, 1)
+  }
+
   private func makeService(
     authorizer: StubAuthorizer,
     recorder: RequestRecorder,
@@ -159,6 +178,11 @@ private actor RequestRecorder {
     let url = request.url!
     let body = request.httpBody.flatMap { String(data: $0, encoding: .utf8) }
     requests.append((url.path, body))
+
+    if url.path == "/api/oauth.v2.access", refreshing {
+      // Slow enough that a second caller arrives while the first refresh is out.
+      try await Task.sleep(nanoseconds: 50_000_000)
+    }
 
     let json: String
     switch url.path {
