@@ -15,6 +15,7 @@ final class BackendConfigurationStore {
   private enum DefaultsKey {
     static let serenityCloudBaseURL = "serenity.macos.backend.cloud.base_url"
     static let serenityCloudTimeout = "serenity.macos.backend.cloud.timeout"
+    static let serenityCloudUsesSignedInSession = "serenity.macos.backend.cloud.uses_signed_in_session"
     static let postgresHost = "serenity.macos.backend.postgres.host"
     static let postgresPort = "serenity.macos.backend.postgres.port"
     static let postgresDatabase = "serenity.macos.backend.postgres.database"
@@ -89,9 +90,20 @@ final class BackendConfigurationStore {
     )
   }
 
+  /// Whether the cloud token is the signed-in session's, so it follows that session's refreshes.
+  /// `nil` for a configuration saved before this was recorded.
+  func serenityCloudUsesSignedInSession() -> Bool? {
+    defaults.object(forKey: DefaultsKey.serenityCloudUsesSignedInSession) as? Bool
+  }
+
+  func setSerenityCloudUsesSignedInSession(_ value: Bool) {
+    defaults.set(value, forKey: DefaultsKey.serenityCloudUsesSignedInSession)
+  }
+
   func clearSerenityCloudConfiguration() {
     defaults.removeObject(forKey: DefaultsKey.serenityCloudBaseURL)
     defaults.removeObject(forKey: DefaultsKey.serenityCloudTimeout)
+    defaults.removeObject(forKey: DefaultsKey.serenityCloudUsesSignedInSession)
     try? secretStore.deleteSecret(for: SecretKey.serenityCloudAccessToken)
   }
 

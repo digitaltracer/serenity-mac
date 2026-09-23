@@ -278,6 +278,8 @@ final class AppState: ObservableObject {
     notificationsEnabled = UserDefaults.standard.bool(forKey: Self.notificationsEnabledDefaultsKey)
     notificationLeadMinutes = UserDefaults.standard.integer(forKey: Self.notificationLeadMinutesDefaultsKey)
 
+    attachSerenityCloudTokenProvider()
+
     settingsSyncObserver = NotificationCenter.default.addObserver(
       forName: .settingsDidChangeRemotely,
       object: nil,
@@ -475,24 +477,74 @@ final class AppState: ObservableObject {
     }
   }
 
+  /// An unreachable remote backend stays selected: it has no local copy, so falling back to SQLite
+  /// would show a different dataset. The banner offers Retry and "Switch to local" instead.
   func loadBackendSelectionState() async {
     var state = await backendProfileManager.currentState()
     backendSelectionState = state
     settings.backendProfile = state.activeProfile
 
+    if state.activeProfile == .serenityCloud {
+      await refreshSerenityCloudToken(force: false)
+    }
+
     state = await backendProfileManager.refreshValidation()
     backendSelectionState = state
 
-    if state.activeProfile != .sqliteLocal,
-       let validation = state.validations[state.activeProfile],
-       !validation.isAvailable {
-      let fallback = await backendProfileManager.switchProfile(to: .sqliteLocal)
-      backendSelectionState = fallback.state
-      settings.backendProfile = fallback.activeProfile
-      showToast("Falling back to SQLite because \(state.activeProfile.title) is unavailable.")
-    }
-
     await refreshBackendDiagnostics()
+  }
+
+  func retryActiveBackend() async {
+    if backendSelectionState.activeProfile == .serenityCloud {
+      await refreshSerenityCloudToken(force: false)
+    }
+    await refreshActiveBackendValidation()
+    if !backendSelectionState.activeProfileUnavailable {
+      await refreshCoreWorkflowData()
+    }
+  }
+
+  /// The only path that saves a move off an unreachable backend.
+  func switchToLocalBackend() async {
+    await handleBackendProfileSelection(.sqliteLocal)
+    await bootstrapLocalDatabaseIfNeeded()
+    await refreshCoreWorkflowData()
+  }
+
+  /// A signed-in session's token expires hourly. The stored cloud copy follows each refresh, so
+  /// neither the backend check nor a request goes out with a dead token. `nil` when the cloud
+  /// token was typed in rather than taken from the session.
+  @discardableResult
+  func refreshSerenityCloudToken(force: Bool) async -> String? {
+    let followsSession: Bool
+    if let recorded = backendConfigurationStore.serenityCloudUsesSignedInSession() {
+      followsSession = recorded
+    } else {
+      followsSession = await authSessionManager.hasStoredSession()
+    }
+    guard followsSession else { return nil }
+
+    let state = force
+      ? await authSessionManager.refreshSession(force: true)
+      : await authSessionManager.refreshSessionIfNeeded()
+    authSessionState = state
+    guard case .authenticated(let session) = state else { return nil }
+
+    if let stored = backendConfigurationStore.loadSerenityCloudConfiguration(),
+       stored.accessToken != session.accessToken {
+      _ = try? backendConfigurationStore.saveSerenityCloudConfiguration(
+        baseURLString: stored.baseURL.absoluteString,
+        accessToken: session.accessToken,
+        timeout: stored.timeout
+      )
+    }
+    return session.accessToken
+  }
+
+  private func attachSerenityCloudTokenProvider() {
+    serenityCloudAdapter?.accessTokenProvider = { [weak self] force in
+      await self?.refreshSerenityCloudToken(force: force)
+    }
   }
 
   func bootstrapAuthSession() async {
@@ -768,13 +820,15 @@ final class AppState: ObservableObject {
     await refreshDatabaseManagement()
   }
 
-  func configureSerenityCloud(baseURL: String, accessToken: String) async {
+  func configureSerenityCloud(baseURL: String, accessToken: String, fromSignedInSession: Bool = false) async {
     do {
       let configuration = try backendConfigurationStore.saveSerenityCloudConfiguration(
         baseURLString: baseURL,
         accessToken: accessToken
       )
+      backendConfigurationStore.setSerenityCloudUsesSignedInSession(fromSignedInSession)
       serenityCloudAdapter = SerenityCloudAdapter(configuration: configuration)
+      attachSerenityCloudTokenProvider()
       showToast("Serenity Cloud configuration saved")
 
       await refreshActiveBackendValidation()
@@ -812,7 +866,7 @@ final class AppState: ObservableObject {
       return
     }
 
-    await configureSerenityCloud(baseURL: resolvedBaseURL, accessToken: session.accessToken)
+    await configureSerenityCloud(baseURL: resolvedBaseURL, accessToken: session.accessToken, fromSignedInSession: true)
   }
 
   func clearSerenityCloudConfiguration() async {

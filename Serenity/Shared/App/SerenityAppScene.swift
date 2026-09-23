@@ -19,6 +19,11 @@ struct SerenityAppScene: View {
         LocalLockOverlayView()
       } else {
         appContent
+          .safeAreaInset(edge: .top, spacing: 0) {
+            if appState.backendSelectionState.activeProfileUnavailable {
+              BackendUnavailableBanner()
+            }
+          }
       }
     }
     .environmentObject(appState)
@@ -14983,6 +14988,51 @@ private enum ProjectColorCodec {
 #endif
 
     return String(format: "#%02X%02X%02X", red, green, blue)
+  }
+}
+
+/// Stays up while the chosen remote backend is unreachable. Nothing falls back on its own: the
+/// local database is a different dataset, so moving to it is the user's decision.
+private struct BackendUnavailableBanner: View {
+  @EnvironmentObject private var appState: AppState
+  @State private var retrying = false
+
+  var body: some View {
+    let profile = appState.backendSelectionState.activeProfile
+    HStack(alignment: .center, spacing: 12) {
+      Image(systemName: "exclamationmark.icloud.fill")
+        .foregroundStyle(.orange)
+      VStack(alignment: .leading, spacing: 2) {
+        Text("\(profile.title) is unreachable")
+          .font(SerenityType.bodyMedium.weight(.semibold))
+        Text("What's on screen may be out of date, and changes won't save until it's back.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+      Spacer(minLength: 8)
+      Button(retrying ? "Retrying…" : "Retry") {
+        retrying = true
+        Task {
+          await appState.retryActiveBackend()
+          retrying = false
+        }
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .disabled(retrying)
+      Button("Switch to local") {
+        Task { await appState.switchToLocalBackend() }
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 10)
+    .background(.ultraThinMaterial)
+    .overlay(alignment: .bottom) {
+      Rectangle()
+        .fill(SerenityPalette.border)
+        .frame(height: 1)
+    }
+    .help(appState.validationState(for: profile).message)
   }
 }
 

@@ -67,6 +67,9 @@ final class SerenityCloudAdapter {
   private let encoder: JSONEncoder
   private let decoder: JSONDecoder
   private var lastHealthyAt: Date?
+  /// Supplies the current token per request, and a refreshed one when asked after a 401. `nil`
+  /// from it, or no provider at all, falls back to the configured token.
+  var accessTokenProvider: (@Sendable (_ forceRefresh: Bool) async -> String?)?
 
   init(
     configuration: SerenityCloudConfiguration,
@@ -197,13 +200,23 @@ final class SerenityCloudAdapter {
     request.httpMethod = method
     request.timeoutInterval = configuration.timeout
     request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.addValue("Bearer \(configuration.accessToken)", forHTTPHeaderField: "Authorization")
 
     if let body {
       request.httpBody = body
     }
 
-    let (data, response) = try await session.data(for: request)
+    let token = await accessTokenProvider?(false) ?? configuration.accessToken
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    var (data, response) = try await session.data(for: request)
+
+    // One retry, and only with a token that actually changed, so a rejected refresh cannot loop.
+    if (response as? HTTPURLResponse)?.statusCode == 401,
+       let provider = accessTokenProvider,
+       let refreshed = await provider(true),
+       refreshed != token {
+      request.setValue("Bearer \(refreshed)", forHTTPHeaderField: "Authorization")
+      (data, response) = try await session.data(for: request)
+    }
 
     guard let httpResponse = response as? HTTPURLResponse else {
       throw SerenityCloudAdapterError.invalidResponse

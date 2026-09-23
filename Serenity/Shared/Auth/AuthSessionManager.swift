@@ -381,10 +381,25 @@ actor AuthSessionManager {
       state = .authenticated(refreshed)
       return state
     } catch {
+      guard Self.serverRejectedRefreshToken(error) else {
+        // Offline or a server hiccup says nothing about the token, so the session stays for the next try.
+        state = .authenticated(session)
+        return state
+      }
       await store.clear()
       state = .failed(message: error.localizedDescription)
       return state
     }
+  }
+
+  func hasStoredSession() async -> Bool {
+    await store.load() != nil
+  }
+
+  /// OAuth answers a dead or revoked refresh token with 400 `invalid_grant`, or 401/403.
+  static func serverRejectedRefreshToken(_ error: Error) -> Bool {
+    guard case OAuthClientError.requestFailed(let status, _) = error else { return false }
+    return [400, 401, 403].contains(status)
   }
 
   func logout() async -> AuthSessionState {

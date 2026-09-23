@@ -218,3 +218,65 @@ private final class URLProtocolStub: URLProtocol {
 
   override func stopLoading() {}
 }
+
+extension SerenityCloudAdapterTests {
+  /// A token that expires mid-session is refreshed on the 401 and the request is sent once more.
+  func testA401RefreshesTheTokenAndRetriesOnce() async throws {
+    let seen = TokenLog()
+    URLProtocolStub.responseProvider = { request in
+      let header = request.value(forHTTPHeaderField: "Authorization") ?? ""
+      seen.append(header)
+      let status = header == "Bearer fresh-token" ? 200 : 401
+      let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+      return (response, Data("[]".utf8))
+    }
+    let adapter = makeAdapter()
+    let refreshes = TokenLog()
+    adapter.accessTokenProvider = { force in
+      guard force else { return nil }
+      refreshes.append("forced")
+      return "fresh-token"
+    }
+
+    let tasks = try await adapter.listTasks()
+
+    XCTAssertTrue(tasks.isEmpty)
+    XCTAssertEqual(seen.values, ["Bearer token-123", "Bearer fresh-token"])
+    XCTAssertEqual(refreshes.values, ["forced"])
+  }
+
+  func testARefreshThatChangesNothingDoesNotRetry() async {
+    let seen = TokenLog()
+    URLProtocolStub.responseProvider = { request in
+      seen.append(request.value(forHTTPHeaderField: "Authorization") ?? "")
+      let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+      return (response, Data("unauthorized".utf8))
+    }
+    let adapter = makeAdapter()
+    adapter.accessTokenProvider = { _ in nil }
+
+    do {
+      _ = try await adapter.listTasks()
+      XCTFail("Expected the 401 to surface")
+    } catch {
+      XCTAssertEqual(seen.values.count, 1)
+    }
+  }
+}
+
+private final class TokenLog: @unchecked Sendable {
+  private let lock = NSLock()
+  private var stored: [String] = []
+
+  var values: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return stored
+  }
+
+  func append(_ value: String) {
+    lock.lock()
+    stored.append(value)
+    lock.unlock()
+  }
+}

@@ -45,6 +45,13 @@ struct BackendProfileSelectionState: Equatable, Sendable {
   var descriptors: [BackendProfileDescriptor]
   var validations: [BackendProfile: BackendProfileValidationState]
   var lastValidatedAt: [BackendProfile: Date]
+
+  /// The chosen remote backend failed its last check. It stays chosen: switching away is the
+  /// user's call, because local storage would show a different dataset.
+  var activeProfileUnavailable: Bool {
+    guard activeProfile != .sqliteLocal, case .unavailable = validations[activeProfile] else { return false }
+    return true
+  }
 }
 
 struct BackendProfileSwitchResult: Equatable, Sendable {
