@@ -340,8 +340,9 @@ final class CaptureCommandDrafterTests: XCTestCase {
       now: now
     )
 
-    XCTAssertTrue(prompt.contains("--- source s1 (acme/api#812) ---"))
-    XCTAssertTrue(prompt.contains("--- source s2 (acme/api#815) ---"))
+    XCTAssertTrue(prompt.contains(#"<source key="s1" label="acme/api#812">"#))
+    XCTAssertTrue(prompt.contains(#"<source key="s2" label="acme/api#815">"#))
+    XCTAssertEqual(prompt.components(separatedBy: "</source>").count - 1, 2)
   }
 
   func testCandidateTasksArriveWithTheirIDsAndDueDates() {

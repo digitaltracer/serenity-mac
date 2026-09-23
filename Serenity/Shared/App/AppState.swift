@@ -2829,8 +2829,26 @@ final class AppState: ObservableObject {
   }
 
   private var quickCaptureAvailableTags: [String] {
-    let allTags = tasks.flatMap(\.tags) + journalEntries.flatMap(\.tags)
-    return normalizedQuickCaptureValues(allTags)
+    Self.promptTags(from: tasks.flatMap(\.tags) + journalEntries.flatMap(\.tags))
+  }
+
+  /// The tags a prompt offers the model. Link tags tie a task to its Slack thread or pull request;
+  /// offered back, the model copies them onto unrelated work. The rest are capped at the most used.
+  nonisolated static func promptTags(from tags: [String], limit: Int = 50) -> [String] {
+    let linkPrefixes = ["slack-thread-", "github-pr-"]
+    var counts: [String: Int] = [:]
+    var spelling: [String: String] = [:]
+    for tag in tags {
+      let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+      let key = trimmed.lowercased()
+      guard !trimmed.isEmpty, !linkPrefixes.contains(where: key.hasPrefix) else { continue }
+      counts[key, default: 0] += 1
+      spelling[key] = spelling[key] ?? trimmed
+    }
+    return counts
+      .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+      .prefix(limit)
+      .compactMap { spelling[$0.key] }
   }
 
   private func validQuickCaptureProjectID(_ projectID: String?) -> String? {

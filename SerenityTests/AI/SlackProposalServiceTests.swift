@@ -83,7 +83,8 @@ final class SlackProposalServiceTests: XCTestCase {
     )
 
     XCTAssertTrue(rendered.contains("#eng-platform"))
-    XCTAssertTrue(rendered.contains("  U_RAVI: the export is ready"))
+    XCTAssertTrue(rendered.contains("  U_RAVI ("))
+    XCTAssertTrue(rendered.contains("): the export is ready"))
     XCTAssertTrue(rendered.contains("> U_JANE ("))
     XCTAssertTrue(rendered.contains("@adarsh can you ship it"))
   }
