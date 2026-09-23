@@ -214,34 +214,80 @@ private struct UnavailableOAuthClient: OAuthClient {
   }
 }
 
+/// The session lives in the Keychain. A copy left in UserDefaults by an older build is moved over
+/// once, and deleted only after the Keychain copy reads back intact.
 actor OAuthSessionStore {
   private let defaults: UserDefaults
   private let key: String
+  private let secretStore: KeychainSecretStore
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
+  /// Holds a session the Keychain refused, so a failed write signs no one out mid-run.
+  private var unsavedSession: OAuthSession?
 
-  init(defaults: UserDefaults = .standard, key: String = "serenity.macos.oauth.session") {
+  init(
+    defaults: UserDefaults = .standard,
+    key: String = "serenity.macos.oauth.session",
+    secretStore: KeychainSecretStore = KeychainSecretStore(service: "com.digitaltracer.serenity.auth")
+  ) {
     self.defaults = defaults
     self.key = key
+    self.secretStore = secretStore
     encoder.dateEncodingStrategy = .iso8601
     decoder.dateDecodingStrategy = .iso8601
   }
 
   func load() -> OAuthSession? {
-    guard let data = defaults.data(forKey: key) else {
-      return nil
+    if let unsavedSession {
+      return unsavedSession
     }
-
-    return try? decoder.decode(OAuthSession.self, from: data)
+    if let raw = try? secretStore.secret(for: key),
+       let session = try? decoder.decode(OAuthSession.self, from: Data(raw.utf8)) {
+      return session
+    }
+    return migrateFromDefaults()
   }
 
   func save(_ session: OAuthSession) {
-    guard let data = try? encoder.encode(session) else { return }
-    defaults.set(data, forKey: key)
+    do {
+      try write(session)
+      unsavedSession = nil
+      defaults.removeObject(forKey: key)
+    } catch {
+      AppLogger.error("OAuth session could not be stored in the Keychain: \(error.localizedDescription)")
+      unsavedSession = session
+    }
   }
 
   func clear() {
+    unsavedSession = nil
+    try? secretStore.deleteSecret(for: key)
     defaults.removeObject(forKey: key)
+  }
+
+  private func migrateFromDefaults() -> OAuthSession? {
+    guard let data = defaults.data(forKey: key),
+          let session = try? decoder.decode(OAuthSession.self, from: data)
+    else {
+      return nil
+    }
+    do {
+      try write(session)
+      guard let raw = try secretStore.secret(for: key),
+            (try? decoder.decode(OAuthSession.self, from: Data(raw.utf8))) == session
+      else {
+        return session
+      }
+      defaults.removeObject(forKey: key)
+    } catch {
+      AppLogger.error("OAuth session stays in UserDefaults until the Keychain accepts it: \(error.localizedDescription)")
+    }
+    return session
+  }
+
+  private func write(_ session: OAuthSession) throws {
+    let data = try encoder.encode(session)
+    try secretStore.setSecret(String(decoding: data, as: UTF8.self), for: key)
   }
 }
 
