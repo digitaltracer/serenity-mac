@@ -113,6 +113,9 @@ final class AppState: ObservableObject {
   static let notificationsEnabledDefaultsKey = "serenity.notifications.enabled"
   static let slackSyncEnabledDefaultsKey = "serenity.slack.syncEnabled"
   static let slackPollIntervalDefaultsKey = "serenity.slack.pollIntervalMinutes"
+  static let slackRelevanceDefaultsKey = "serenity.slack.relevance"
+  static let googleSyncEnabledDefaultsKey = "serenity.google.syncEnabled"
+  static let githubSyncEnabledDefaultsKey = "serenity.github.syncEnabled"
   static let notificationLeadMinutesDefaultsKey = "serenity.notifications.leadMinutes"
   static let localLockEnabledDefaultsKey = "serenity.security.localLock.enabled"
   static let aiQuickCapturePreviewThreshold = 0.75
@@ -1006,6 +1009,7 @@ final class AppState: ObservableObject {
         googleIntegrationState.connected = true
         googleIntegrationState.userEmail = googleSession.userEmail
         googleIntegrationState.expiresAt = googleSession.expiresAt
+        googleIntegrationState.syncEnabled = UserDefaults.standard.bool(forKey: Self.googleSyncEnabledDefaultsKey)
       } else {
         googleIntegrationState = .disconnected
       }
@@ -1028,6 +1032,10 @@ final class AppState: ObservableObject {
       if let stored = UserDefaults.standard.object(forKey: Self.slackPollIntervalDefaultsKey) as? Int {
         slackPollIntervalMinutes = max(1, stored)
       }
+      if let data = UserDefaults.standard.data(forKey: Self.slackRelevanceDefaultsKey),
+         let stored = try? JSONDecoder().decode(SlackRelevanceSettings.self, from: data) {
+        slackRelevanceSettings = stored
+      }
     } else {
       slackIntegrationState = .disconnected
     }
@@ -1037,6 +1045,7 @@ final class AppState: ObservableObject {
       Task { _ = await self.syncSlackNow() }
     }
 
+    githubIntegrationState.syncEnabled = UserDefaults.standard.bool(forKey: Self.githubSyncEnabledDefaultsKey)
     do {
       let tokens = try await githubIntegrationService.listTokens()
       githubIntegrationState.tokens = tokens
@@ -1113,6 +1122,7 @@ final class AppState: ObservableObject {
 
   func setGoogleIntegrationSyncEnabled(_ enabled: Bool) async {
     googleIntegrationState.syncEnabled = enabled
+    UserDefaults.standard.set(enabled, forKey: Self.googleSyncEnabledDefaultsKey)
     await refreshIntegrationDiagnostics()
   }
 
@@ -1155,6 +1165,7 @@ final class AppState: ObservableObject {
 
   func setGitHubIntegrationSyncEnabled(_ enabled: Bool) async {
     githubIntegrationState.syncEnabled = enabled
+    UserDefaults.standard.set(enabled, forKey: Self.githubSyncEnabledDefaultsKey)
     await refreshIntegrationDiagnostics()
   }
 
@@ -1348,6 +1359,9 @@ final class AppState: ObservableObject {
 
   func setSlackRelevanceSettings(_ settings: SlackRelevanceSettings) {
     slackRelevanceSettings = settings
+    if let data = try? JSONEncoder().encode(settings) {
+      UserDefaults.standard.set(data, forKey: Self.slackRelevanceDefaultsKey)
+    }
   }
 
   func loadSlackProposals() async {
