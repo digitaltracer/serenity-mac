@@ -43,6 +43,20 @@ struct SerenityAppScene: View {
           .padding(.top, 12)
       }
     }
+    .overlay(alignment: .bottom) {
+      if let toast = appState.undoToast {
+        UndoToastBanner(
+          toast: toast,
+          onUndo: { Task { await appState.performUndo() } },
+          onDismiss: { appState.dismissUndo() }
+        )
+        .id(toast.id)
+        .padding(.bottom, 28)
+        .padding(.horizontal, 16)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+    }
+    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: appState.undoToast?.id)
     .alert(item: $appState.activeAlert) { alert in
       Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
     }
@@ -17461,7 +17475,11 @@ private struct TodayFocusCard: View {
         .hoverCursor(.pointingHand)
         Spacer()
         Button("Delete", role: .destructive) {
-          confirmDiscard = true
+          if block.activeSeconds(at: Date()) < AppState.quickDeleteSeconds {
+            Task { await appState.deleteFocusBlock(id: block.id) }
+          } else {
+            confirmDiscard = true
+          }
         }
         .buttonStyle(.borderless)
         .hoverCursor(.pointingHand)
@@ -18057,6 +18075,76 @@ private struct FocusEditSheet: View {
         .font(SerenityType.caption)
         .foregroundStyle(SerenityPalette.textSecondary)
       content()
+    }
+  }
+}
+
+/// The bar that takes a deletion back. Inverted against the page so it stands out in every theme,
+/// with a line that drains as its time runs out.
+private struct UndoToastBanner: View {
+  let toast: AppState.UndoToast
+  let onUndo: () -> Void
+  let onDismiss: () -> Void
+
+  @State private var remaining: CGFloat = 1
+
+  var body: some View {
+    HStack(spacing: 14) {
+      Image(systemName: "trash")
+        .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
+        .foregroundStyle(SerenityPalette.windowBackground.opacity(0.75))
+        .accessibilityHidden(true)
+
+      Text(toast.message)
+        .font(SerenityType.bodyLarge.weight(.semibold))
+        .foregroundStyle(SerenityPalette.windowBackground)
+
+      Button(action: onUndo) {
+        Text("Undo")
+          .font(SerenityType.bodyLarge.weight(.bold))
+          .foregroundStyle(SerenityPalette.textPrimary)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 7)
+          .background(Capsule().fill(SerenityPalette.windowBackground))
+          .contentShape(Capsule())
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+      .accessibilityHint("Brings the session back")
+
+      Button(action: onDismiss) {
+        Image(systemName: "xmark")
+          .font(SerenityType.scaledSystem(size: 11, weight: .bold))
+          .foregroundStyle(SerenityPalette.windowBackground.opacity(0.75))
+          .frame(width: 24, height: 24)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+      .accessibilityLabel("Dismiss")
+    }
+    .padding(.leading, 20)
+    .padding(.trailing, 12)
+    .padding(.vertical, 12)
+    .background(Capsule().fill(SerenityPalette.textPrimary))
+    .overlay(alignment: .bottom) {
+      GeometryReader { proxy in
+        Capsule()
+          .fill(SerenityPalette.windowBackground.opacity(0.45))
+          .frame(width: proxy.size.width * remaining, height: 3)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .frame(height: 3)
+      .padding(.horizontal, 22)
+      .padding(.bottom, 4)
+      .accessibilityHidden(true)
+    }
+    .shadow(color: Color.black.opacity(0.35), radius: 20, y: 8)
+    .onAppear {
+      withAnimation(.linear(duration: AppState.undoToastSeconds)) {
+        remaining = 0
+      }
+      AccessibilityNotification.Announcement("\(toast.message). Undo available.").post()
     }
   }
 }

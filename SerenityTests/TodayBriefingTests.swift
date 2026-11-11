@@ -305,4 +305,38 @@ final class FocusBlockAppStateTests: XCTestCase {
       ["Focused 40 min · Spec"]
     )
   }
+
+  func testDeletingOffersUndoThatRestoresTheSessionAndItsTaskLine() async throws {
+    let state = try makeState()
+    _ = await state.createTask(title: "Spec", priority: .medium, dueDate: nil, tags: [], subtaskTitles: [])
+    let task = try XCTUnwrap(state.tasks.first)
+    let start = Date()
+    await state.startFocus(title: "Spec", minutes: 50, goalId: nil, taskId: task.id, now: start)
+    let id = try XCTUnwrap(state.activeFocusBlock?.id)
+    await state.finishFocusBlock(id: id, now: start.addingTimeInterval(30 * 60))
+
+    await state.deleteFocusBlock(id: id)
+    XCTAssertTrue(state.focusBlocks.isEmpty)
+    XCTAssertEqual(state.undoToast?.message, "Session deleted")
+    XCTAssertEqual(state.focusMinutes(onTask: task.id), 0)
+
+    await state.performUndo()
+    XCTAssertNil(state.undoToast)
+    XCTAssertEqual(state.focusBlocks.map(\.id), [id])
+    XCTAssertEqual(state.focusMinutes(onTask: task.id), 30, accuracy: 0.01)
+    XCTAssertTrue(state.tasks.first?.activity.contains { $0.id == AppState.focusActivityID(blockID: id) } ?? false)
+  }
+
+  func testClosingTheBarKeepsTheDeletion() async throws {
+    let state = try makeState()
+    await state.startFocus(title: "Oops", minutes: 25, goalId: nil)
+    let id = try XCTUnwrap(state.activeFocusBlock?.id)
+
+    await state.deleteFocusBlock(id: id)
+    state.dismissUndo()
+    await state.performUndo()
+
+    XCTAssertNil(state.undoToast)
+    XCTAssertTrue(state.focusBlocks.isEmpty)
+  }
 }

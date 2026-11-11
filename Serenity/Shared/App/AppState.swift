@@ -165,6 +165,8 @@ final class AppState: ObservableObject {
   @Published var focusedGoalID: String?
   /// Shows the voice capture sheet. The Mac also opens it as a floating panel from the global shortcut.
   @Published var isVoiceCapturePresented = false
+  /// A deletion that can still be taken back, shown as a prominent bar until it times out.
+  @Published private(set) var undoToast: UndoToast?
   @Published var isInboxTriagePresented = false
   @Published var isShutdownPresented = false
   @Published var isWeeklyReviewPresented = false
@@ -4163,6 +4165,35 @@ final class AppState: ObservableObject {
     return saved
   }
 
+  // MARK: - Undo
+
+  struct UndoToast: Identifiable {
+    let id = UUID()
+    let message: String
+    let undo: @MainActor () async -> Void
+  }
+
+  static let undoToastSeconds: Double = 8
+
+  func offerUndo(_ message: String, undo: @escaping @MainActor () async -> Void) {
+    let toast = UndoToast(message: message, undo: undo)
+    undoToast = toast
+    Task { [weak self] in
+      try? await Task.sleep(for: .seconds(Self.undoToastSeconds))
+      if self?.undoToast?.id == toast.id { self?.undoToast = nil }
+    }
+  }
+
+  func performUndo() async {
+    guard let toast = undoToast else { return }
+    undoToast = nil
+    await toast.undo()
+  }
+
+  func dismissUndo() {
+    undoToast = nil
+  }
+
   // MARK: - Focus blocks
 
   /// A block left running past this is assumed forgotten, so finishing it logs no more than this.
@@ -4459,13 +4490,33 @@ final class AppState: ObservableObject {
     await recordFocusOnTask(done)
   }
 
+  /// Deletes a session and offers to bring it back for a few seconds.
   func deleteFocusBlock(id: String) async {
-    let taskId = focusBlocks.first(where: { $0.id == id })?.taskId
+    guard let deleted = focusBlocks.first(where: { $0.id == id }) else { return }
     await mutateLocalData(failureTitle: "Failed to delete focus block") { repositories in
       try repositories.focusBlocks.delete(id: id)
     }
-    if let taskId { await removeFocusRecord(blockID: id, fromTask: taskId) }
+    if let taskId = deleted.taskId { await removeFocusRecord(blockID: id, fromTask: taskId) }
+    offerUndo(deleted.status == .planned ? "Planned focus deleted" : "Session deleted") { [weak self] in
+      await self?.restoreFocusBlock(deleted)
+    }
   }
+
+  /// Puts a deleted session back as it was, its task line included. A running one keeps its clock.
+  func restoreFocusBlock(_ block: FocusBlockEntity) async {
+    var restored = block
+    if restored.isActive, activeFocusBlock != nil {
+      restored = finished(restored, now: Date())
+    }
+    let saved = restored
+    await mutateLocalData(failureTitle: "Failed to restore focus session") { repositories in
+      try repositories.focusBlocks.save(saved)
+    }
+    await recordFocusOnTask(saved)
+  }
+
+  /// A session this young was most likely started by mistake, so deleting it skips the question.
+  static let quickDeleteSeconds: Double = 60
 
   static func focusTitle(_ raw: String) -> String {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
