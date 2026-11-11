@@ -158,6 +158,16 @@ enum SerenityUI {
       light: (1.00, 1.00, 1.00, 0.28),
       dark: \.highlightStroke
     )
+    /// The app mark's green, used for routines so habits read apart from tasks and goals.
+    static let routineAccent = SerenityUI.dynamicColor(
+      light: (0.07, 0.52, 0.38, 1.0),
+      dark: \.routineAccent
+    )
+    /// Something needs you: behind pace, a missed day, a slipping routine.
+    static let attention = SerenityUI.dynamicColor(
+      light: (0.70, 0.40, 0.04, 1.0),
+      dark: \.attention
+    )
   }
 
   enum Typography {
@@ -201,6 +211,8 @@ fileprivate struct SerenityDarkPalette {
   let textPrimary: SerenityNativeColor
   let textSecondary: SerenityNativeColor
   let textOnInteractiveSurface: SerenityNativeColor
+  let routineAccent: SerenityNativeColor
+  let attention: SerenityNativeColor
   var clear: SerenityNativeColor { .clear }
 
   static var current: SerenityDarkPalette {
@@ -226,7 +238,9 @@ fileprivate struct SerenityDarkPalette {
     quickCaptureTint: srgb(141, 180, 255, 0.03),
     textPrimary: srgb(231, 234, 240),
     textSecondary: srgb(163, 171, 186),
-    textOnInteractiveSurface: srgb(242, 244, 248)
+    textOnInteractiveSurface: srgb(242, 244, 248),
+    routineAccent: srgb(27, 156, 116),
+    attention: srgb(240, 184, 102)
   )
 
   // Pure black for OLED; neutral greys, and blue kept to small accents only.
@@ -248,7 +262,9 @@ fileprivate struct SerenityDarkPalette {
     quickCaptureTint: white(0.02),
     textPrimary: srgb(237, 237, 237),
     textSecondary: srgb(163, 163, 163),
-    textOnInteractiveSurface: srgb(245, 245, 245)
+    textOnInteractiveSurface: srgb(245, 245, 245),
+    routineAccent: srgb(27, 156, 116),
+    attention: srgb(240, 184, 102)
   )
 
   private static func srgb(
@@ -372,21 +388,29 @@ struct SerenitySecondaryButtonStyle: ButtonStyle {
   }
 }
 
-/// Completion box for tasks and subtasks; the enclosing button carries the accessibility label.
+/// Completion box; the enclosing button carries the accessibility label. Tasks use the square,
+/// routines the green circle, so the two never read as the same kind of thing.
 struct SerenityCheckbox: View {
+  enum Style {
+    case task
+    case routine
+  }
+
   let isOn: Bool
   var size: CGFloat = 18
+  var style: Style = .task
 
   @State private var hovering = false
 
   var body: some View {
     let side = SerenityType.scaledSize(size)
-    let shape = RoundedRectangle(cornerRadius: side * 0.28, style: .continuous)
+    let shape = RoundedRectangle(cornerRadius: style == .routine ? side / 2 : side * 0.28, style: .continuous)
+    let fill = style == .routine ? SerenityPalette.routineAccent : SerenityPalette.textPrimary
 
     ZStack {
-      shape.fill(isOn ? SerenityPalette.textPrimary : Color.clear)
+      shape.fill(isOn ? fill : Color.clear)
       shape.strokeBorder(
-        isOn ? SerenityPalette.textPrimary : SerenityPalette.textSecondary.opacity(hovering ? 1 : 0.7),
+        isOn ? fill : SerenityPalette.textSecondary.opacity(hovering ? 1 : 0.7),
         lineWidth: 1.5
       )
       Image(systemName: "checkmark")

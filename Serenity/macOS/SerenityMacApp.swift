@@ -54,7 +54,7 @@ struct SerenityMacApp: App {
       CommandGroup(after: .sidebar) {
         Divider()
 
-        ForEach(Array(AppSection.navigationOrder.enumerated()), id: \.element) { index, section in
+        ForEach(Array(AppSection.navigationOrder.filter { $0 != .settings }.prefix(9).enumerated()), id: \.element) { index, section in
           Button(section.title) {
             appState.setSection(section)
           }
@@ -63,6 +63,13 @@ struct SerenityMacApp: App {
             modifiers: [.command]
           )
         }
+      }
+
+      CommandGroup(replacing: .appSettings) {
+        Button("Settings…") {
+          appState.setSection(.settings)
+        }
+        .keyboardShortcut(",", modifiers: [.command])
       }
     }
 

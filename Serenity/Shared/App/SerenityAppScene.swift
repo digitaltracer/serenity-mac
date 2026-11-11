@@ -522,7 +522,7 @@ private struct SerenityPhoneTabShell: View {
 private struct MorePhoneList: View {
   @EnvironmentObject private var appState: AppState
 
-  private let sections: [AppSection] = [.standup, .insights, .aiSummaries, .integrations, .settings]
+  private let sections: [AppSection] = [.routines, .standup, .insights, .aiSummaries, .integrations, .settings]
 
   var body: some View {
     SerenityThemedScrollView {
@@ -654,7 +654,7 @@ private struct SerenitySidebar: View {
   @Binding var selectedSection: AppSection?
   @State private var hoveredSection: AppSection?
 
-  private let primarySections: [AppSection] = [.home, .actionHub, .standup, .journal, .goals, .insights, .aiSummaries]
+  private let primarySections: [AppSection] = [.home, .actionHub, .standup, .journal, .goals, .routines, .insights, .aiSummaries]
   private let systemSections: [AppSection] = [.integrations, .settings]
 
   var body: some View {
@@ -775,6 +775,8 @@ private extension AppSection {
       return "Capture notes, mood, and reflections"
     case .goals:
       return "Track progress against measurable targets"
+    case .routines:
+      return "Tick off today's habits. A day stays open until 3 AM"
     case .projects:
       return "Organize work across active initiatives"
     case .integrations:
@@ -994,7 +996,7 @@ private struct SectionView: View {
           }
         }
 
-        if [.home, .actionHub, .standup, .journal, .goals, .projects, .integrations, .settings].contains(section) {
+        if [.home, .actionHub, .standup, .journal, .goals, .routines, .projects, .integrations, .settings].contains(section) {
           Task {
             await appState.refreshCoreWorkflowData()
           }
@@ -1027,6 +1029,8 @@ private struct SectionView: View {
               JournalSectionView()
             case .goals:
               GoalsSectionView()
+            case .routines:
+              RoutinesSectionView()
             case .projects:
               ProjectsSectionView()
             case .integrations:
@@ -12619,6 +12623,7 @@ private struct HelpCenterSheet: View {
               HelpShortcutRow(action: "Quick Capture", shortcut: "Cmd+Shift+N")
               HelpShortcutRow(action: "Capture (in the capture field)", shortcut: "Cmd+Return")
               HelpShortcutRow(action: "Switch section", shortcut: "Cmd+1 … Cmd+9")
+              HelpShortcutRow(action: "Settings", shortcut: "Cmd+,")
             }
             .padding(.top, 8)
           }
@@ -15004,5 +15009,484 @@ private struct ToastBanner: View {
     )
     .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
     .transition(.move(edge: .top).combined(with: .opacity))
+  }
+}
+
+// MARK: - Routines
+
+private struct RoutineEditorTarget: Identifiable {
+  let routine: RoutineEntity?
+  var id: String { routine?.id ?? "new" }
+}
+
+private struct RoutinesSectionView: View {
+  @EnvironmentObject private var appState: AppState
+  @State private var editorTarget: RoutineEditorTarget?
+  @State private var showArchived = false
+
+  var body: some View {
+    let summaries = appState.routineSummaries()
+    let scheduledToday = summaries.filter(\.isScheduledToday)
+    let notToday = summaries.filter { !$0.isScheduledToday }
+
+    VStack(alignment: .leading, spacing: 18) {
+      if appState.settings.backendProfile != .sqliteLocal {
+        Text(AppState.routinesNeedLocalStorageMessage)
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .padding(14)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+          .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(SerenityPalette.border, lineWidth: 1))
+      }
+
+      HStack(alignment: .center, spacing: 12) {
+        Text("Tick today only. A missed day resets the streak; a skip keeps it.")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Spacer(minLength: 8)
+        Button {
+          editorTarget = RoutineEditorTarget(routine: nil)
+        } label: {
+          Label("New routine", systemImage: "plus")
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+
+      if summaries.isEmpty {
+        emptyState
+      } else {
+        ForEach(RoutineTimeOfDay.allCases, id: \.self) { timeOfDay in
+          let group = scheduledToday.filter { $0.routine.timeOfDay == timeOfDay }
+          if !group.isEmpty {
+            routineGroup(title: timeOfDay.title, summaries: group)
+          }
+        }
+        if !notToday.isEmpty {
+          routineGroup(title: "Not today", summaries: notToday)
+        }
+      }
+
+      if !appState.archivedRoutines.isEmpty {
+        archivedSection
+      }
+    }
+    .sheet(item: $editorTarget) { target in
+      RoutineEditorSheet(routine: target.routine) { title, schedule, timeOfDay in
+        Task {
+          if var routine = target.routine {
+            routine.title = title
+            routine.schedule = schedule
+            routine.timeOfDay = timeOfDay
+            await appState.updateRoutine(routine)
+          } else {
+            await appState.createRoutine(title: title, schedule: schedule, timeOfDay: timeOfDay)
+          }
+        }
+      }
+    }
+  }
+
+  private var emptyState: some View {
+    VStack(spacing: 8) {
+      Image(systemName: "repeat")
+        .font(SerenityType.scaledSystem(size: 28, weight: .regular))
+        .foregroundStyle(SerenityPalette.textSecondary.opacity(0.65))
+      Text("No routines yet")
+        .font(SerenityType.bodyLarge.weight(.medium))
+      Text("Add the things you want to do every day or a few times a week, like vitamins, morning pages or a walk.")
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 420)
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 32)
+    .routinePanel()
+  }
+
+  private func routineGroup(title: String, summaries: [RoutineSummary]) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Text(title.uppercased())
+        .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
+        .tracking(0.9)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
+
+      ForEach(Array(summaries.enumerated()), id: \.element.id) { index, summary in
+        if index > 0 {
+          Rectangle()
+            .fill(SerenityPalette.thinBorder)
+            .frame(height: 1)
+            .padding(.horizontal, 16)
+        }
+        RoutineRow(summary: summary) { action in
+          handle(action, for: summary.routine)
+        }
+      }
+    }
+    .padding(.bottom, 6)
+    .routinePanel()
+  }
+
+  private var archivedSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Button {
+        showArchived.toggle()
+      } label: {
+        HStack(spacing: 8) {
+          Image(systemName: showArchived ? "chevron.down" : "chevron.right")
+            .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
+          Text("Archived (\(appState.archivedRoutines.count))")
+            .font(SerenityType.bodyMedium)
+          Spacer()
+        }
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+
+      if showArchived {
+        ForEach(appState.archivedRoutines) { routine in
+          HStack(spacing: 12) {
+            Text(routine.title)
+              .font(SerenityType.body)
+              .foregroundStyle(SerenityPalette.textSecondary)
+            Spacer()
+            Button("Restore") {
+              Task { await appState.setRoutineArchived(id: routine.id, archived: false) }
+            }
+            .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
+            Button("Delete", role: .destructive) {
+              Task { await appState.deleteRoutine(id: routine.id) }
+            }
+            .buttonStyle(.borderless)
+            .hoverCursor(.pointingHand)
+          }
+        }
+      }
+    }
+  }
+
+  private func handle(_ action: RoutineRow.Action, for routine: RoutineEntity) {
+    switch action {
+    case .toggleDone:
+      Task { await appState.toggleRoutineDone(id: routine.id) }
+    case .toggleSkip:
+      Task { await appState.toggleRoutineSkip(id: routine.id) }
+    case .edit:
+      editorTarget = RoutineEditorTarget(routine: routine)
+    case .archive:
+      Task { await appState.setRoutineArchived(id: routine.id, archived: true) }
+    case .delete:
+      Task { await appState.deleteRoutine(id: routine.id) }
+    }
+  }
+}
+
+private struct RoutineRow: View {
+  enum Action {
+    case toggleDone
+    case toggleSkip
+    case edit
+    case archive
+    case delete
+  }
+
+  let summary: RoutineSummary
+  let perform: (Action) -> Void
+
+  private var isDone: Bool { summary.today == .done }
+  private var isSkipped: Bool { summary.today == .skipped }
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Button {
+        perform(.toggleDone)
+      } label: {
+        SerenityCheckbox(isOn: isDone, size: 22, style: .routine)
+          .opacity(summary.isScheduledToday ? 1 : 0.35)
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+      .disabled(!summary.isScheduledToday)
+      .accessibilityLabel(isDone ? "Mark \(summary.routine.title) not done today" : "Mark \(summary.routine.title) done today")
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text(summary.routine.title)
+          .font(SerenityType.bodyLarge.weight(.medium))
+          .foregroundStyle(SerenityPalette.textPrimary)
+          .lineLimit(2)
+        Text(detailText)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      Spacer(minLength: 8)
+
+      HStack(spacing: 3) {
+        ForEach(Array(summary.lastSevenDays.enumerated()), id: \.offset) { _, mark in
+          RoundedRectangle(cornerRadius: 2, style: .continuous)
+            .fill(fill(for: mark))
+            .overlay(
+              RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .strokeBorder(mark == .open ? SerenityPalette.textSecondary.opacity(0.6) : .clear, lineWidth: 1)
+            )
+            .frame(width: 8, height: 8)
+        }
+      }
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Last 7 days: \(summary.lastSevenDays.filter { $0 == .done }.count) done")
+
+      Text(summary.streakLabel)
+        .font(SerenityType.scaledSystem(size: 13, weight: .medium))
+        .monospacedDigit()
+        .foregroundStyle(summary.streak == 0 && summary.wasReset ? SerenityPalette.attention : SerenityPalette.textPrimary)
+        .frame(minWidth: 52, alignment: .trailing)
+
+      Menu {
+        if summary.isScheduledToday && summary.unit == .days {
+          Button(isSkipped ? "Undo skip" : "Skip today") { perform(.toggleSkip) }
+        }
+        Button("Edit") { perform(.edit) }
+        Button("Archive") { perform(.archive) }
+        Divider()
+        Button("Delete", role: .destructive) { perform(.delete) }
+      } label: {
+        Image(systemName: "ellipsis")
+          .font(SerenityType.scaledSystem(size: 13, weight: .semibold))
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .frame(width: 28, height: 28)
+          .contentShape(Rectangle())
+      }
+      .menuStyle(.borderlessButton)
+      .menuIndicator(.hidden)
+      .fixedSize()
+      .accessibilityLabel("More for \(summary.routine.title)")
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 10)
+  }
+
+  private var detailText: String {
+    var parts = [summary.routine.schedule.title]
+    if let progress = summary.weekProgress {
+      parts.append("\(progress.done) of \(progress.target) this week")
+    }
+    if isSkipped {
+      parts.append("Skipped today")
+    }
+    return parts.joined(separator: " · ")
+  }
+
+  private func fill(for mark: RoutineDayMark) -> Color {
+    switch mark {
+    case .done:
+      return SerenityPalette.routineAccent
+    case .skipped:
+      return SerenityPalette.textSecondary.opacity(0.45)
+    case .missed:
+      return SerenityPalette.attention
+    case .open:
+      return .clear
+    case .off:
+      return SerenityPalette.border
+    }
+  }
+}
+
+private struct RoutineEditorSheet: View {
+  private enum Frequency: Hashable {
+    case daily
+    case timesPerWeek
+    case weekdays
+  }
+
+  @Environment(\.dismiss) private var dismiss
+
+  let routine: RoutineEntity?
+  let onSave: (String, RoutineSchedule, RoutineTimeOfDay) -> Void
+
+  @State private var title: String
+  @State private var frequency: Frequency
+  @State private var timesPerWeek: Int
+  @State private var weekdays: Set<Int>
+  @State private var timeOfDay: RoutineTimeOfDay
+
+  init(routine: RoutineEntity?, onSave: @escaping (String, RoutineSchedule, RoutineTimeOfDay) -> Void) {
+    self.routine = routine
+    self.onSave = onSave
+    _title = State(initialValue: routine?.title ?? "")
+    _timeOfDay = State(initialValue: routine?.timeOfDay ?? .morning)
+    switch routine?.schedule ?? .daily {
+    case .daily:
+      _frequency = State(initialValue: .daily)
+      _timesPerWeek = State(initialValue: 3)
+      _weekdays = State(initialValue: [2, 3, 4, 5, 6])
+    case .timesPerWeek(let count):
+      _frequency = State(initialValue: .timesPerWeek)
+      _timesPerWeek = State(initialValue: count)
+      _weekdays = State(initialValue: [2, 3, 4, 5, 6])
+    case .weekdays(let days):
+      _frequency = State(initialValue: .weekdays)
+      _timesPerWeek = State(initialValue: 3)
+      _weekdays = State(initialValue: Set(days))
+    }
+  }
+
+  private var schedule: RoutineSchedule {
+    switch frequency {
+    case .daily:
+      return .daily
+    case .timesPerWeek:
+      return .timesPerWeek(timesPerWeek)
+    case .weekdays:
+      return .weekdays(weekdays.sorted())
+    }
+  }
+
+  private var canSave: Bool {
+    !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (frequency != .weekdays || !weekdays.isEmpty)
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      Text(routine == nil ? "New routine" : "Edit routine")
+        .font(SerenityType.sectionTitle)
+
+      field("Name") {
+        TextField("Morning pages", text: $title)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+      }
+
+      field("How often") {
+        VStack(alignment: .leading, spacing: 10) {
+          Picker("How often", selection: $frequency) {
+            Text("Every day").tag(Frequency.daily)
+            Text("Times a week").tag(Frequency.timesPerWeek)
+            Text("Set days").tag(Frequency.weekdays)
+          }
+          .labelsHidden()
+          .pickerStyle(.segmented)
+
+          switch frequency {
+          case .daily:
+            EmptyView()
+          case .timesPerWeek:
+            Stepper("\(timesPerWeek) times a week", value: $timesPerWeek, in: 1...6)
+              .font(SerenityType.body)
+          case .weekdays:
+            HStack(spacing: 6) {
+              ForEach(RoutineSchedule.orderedWeekdays(), id: \.self) { weekday in
+                Button(RoutineSchedule.shortWeekdaySymbol(weekday)) {
+                  if weekdays.contains(weekday) {
+                    weekdays.remove(weekday)
+                  } else {
+                    weekdays.insert(weekday)
+                  }
+                }
+                .buttonStyle(SerenityPillButtonStyle(selected: weekdays.contains(weekday)))
+                .hoverCursor(.pointingHand)
+              }
+            }
+          }
+        }
+      }
+
+      field("Time of day") {
+        Picker("Time of day", selection: $timeOfDay) {
+          ForEach(RoutineTimeOfDay.allCases, id: \.self) { value in
+            Text(value.title).tag(value)
+          }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+      }
+
+      HStack {
+        Spacer()
+        Button("Cancel") {
+          dismiss()
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        Button("Save") {
+          onSave(title, schedule, timeOfDay)
+          dismiss()
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .disabled(!canSave)
+        .keyboardShortcut(.defaultAction)
+      }
+    }
+    .padding(20)
+    .frame(minWidth: 420)
+  }
+
+  private func field<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text(label)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+      content()
+    }
+  }
+}
+
+private extension View {
+  func routinePanel() -> some View {
+    frame(maxWidth: .infinity, alignment: .leading)
+      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(SerenityPalette.border, lineWidth: 1)
+      )
+  }
+}
+
+private extension RoutineTimeOfDay {
+  var title: String {
+    switch self {
+    case .morning:
+      return "Morning"
+    case .afternoon:
+      return "Afternoon"
+    case .evening:
+      return "Evening"
+    case .anytime:
+      return "Anytime"
+    }
+  }
+}
+
+extension RoutineSchedule {
+  var title: String {
+    switch self {
+    case .daily:
+      return "Every day"
+    case .timesPerWeek(let count):
+      return "\(count) a week"
+    case .weekdays(let days):
+      let set = Set(days)
+      if set == [2, 3, 4, 5, 6] { return "Weekdays" }
+      if set == [1, 7] { return "Weekends" }
+      return Self.orderedWeekdays().filter(set.contains).map(Self.shortWeekdaySymbol).joined(separator: ", ")
+    }
+  }
+
+  /// Weekday numbers in the order the user's calendar starts its week.
+  static func orderedWeekdays(calendar: Calendar = .current) -> [Int] {
+    (0..<7).map { ((calendar.firstWeekday - 1 + $0) % 7) + 1 }
+  }
+
+  static func shortWeekdaySymbol(_ weekday: Int) -> String {
+    Calendar.current.shortStandaloneWeekdaySymbols[(weekday - 1) % 7]
   }
 }
