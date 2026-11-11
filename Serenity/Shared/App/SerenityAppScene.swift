@@ -53,6 +53,18 @@ struct SerenityAppScene: View {
         .environmentObject(appState)
         .environment(\.serenityCompactLayout, isCompactLayout)
     }
+    .sheet(isPresented: $appState.isInboxTriagePresented) {
+      InboxTriageSheet()
+        .environmentObject(appState)
+    }
+    .sheet(isPresented: $appState.isShutdownPresented) {
+      ShutdownSheet()
+        .environmentObject(appState)
+    }
+    .sheet(isPresented: $appState.isWeeklyReviewPresented) {
+      WeeklyReviewSheet()
+        .environmentObject(appState)
+    }
     .sheet(isPresented: $appState.isVoiceCapturePresented) {
       VoiceCaptureView {
         appState.isVoiceCapturePresented = false
@@ -1622,15 +1634,19 @@ private struct HomeSectionView: View {
           TodayPlanPanel()
             .frame(maxWidth: .infinity)
           VStack(alignment: .leading, spacing: 18) {
+            TodayTopThreeCard()
             TodayGoalsCard()
             TodayRoutinesCard()
+            TodayShutdownCard()
           }
           .frame(width: 340)
         }
       } else {
+        TodayTopThreeCard()
         TodayPlanPanel()
         TodayGoalsCard()
         TodayRoutinesCard()
+        TodayShutdownCard()
       }
       TodayOverviewView(onEditTask: onEditTask)
     }
@@ -4269,7 +4285,7 @@ private struct ActionHubSectionView: View {
       SerenityEmptyState(
         icon: "tray",
         title: "Inbox is clear",
-        message: "Captured tasks land here until they get a due date."
+        message: "Captured tasks land here until they get a date or are kept for someday."
       )
     default:
       SerenityEmptyState(
@@ -6008,6 +6024,11 @@ private struct GoalsSectionView: View {
           .font(SerenityType.body)
           .foregroundStyle(SerenityPalette.textSecondary)
         Spacer(minLength: 8)
+        Button("Weekly review") {
+          appState.isWeeklyReviewPresented = true
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
         Button {
           editorTarget = GoalEditorTarget(goal: nil)
         } label: {
@@ -15835,7 +15856,9 @@ private struct TodayNeedsYouPanel: View {
       goalReports: appState.goalReports(),
       routineSummaries: appState.routineSummaries(),
       pendingProposals: appState.slackProposals.filter { $0.status == .pending }.count,
-      standupPending: standupPending
+      standupPending: standupPending,
+      shutdownDue: TodayBriefing.shutdownDue(lastShutdownDay: appState.lastShutdownDay),
+      weeklyReviewDue: WeeklyReview.isDue(lastReviewedWeek: appState.lastWeeklyReviewWeek)
     )
 
     VStack(alignment: .leading, spacing: 14) {
@@ -15915,12 +15938,22 @@ private struct TodayNeedsYouPanel: View {
       return "bubble.left.and.bubble.right"
     case .standup:
       return "mic"
+    case .shutdown:
+      return "moon"
+    case .weeklyReview:
+      return "calendar.badge.checkmark"
     }
   }
 
   private func open(_ destination: AttentionItem.Destination) {
     switch destination {
-    case .inbox, .overdue, .slackProposals:
+    case .inbox:
+      appState.isInboxTriagePresented = true
+    case .shutdown:
+      appState.isShutdownPresented = true
+    case .weeklyReview:
+      appState.isWeeklyReviewPresented = true
+    case .overdue, .slackProposals:
       appState.setSection(.actionHub)
     case .goal(let id):
       appState.focusedGoalID = id
@@ -16808,6 +16841,455 @@ private struct VoiceCaptureItemRow: View {
       }
       .labelsHidden()
       .fixedSize()
+    }
+  }
+}
+
+// MARK: - Sorting, shutdown and weekly review
+
+private struct TodayTopThreeCard: View {
+  @EnvironmentObject private var appState: AppState
+
+  var body: some View {
+    let tasks = appState.topThreeTasks()
+    if !tasks.isEmpty {
+      VStack(alignment: .leading, spacing: 10) {
+        Text("Top three")
+          .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
+        ForEach(tasks) { task in
+          HStack(spacing: 10) {
+            Button {
+              Task { await appState.toggleTaskCompletion(id: task.id) }
+            } label: {
+              SerenityCheckbox(isOn: task.completed)
+            }
+            .buttonStyle(.plain)
+            .hoverCursor(.pointingHand)
+            .accessibilityLabel(task.completed ? "Mark \(task.title) incomplete" : "Mark \(task.title) complete")
+            Text(task.title)
+              .font(SerenityType.body)
+              .strikethrough(task.completed, color: SerenityPalette.textSecondary)
+              .foregroundStyle(task.completed ? SerenityPalette.textSecondary : SerenityPalette.textPrimary)
+              .lineLimit(2)
+          }
+          .frame(minHeight: 32)
+        }
+      }
+      .padding(18)
+      .routinePanel()
+    }
+  }
+}
+
+private struct TodayShutdownCard: View {
+  @EnvironmentObject private var appState: AppState
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 8) {
+        Image(systemName: "moon")
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .accessibilityHidden(true)
+        Text(appState.isShutdownDone ? "Day closed" : "Evening shutdown")
+          .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
+      }
+      Text(appState.isShutdownDone
+        ? "Tomorrow's top three are set. Anything you capture now lands in tomorrow's inbox."
+        : "Settle today's open tasks, pick tomorrow's top three, and leave one line for the journal.")
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+      Button(appState.isShutdownDone ? "Run it again" : "Start shutdown") {
+        appState.isShutdownPresented = true
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+    }
+    .padding(18)
+    .routinePanel()
+  }
+}
+
+/// Buttons that move a task to a day, shared by triage and shutdown.
+private struct TaskDayButtons: View {
+  @EnvironmentObject private var appState: AppState
+  let task: TaskEntity
+  var includesToday = true
+  var includesSomeday = false
+
+  var body: some View {
+    let calendar = Calendar.current
+    let today = calendar.startOfDay(for: Date())
+    let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today
+    let nextWeek = WeeklyReview.nextMonday(after: tomorrow)
+
+    HStack(spacing: 6) {
+      if includesToday {
+        dayButton("Today", day: today)
+      }
+      dayButton("Tomorrow", day: tomorrow)
+      dayButton("Next week", day: nextWeek)
+      if includesSomeday {
+        Button("Someday") {
+          Task { await appState.keepTaskForSomeday(id: task.id) }
+        }
+        .buttonStyle(SerenityPillButtonStyle(selected: false))
+        .hoverCursor(.pointingHand)
+      }
+    }
+  }
+
+  private func dayButton(_ title: String, day: Date) -> some View {
+    Button(title) {
+      Task { await appState.scheduleTask(id: task.id, on: day) }
+    }
+    .buttonStyle(SerenityPillButtonStyle(selected: false))
+    .hoverCursor(.pointingHand)
+  }
+}
+
+private struct InboxTriageSheet: View {
+  @EnvironmentObject private var appState: AppState
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    let tasks = appState.inboxTasks
+
+    VStack(alignment: .leading, spacing: 16) {
+      HStack {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Sort the inbox")
+            .font(SerenityType.sectionTitle)
+          Text(tasks.isEmpty ? "Nothing left to sort." : "Give each one a day, keep it for someday, or let it go.")
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+        Spacer()
+        Button("Done") { dismiss() }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .keyboardShortcut(.defaultAction)
+      }
+
+      if tasks.isEmpty {
+        VStack(spacing: 8) {
+          Image(systemName: "tray")
+            .font(SerenityType.scaledSystem(size: 28, weight: .regular))
+            .foregroundStyle(SerenityPalette.textSecondary.opacity(0.65))
+          Text("Inbox clear")
+            .font(SerenityType.bodyLarge.weight(.medium))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+      } else {
+        ScrollView {
+          VStack(spacing: 10) {
+            ForEach(tasks) { task in
+              triageRow(task)
+            }
+          }
+        }
+        .frame(minHeight: 200, maxHeight: 460)
+      }
+    }
+    .padding(20)
+    .frame(minWidth: 560)
+  }
+
+  private func triageRow(_ task: TaskEntity) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(task.title)
+          .font(SerenityType.bodyLarge.weight(.medium))
+          .lineLimit(2)
+        Spacer(minLength: 8)
+        Text(SerenityDateText.elapsed(task.createdAt))
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+      HStack(spacing: 8) {
+        TaskDayButtons(task: task, includesSomeday: true)
+        Spacer(minLength: 8)
+        Picker("Project", selection: Binding(
+          get: { task.projectId },
+          set: { projectID in Task { await appState.setTaskProject(id: task.id, projectID: projectID) } }
+        )) {
+          Text("No project").tag(String?.none)
+          ForEach(appState.projects.filter { !$0.archived }) { project in
+            Text(project.name).tag(Optional(project.id))
+          }
+        }
+        .labelsHidden()
+        .fixedSize()
+        Button {
+          Task { await appState.toggleTaskCompletion(id: task.id) }
+        } label: {
+          Image(systemName: "checkmark")
+        }
+        .buttonStyle(.borderless)
+        .hoverCursor(.pointingHand)
+        .accessibilityLabel("Mark \(task.title) done")
+        Button(role: .destructive) {
+          Task { await appState.deleteTask(id: task.id) }
+        } label: {
+          Image(systemName: "trash")
+        }
+        .buttonStyle(.borderless)
+        .hoverCursor(.pointingHand)
+        .accessibilityLabel("Delete \(task.title)")
+      }
+    }
+    .padding(14)
+    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(SerenityPalette.innerCardBackground))
+  }
+}
+
+private struct ShutdownSheet: View {
+  @EnvironmentObject private var appState: AppState
+  @Environment(\.dismiss) private var dismiss
+
+  @State private var topThree: [String] = []
+  @State private var journalLine = ""
+  @State private var finishing = false
+
+  private var tomorrow: Date {
+    Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: Date())) ?? Date()
+  }
+
+  var body: some View {
+    let open = (appState.overdueTasks + appState.todayTasks.filter { !$0.completed })
+    let candidates = appState.tasks
+      .filter { !$0.completed }
+      .sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
+
+    VStack(alignment: .leading, spacing: 18) {
+      Text("Close out the day")
+        .font(SerenityType.sectionTitle)
+
+      step(1, "Settle what's still open") {
+        if open.isEmpty {
+          Text("Nothing dated today is left open.")
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        } else {
+          VStack(spacing: 8) {
+            ForEach(open) { task in
+              HStack(spacing: 10) {
+                Button {
+                  Task { await appState.toggleTaskCompletion(id: task.id) }
+                } label: {
+                  SerenityCheckbox(isOn: task.completed)
+                }
+                .buttonStyle(.plain)
+                .hoverCursor(.pointingHand)
+                .accessibilityLabel("Mark \(task.title) done")
+                Text(task.title)
+                  .font(SerenityType.body)
+                  .lineLimit(1)
+                Spacer(minLength: 8)
+                TaskDayButtons(task: task, includesToday: false)
+              }
+            }
+          }
+        }
+      }
+
+      step(2, "Pick tomorrow's top three") {
+        VStack(alignment: .leading, spacing: 6) {
+          ForEach(candidates.prefix(12)) { task in
+            Button {
+              if let index = topThree.firstIndex(of: task.id) {
+                topThree.remove(at: index)
+              } else if topThree.count < 3 {
+                topThree.append(task.id)
+              }
+            } label: {
+              HStack(spacing: 10) {
+                SerenityCheckbox(isOn: topThree.contains(task.id), size: 16)
+                Text(task.title)
+                  .font(SerenityType.body)
+                  .foregroundStyle(SerenityPalette.textPrimary)
+                  .lineLimit(1)
+                Spacer()
+                if let due = task.dueDate {
+                  Text(SerenityDateText.due(due))
+                    .font(SerenityType.caption)
+                    .foregroundStyle(SerenityPalette.textSecondary)
+                }
+              }
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .hoverCursor(.pointingHand)
+            .disabled(!topThree.contains(task.id) && topThree.count >= 3)
+          }
+        }
+      }
+
+      step(3, "One line for the journal") {
+        TextField("How did today go?", text: $journalLine, axis: .vertical)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+      }
+
+      HStack {
+        Spacer()
+        Button("Not now") { dismiss() }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        Button("Close the day") {
+          finishing = true
+          let picks = topThree
+          let line = journalLine
+          Task {
+            await appState.setTopThree(taskIDs: picks, for: tomorrow)
+            await appState.completeShutdown(journalLine: line)
+            finishing = false
+            dismiss()
+          }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .disabled(finishing)
+        .keyboardShortcut(.defaultAction)
+      }
+    }
+    .padding(20)
+    .frame(minWidth: 560)
+    .onAppear {
+      topThree = appState.topThreeTasks(on: tomorrow).map(\.id)
+    }
+  }
+
+  private func step<Content: View>(_ number: Int, _ title: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("\(number) · \(title)")
+        .font(SerenityType.bodyMedium)
+        .foregroundStyle(SerenityPalette.textPrimary)
+      content()
+    }
+  }
+}
+
+private struct WeeklyReviewSheet: View {
+  @EnvironmentObject private var appState: AppState
+  @Environment(\.dismiss) private var dismiss
+
+  @State private var answers = WeeklyReview.Answers()
+  @State private var saving = false
+
+  var body: some View {
+    let summary = appState.weeklyReviewSummary()
+
+    ScrollView {
+      VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Weekly review")
+            .font(SerenityType.sectionTitle)
+          Text("Week of \(summary.weekStart.formatted(.dateTime.day().month(.wide)))")
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+
+        section("Wins") {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("\(summary.completedTasks.count) tasks finished\(summary.focusHours > 0 ? " · \(GoalReport.format((summary.focusHours * 10).rounded() / 10)) h of focus" : "")")
+              .font(SerenityType.body)
+            ForEach(summary.routines.filter { $0.done > 0 }, id: \.title) { routine in
+              Text("\(routine.title): \(routine.done) day\(routine.done == 1 ? "" : "s")")
+                .font(SerenityType.body)
+                .foregroundStyle(SerenityPalette.textSecondary)
+            }
+            ForEach(summary.completedTasks.prefix(6)) { task in
+              Text("Done: \(task.title)")
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
+                .lineLimit(1)
+            }
+          }
+        }
+
+        section("What moved?") {
+          TextField("The sync fixes landed; ran three times", text: $answers.moved, axis: .vertical)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+
+        section("What stalled, and why?") {
+          TextField("Blocked on a second test device", text: $answers.stalled, axis: .vertical)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+
+        if !summary.goals.isEmpty {
+          section("Goals") {
+            VStack(alignment: .leading, spacing: 10) {
+              ForEach(summary.goals) { report in
+                VStack(alignment: .leading, spacing: 6) {
+                  HStack(alignment: .firstTextBaseline) {
+                    Text(report.goal.title)
+                      .font(SerenityType.bodyMedium)
+                    Spacer()
+                    Text(report.statusLabel)
+                      .font(SerenityType.caption)
+                      .foregroundStyle(report.statusTint)
+                  }
+                  TextField("Note (optional)", text: Binding(
+                    get: { answers.goalNotes[report.id] ?? "" },
+                    set: { answers.goalNotes[report.id] = $0 }
+                  ))
+                  .textFieldStyle(.plain)
+                  .serenityInputField()
+                }
+              }
+            }
+          }
+        }
+
+        section("Three things for next week") {
+          VStack(spacing: 8) {
+            ForEach(answers.nextWeek.indices, id: \.self) { index in
+              TextField("Thing \(index + 1)", text: $answers.nextWeek[index])
+                .textFieldStyle(.plain)
+                .serenityInputField()
+            }
+            Text("These become tasks due \(WeeklyReview.nextMonday(after: Date()).formatted(.dateTime.weekday(.wide).day().month(.abbreviated))).")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+        }
+
+        HStack {
+          Spacer()
+          Button("Not now") { dismiss() }
+            .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
+          Button("Save review") {
+            saving = true
+            let review = answers
+            Task {
+              await appState.completeWeeklyReview(review, summary: summary)
+              saving = false
+              dismiss()
+            }
+          }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .disabled(saving)
+          .keyboardShortcut(.defaultAction)
+        }
+      }
+      .padding(20)
+    }
+    .frame(minWidth: 560, minHeight: 560)
+  }
+
+  private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text(title)
+        .font(SerenityType.bodyMedium)
+      content()
     }
   }
 }

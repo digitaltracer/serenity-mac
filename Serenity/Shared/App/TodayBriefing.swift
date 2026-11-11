@@ -10,6 +10,8 @@ struct AttentionItem: Identifiable, Equatable {
     case routines
     case slackProposals
     case standup
+    case shutdown
+    case weeklyReview
   }
 
   let id: String
@@ -66,9 +68,33 @@ enum TodayBriefing {
     goalReports: [GoalReport],
     routineSummaries: [RoutineSummary],
     pendingProposals: Int,
-    standupPending: Int
+    standupPending: Int,
+    shutdownDue: Bool = false,
+    weeklyReviewDue: Bool = false
   ) -> [AttentionItem] {
     var items: [AttentionItem] = []
+
+    if shutdownDue {
+      items.append(AttentionItem(
+        id: "shutdown",
+        title: "Close out the day",
+        reason: "Settle today's open tasks, pick tomorrow's top three, one line for the journal.",
+        actionTitle: "Start shutdown",
+        destination: .shutdown,
+        isUrgent: false
+      ))
+    }
+
+    if weeklyReviewDue {
+      items.append(AttentionItem(
+        id: "weekly-review",
+        title: "Time for the weekly review",
+        reason: "Ten minutes on what moved, what stalled, and three things for next week.",
+        actionTitle: "Review the week",
+        destination: .weeklyReview,
+        isUrgent: false
+      ))
+    }
 
     if inboxCount > 0 {
       items.append(AttentionItem(
@@ -262,5 +288,159 @@ enum TodayBriefing {
     }
     flush()
     return result
+  }
+}
+
+// MARK: - Shutdown and weekly review
+
+extension TodayBriefing {
+  /// From 5 PM until the routine day rolls over at 3 AM, unless today's shutdown is done.
+  static func shutdownDue(now: Date = Date(), lastShutdownDay: String?, calendar: Calendar = .current) -> Bool {
+    let hour = calendar.component(.hour, from: now)
+    guard hour >= 17 || hour < RoutineDay.rolloverHour else { return false }
+    return lastShutdownDay != RoutineDay.key(for: RoutineDay.current(now: now, calendar: calendar), calendar: calendar)
+  }
+}
+
+enum WeeklyReview {
+  struct Summary {
+    struct RoutineLine: Equatable {
+      let title: String
+      let done: Int
+    }
+
+    let weekStart: Date
+    let weekEnd: Date
+    let completedTasks: [TaskEntity]
+    let focusHours: Double
+    let routines: [RoutineLine]
+    let goals: [GoalReport]
+  }
+
+  struct Answers: Equatable {
+    var moved = ""
+    var stalled = ""
+    var goalNotes: [String: String] = [:]
+    var nextWeek = ["", "", ""]
+  }
+
+  /// Weeks start on Monday here whatever the locale, so "this week" means the same on every device.
+  static var calendar: Calendar {
+    var calendar = Calendar(identifier: .iso8601)
+    calendar.timeZone = .current
+    return calendar
+  }
+
+  /// On a Monday the review looks back at the week just finished; otherwise at the current one.
+  static func reviewedWeekStart(for now: Date, calendar: Calendar = WeeklyReview.calendar) -> Date {
+    let anchor = calendar.component(.weekday, from: now) == 2 ? (calendar.date(byAdding: .day, value: -1, to: now) ?? now) : now
+    return calendar.dateInterval(of: .weekOfYear, for: anchor)?.start ?? calendar.startOfDay(for: anchor)
+  }
+
+  static func weekKey(for now: Date, calendar: Calendar = WeeklyReview.calendar) -> String {
+    let start = reviewedWeekStart(for: now, calendar: calendar)
+    let parts = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: start)
+    return String(format: "%04d-W%02d", parts.yearForWeekOfYear ?? 0, parts.weekOfYear ?? 0)
+  }
+
+  /// Due from Friday afternoon through Monday, once per week.
+  static func isDue(now: Date = Date(), lastReviewedWeek: String?, calendar: Calendar = WeeklyReview.calendar) -> Bool {
+    let weekday = calendar.component(.weekday, from: now)
+    let hour = calendar.component(.hour, from: now)
+    let inWindow = (weekday == 6 && hour >= 15) || weekday == 7 || weekday == 1 || weekday == 2
+    return inWindow && lastReviewedWeek != weekKey(for: now, calendar: calendar)
+  }
+
+  /// The Monday next week's picks are due: today when reviewing on a Monday.
+  static func nextMonday(after now: Date, calendar: Calendar = WeeklyReview.calendar) -> Date {
+    let today = calendar.startOfDay(for: now)
+    if calendar.component(.weekday, from: today) == 2 { return today }
+    return calendar.nextDate(after: today, matching: DateComponents(weekday: 2), matchingPolicy: .nextTime) ?? today
+  }
+
+  static func summary(
+    tasks: [TaskEntity],
+    focusBlocks: [FocusBlockEntity],
+    routineSummaries: [RoutineSummary],
+    routineChecks: [RoutineCheckEntity],
+    goalReports: [GoalReport],
+    now: Date,
+    calendar: Calendar = WeeklyReview.calendar
+  ) -> Summary {
+    let start = reviewedWeekStart(for: now, calendar: calendar)
+    let end = calendar.date(byAdding: .day, value: 7, to: start) ?? now
+    let window = DateInterval(start: start, end: max(min(end, now), start))
+    let inWeek: (Date) -> Bool = { $0 >= window.start && $0 < end && $0 <= now }
+
+    let completed = tasks
+      .filter { $0.completed && ($0.completedAt.map(inWeek) ?? false) }
+      .sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
+    let focus = focusBlocks
+      .filter { $0.status == .done && inWeek($0.finishedAt ?? $0.end) }
+      .reduce(0) { $0 + $1.loggedMinutes } / 60
+    let routines = routineSummaries.map { summary in
+      Summary.RoutineLine(
+        title: summary.routine.title,
+        done: routineChecks.filter { check in
+          check.routineId == summary.routine.id && check.status == .done
+            && (GoalReports.date(fromDayKey: check.day).map(inWeek) ?? false)
+        }.count
+      )
+    }
+
+    return Summary(
+      weekStart: start,
+      weekEnd: end,
+      completedTasks: completed,
+      focusHours: focus,
+      routines: routines,
+      goals: goalReports.filter { $0.kind != .area }
+    )
+  }
+
+  static func journalText(summary: Summary, answers: Answers) -> String {
+    var lines: [String] = []
+    lines.append("## Wins")
+    lines.append("- \(summary.completedTasks.count) tasks finished")
+    if summary.focusHours > 0 {
+      lines.append("- \(GoalReport.format((summary.focusHours * 10).rounded() / 10)) h of focus")
+    }
+    for routine in summary.routines where routine.done > 0 {
+      lines.append("- \(routine.title): \(routine.done) day\(routine.done == 1 ? "" : "s")")
+    }
+    for task in summary.completedTasks.prefix(8) {
+      lines.append("- Done: \(task.title)")
+    }
+
+    if !answers.moved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      lines.append("")
+      lines.append("## What moved")
+      lines.append(answers.moved.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    if !answers.stalled.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      lines.append("")
+      lines.append("## What stalled, and why")
+      lines.append(answers.stalled.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    if !summary.goals.isEmpty {
+      lines.append("")
+      lines.append("## Goals")
+      for report in summary.goals {
+        var line = "- \(report.goal.title): \(report.statusLabel) (\(report.progressLabel))"
+        if let note = answers.goalNotes[report.id]?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
+          line += ". \(note)"
+        }
+        lines.append(line)
+      }
+    }
+
+    let next = answers.nextWeek.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    if !next.isEmpty {
+      lines.append("")
+      lines.append("## Next week")
+      lines.append(contentsOf: next.map { "- \($0)" })
+    }
+    return lines.joined(separator: "\n")
   }
 }

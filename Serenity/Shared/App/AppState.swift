@@ -117,6 +117,8 @@ enum OAuthConfigurationValidationError: Error, LocalizedError {
 @MainActor
 final class AppState: ObservableObject {
   static let themePreferenceDefaultsKey = "serenity.ui.themePreference"
+  static let lastShutdownDayKey = "serenity.daily.lastShutdownDay"
+  static let lastWeeklyReviewWeekKey = "serenity.daily.lastWeeklyReviewWeek"
   static let lastSectionDefaultsKey = "serenity.ui.lastSection"
   static let notificationsEnabledDefaultsKey = "serenity.notifications.enabled"
   static let slackSyncEnabledDefaultsKey = "serenity.slack.syncEnabled"
@@ -163,6 +165,11 @@ final class AppState: ObservableObject {
   @Published var focusedGoalID: String?
   /// Shows the voice capture sheet. The Mac also opens it as a floating panel from the global shortcut.
   @Published var isVoiceCapturePresented = false
+  @Published var isInboxTriagePresented = false
+  @Published var isShutdownPresented = false
+  @Published var isWeeklyReviewPresented = false
+  @Published private(set) var lastShutdownDay: String? = UserDefaults.standard.string(forKey: AppState.lastShutdownDayKey)
+  @Published private(set) var lastWeeklyReviewWeek: String? = UserDefaults.standard.string(forKey: AppState.lastWeeklyReviewWeekKey)
   @Published var taskFilter = TaskWorkflowFilter()
   @Published var selectedTaskIDs: Set<String> = []
   @Published var journalDateRangeEnabled = false
@@ -421,11 +428,14 @@ final class AppState: ObservableObject {
 
   /// Captured but not yet scheduled. Quick capture lands here, so Home has to
   /// show it — otherwise anything typed without a date disappears on send.
+  /// Undated open tasks waiting to be sorted. Ones kept for someday have been sorted, so they leave.
   var inboxTasks: [TaskEntity] {
     tasks
-      .filter { !$0.completed && $0.dueDate == nil }
+      .filter { !$0.completed && $0.dueDate == nil && !$0.tags.contains(Self.somedayTag) }
       .sorted { $0.createdAt > $1.createdAt }
   }
+
+  static let somedayTag = "someday"
 
   var filteredJournalEntries: [JournalEntryEntity] {
     guard journalDateRangeEnabled else {
@@ -3959,6 +3969,108 @@ final class AppState: ObservableObject {
 
   static let routinesNeedLocalStorageMessage =
     "Routines and focus blocks are kept in this device's database and synced with iCloud. Switch to local storage in Settings > Database to use them."
+
+  // MARK: - Sorting, shutdown and review
+
+  /// Saves a small change to a task without a toast, for the triage, shutdown and review flows.
+  func adjustTask(id: String, _ change: (inout TaskEntity) -> Void) async {
+    guard var task = tasks.first(where: { $0.id == id }) else { return }
+    change(&task)
+    task.updatedAt = Date()
+    do {
+      try await saveTask(task)
+      await refreshCoreWorkflowData()
+    } catch {
+      showError(title: "Failed to update task", message: error.localizedDescription)
+    }
+  }
+
+  func scheduleTask(id: String, on day: Date?) async {
+    await adjustTask(id: id) { task in
+      task.dueDate = day.map { Calendar.current.startOfDay(for: $0) }
+      task.tags.removeAll { $0 == Self.somedayTag }
+    }
+  }
+
+  func keepTaskForSomeday(id: String) async {
+    await adjustTask(id: id) { task in
+      task.dueDate = nil
+      if !task.tags.contains(Self.somedayTag) { task.tags.append(Self.somedayTag) }
+    }
+  }
+
+  func setTaskProject(id: String, projectID: String?) async {
+    await adjustTask(id: id) { $0.projectId = projectID }
+  }
+
+  /// Tomorrow's top three carry a dated tag, so they sync with the tasks and expire on their own.
+  static func topThreeTag(for day: Date) -> String {
+    "top-\(RoutineDay.key(for: Calendar.current.startOfDay(for: day)))"
+  }
+
+  func topThreeTasks(on day: Date = Date()) -> [TaskEntity] {
+    let tag = Self.topThreeTag(for: day)
+    return tasks.filter { $0.tags.contains(tag) }.sorted { $0.createdAt < $1.createdAt }
+  }
+
+  func setTopThree(taskIDs: [String], for day: Date) async {
+    let tag = Self.topThreeTag(for: day)
+    let chosen = Set(taskIDs.prefix(3))
+    for task in tasks where task.tags.contains(tag) != chosen.contains(task.id) {
+      await adjustTask(id: task.id) { task in
+        if chosen.contains(task.id) {
+          task.tags.append(tag)
+          if task.dueDate == nil || task.dueDate! < Calendar.current.startOfDay(for: day) {
+            task.dueDate = Calendar.current.startOfDay(for: day)
+          }
+        } else {
+          task.tags.removeAll { $0 == tag }
+        }
+      }
+    }
+  }
+
+  var isShutdownDone: Bool {
+    lastShutdownDay == RoutineDay.key(for: RoutineDay.current())
+  }
+
+  func completeShutdown(journalLine: String, now: Date = Date()) async {
+    let line = journalLine.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !line.isEmpty {
+      _ = await createJournalEntry(title: "Shutdown · \(now.formatted(.dateTime.weekday(.wide).day().month(.abbreviated)))", content: line, mood: nil, tags: ["shutdown"])
+    }
+    let key = RoutineDay.key(for: RoutineDay.current(now: now))
+    UserDefaults.standard.set(key, forKey: Self.lastShutdownDayKey)
+    lastShutdownDay = key
+  }
+
+  var isWeeklyReviewDone: Bool {
+    lastWeeklyReviewWeek == WeeklyReview.weekKey(for: Date())
+  }
+
+  /// Saves the review as a journal entry and next week's picks as tasks due on Monday.
+  func completeWeeklyReview(_ review: WeeklyReview.Answers, summary: WeeklyReview.Summary, now: Date = Date()) async {
+    let body = WeeklyReview.journalText(summary: summary, answers: review)
+    _ = await createJournalEntry(title: "Weekly review · week of \(summary.weekStart.formatted(.dateTime.day().month(.wide)))", content: body, mood: nil, tags: ["weekly-review"])
+    let monday = WeeklyReview.nextMonday(after: now)
+    for item in review.nextWeek.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !item.isEmpty {
+      _ = await createTask(title: item, priority: .medium, dueDate: monday, tags: ["weekly-review"], subtaskTitles: [])
+    }
+    let key = WeeklyReview.weekKey(for: now)
+    UserDefaults.standard.set(key, forKey: Self.lastWeeklyReviewWeekKey)
+    lastWeeklyReviewWeek = key
+  }
+
+  func weeklyReviewSummary(now: Date = Date()) -> WeeklyReview.Summary {
+    WeeklyReview.summary(
+      tasks: tasks,
+      focusBlocks: focusBlocks,
+      routineSummaries: routineSummaries(now: now),
+      routineChecks: routineChecks,
+      goalReports: goalReports(now: now).filter { $0.goal.status == .active },
+      now: now
+    )
+  }
 
   // MARK: - Voice capture
 
