@@ -487,7 +487,8 @@ final class GRDBJournalRepository: CoreJournalRepository {
       """,
       arguments: [
         entry.id,
-        entry.title,
+        // The column is NOT NULL from the first schema; an untitled entry is stored as "".
+        entry.title ?? "",
         entry.content,
         CoreRepositoryCodec.encodeDate(entry.date),
         tagsJSON,
@@ -524,7 +525,7 @@ final class GRDBJournalRepository: CoreJournalRepository {
 
     return JournalEntryEntity(
       id: row["id"],
-      title: row["title"],
+      title: (row["title"] as String?).flatMap { $0.isEmpty ? nil : $0 },
       content: row["content"],
       date: try CoreRepositoryCodec.decodeDate(dateValue ?? fallbackDate),
       tags: tags,

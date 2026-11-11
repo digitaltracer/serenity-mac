@@ -4104,9 +4104,7 @@ final class AppState: ObservableObject {
           saved += 1
         }
       case .journal:
-        // The journal table requires a title, so a spoken line is titled by its opening words.
-        let title = item.text.split(separator: " ").prefix(6).joined(separator: " ")
-        if await createJournalEntry(title: title, content: item.text, mood: nil, tags: ["voice"]) {
+        if await createJournalEntry(title: "", content: item.text, mood: nil, tags: ["voice"]) {
           saved += 1
         }
       case .goalCheckIn:

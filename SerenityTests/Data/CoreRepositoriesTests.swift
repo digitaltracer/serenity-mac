@@ -162,6 +162,28 @@ final class CoreRepositoriesTests: XCTestCase {
     XCTAssertEqual(active.first?.config.targetCount, 20)
   }
 
+  func testUntitledJournalEntrySavesAndReadsBackUntitled() async throws {
+    let repositories = try await makeRepositorySet()
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let entry = JournalEntryEntity(
+      id: UUID().uuidString,
+      title: nil,
+      content: "Felt scattered, better after the walk.",
+      date: now,
+      tags: [],
+      createdAt: now,
+      updatedAt: now,
+      pinned: false,
+      mood: nil,
+      attachments: [],
+      userId: nil
+    )
+
+    try repositories.journal.save(entry)
+
+    XCTAssertEqual(try repositories.journal.fetchByID(entry.id), entry)
+  }
+
   private func makeRepositorySet() async throws -> GRDBCoreRepositorySet {
     let databaseURL = FileManager.default.temporaryDirectory
       .appendingPathComponent("serenity-macos-repositories")
