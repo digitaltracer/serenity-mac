@@ -71,7 +71,7 @@ struct SerenityMacApp: App {
     } label: {
       // Carries today's remaining count so the app is glanceable without being
       // opened.
-      Label("\(appState.menuBarRemainingCount)", systemImage: "checkmark.circle")
+      Label("\(appState.menuBarRemainingCount)", image: "SerenityMenuBarMark")
     }
     .menuBarExtraStyle(.window)
   }
