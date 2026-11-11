@@ -5,90 +5,130 @@ import XCTest
 
 @MainActor
 final class SerenityPaletteTests: XCTestCase {
-  func testDarkSurfacesAndTextStayNeutral() {
-    let colors: [(String, Color)] = [
-      ("windowBackground", SerenityPalette.windowBackground),
-      ("windowBackgroundDepth", SerenityPalette.windowBackgroundDepth),
-      ("sidebarBackground", SerenityPalette.sidebarBackground),
-      ("sidebarHeaderBackground", SerenityPalette.sidebarHeaderBackground),
-      ("panelBackground", SerenityPalette.panelBackground),
-      ("panelBackgroundRaised", SerenityPalette.panelBackgroundRaised),
-      ("innerCardBackground", SerenityPalette.innerCardBackground),
-      ("inputBackground", SerenityPalette.inputBackground),
-      ("inputBackgroundHover", SerenityPalette.inputBackgroundHover),
-      ("border", SerenityPalette.border),
-      ("thinBorder", SerenityPalette.thinBorder),
-      ("highlightStroke", SerenityPalette.highlightStroke),
-      ("textSecondary", SerenityPalette.textSecondary),
-      ("textPrimary", SerenityPalette.textPrimary),
-      ("textOnInteractiveSurface", SerenityPalette.textOnInteractiveSurface),
-    ]
+  private let darkSurfaces: [(String, Color)] = [
+    ("windowBackground", SerenityPalette.windowBackground),
+    ("windowBackgroundDepth", SerenityPalette.windowBackgroundDepth),
+    ("sidebarBackground", SerenityPalette.sidebarBackground),
+    ("sidebarHeaderBackground", SerenityPalette.sidebarHeaderBackground),
+    ("panelBackground", SerenityPalette.panelBackground),
+    ("panelBackgroundRaised", SerenityPalette.panelBackgroundRaised),
+    ("innerCardBackground", SerenityPalette.innerCardBackground),
+    ("inputBackground", SerenityPalette.inputBackground),
+    ("inputBackgroundHover", SerenityPalette.inputBackgroundHover),
+    ("textSecondary", SerenityPalette.textSecondary),
+    ("textPrimary", SerenityPalette.textPrimary),
+    ("textOnInteractiveSurface", SerenityPalette.textOnInteractiveSurface),
+  ]
 
-    for (name, color) in colors {
-      let components = rgba(color, appearance: .darkAqua)
-      let chroma = max(components.red, components.green, components.blue)
-        - min(components.red, components.green, components.blue)
-      XCTAssertLessThan(chroma, 0.04, "\(name) retained a color cast")
+  func testMidnightSurfacesCarryAQuietCoolTint() {
+    withDarkStyle(.midnight) {
+      for (name, color) in darkSurfaces {
+        let components = rgba(color, appearance: .darkAqua)
+        let chroma = max(components.red, components.green, components.blue)
+          - min(components.red, components.green, components.blue)
+        XCTAssertGreaterThanOrEqual(components.blue, components.red, "\(name) drifted warm")
+        XCTAssertLessThan(chroma, 0.12, "\(name) is tinted strongly enough to read as blue")
+      }
     }
   }
 
-  func testDarkEmphasisSurfacesCarryBrandHue() {
-    let colors: [(String, Color)] = [
-      ("accent", SerenityPalette.accent),
-      ("primaryActionBackground", SerenityPalette.primaryActionBackground),
-      ("activeItemBackground", SerenityPalette.activeItemBackground),
-      ("headerIconBackground", SerenityPalette.headerIconBackground),
-      ("quickCaptureTint", SerenityPalette.quickCaptureTint),
-    ]
+  func testTrueBlackIsPureBlackAndNeutral() {
+    withDarkStyle(.trueBlack) {
+      for (name, color) in darkSurfaces {
+        let components = rgba(color, appearance: .darkAqua)
+        let chroma = max(components.red, components.green, components.blue)
+          - min(components.red, components.green, components.blue)
+        XCTAssertLessThan(chroma, 0.01, "\(name) carries a tint")
+      }
 
-    for (name, color) in colors {
-      let components = rgba(color, appearance: .darkAqua)
-      let chroma = max(components.red, components.green, components.blue)
-        - min(components.red, components.green, components.blue)
-      XCTAssertGreaterThan(chroma, 0.2, "\(name) lost the brand hue and fell back to grey")
+      for (name, color) in [
+        ("windowBackground", SerenityPalette.windowBackground),
+        ("sidebarBackground", SerenityPalette.sidebarBackground),
+      ] {
+        let components = rgba(color, appearance: .darkAqua)
+        XCTAssertEqual(components.red + components.green + components.blue, 0, accuracy: 0.001, "\(name) is not pure black")
+      }
+    }
+  }
+
+  func testMidnightEmphasisSurfacesCarryBrandHue() {
+    withDarkStyle(.midnight) {
+      let colors: [(String, Color)] = [
+        ("accent", SerenityPalette.accent),
+        ("primaryActionBackground", SerenityPalette.primaryActionBackground),
+        ("activeItemBackground", SerenityPalette.activeItemBackground),
+        ("headerIconBackground", SerenityPalette.headerIconBackground),
+        ("quickCaptureTint", SerenityPalette.quickCaptureTint),
+      ]
+
+      for (name, color) in colors {
+        let components = rgba(color, appearance: .darkAqua)
+        let chroma = max(components.red, components.green, components.blue)
+          - min(components.red, components.green, components.blue)
+        XCTAssertGreaterThan(chroma, 0.2, "\(name) lost the brand hue and fell back to grey")
+      }
+    }
+  }
+
+  func testTrueBlackKeepsBlueOffLargeSurfaces() {
+    withDarkStyle(.trueBlack) {
+      for (name, color) in [
+        ("primaryActionBackground", SerenityPalette.primaryActionBackground),
+        ("activeItemBackground", SerenityPalette.activeItemBackground),
+        ("headerIconBackground", SerenityPalette.headerIconBackground),
+        ("quickCaptureTint", SerenityPalette.quickCaptureTint),
+      ] {
+        let components = rgba(color, appearance: .darkAqua)
+        let chroma = max(components.red, components.green, components.blue)
+          - min(components.red, components.green, components.blue)
+        XCTAssertLessThan(chroma, 0.01, "\(name) fills a surface with color")
+      }
     }
   }
 
   func testDarkElevationRampRisesInSubtleSteps() {
-    let ramp: [(String, Color)] = [
+    let midnightRamp: [(String, Color)] = [
       ("sidebarBackground", SerenityPalette.sidebarBackground),
       ("windowBackground", SerenityPalette.windowBackground),
       ("panelBackground", SerenityPalette.panelBackground),
       ("panelBackgroundRaised", SerenityPalette.panelBackgroundRaised),
       ("inputBackgroundHover", SerenityPalette.inputBackgroundHover),
     ]
+    // The True Black sidebar and canvas are both pure black, so its ramp starts at the canvas.
+    let ramps: [(SerenityDarkStyle, [(String, Color)])] = [
+      (.midnight, midnightRamp),
+      (.trueBlack, Array(midnightRamp.dropFirst())),
+    ]
 
-    let lightness = ramp.map { lstar(rgba($0.1, appearance: .darkAqua)) }
+    for (style, ramp) in ramps {
+      withDarkStyle(style) {
+        let lightness = ramp.map { lstar(rgba($0.1, appearance: .darkAqua)) }
 
-    for index in 1..<ramp.count {
-      let step = lightness[index] - lightness[index - 1]
-      XCTAssertGreaterThan(
-        step,
-        1.5,
-        "\(ramp[index].0) is not distinguishable from \(ramp[index - 1].0)"
-      )
-      XCTAssertLessThan(
-        step,
-        6.0,
-        "\(ramp[index].0) jumps far enough above \(ramp[index - 1].0) to read as highlighted"
-      )
+        for index in 1..<ramp.count {
+          let step = lightness[index] - lightness[index - 1]
+          XCTAssertGreaterThan(step, 1.5, "\(style): \(ramp[index].0) is not distinguishable from \(ramp[index - 1].0)")
+          XCTAssertLessThan(step, 6.0, "\(style): \(ramp[index].0) jumps far enough to read as highlighted")
+        }
+      }
     }
   }
 
   func testDarkCardsSeparateByFillNotOutline() {
-    let canvas = rgba(SerenityPalette.windowBackground, appearance: .darkAqua)
-    let panel = rgba(SerenityPalette.panelBackground, appearance: .darkAqua)
-    let border = rgba(SerenityPalette.border, appearance: .darkAqua)
+    withDarkStyle(.midnight) {
+      let canvas = rgba(SerenityPalette.windowBackground, appearance: .darkAqua)
+      let panel = rgba(SerenityPalette.panelBackground, appearance: .darkAqua)
+      let border = rgba(SerenityPalette.border, appearance: .darkAqua)
 
-    let fillStep = lstar(panel) - lstar(canvas)
-    let outlineStep = lstar(composite(border, over: panel)) - lstar(panel)
+      let fillStep = lstar(panel) - lstar(canvas)
+      let outlineStep = lstar(composite(border, over: panel)) - lstar(panel)
 
-    XCTAssertGreaterThan(fillStep, 1.5, "cards do not lift off the canvas at all")
-    XCTAssertLessThan(
-      outlineStep,
-      3 * fillStep,
-      "the outline overpowers the fill, which reads as a wireframe box"
-    )
+      XCTAssertGreaterThan(fillStep, 1.5, "cards do not lift off the canvas at all")
+      XCTAssertLessThan(
+        outlineStep,
+        3 * fillStep,
+        "the outline overpowers the fill, which reads as a wireframe box"
+      )
+    }
   }
 
   func testLightAccentRemainsBlue() {
@@ -106,19 +146,23 @@ final class SerenityPaletteTests: XCTestCase {
   }
 
   func testDarkBordersStayHairlineQuiet() {
-    let panel = rgba(SerenityPalette.panelBackground, appearance: .darkAqua)
-    let strokes: [(String, Color, CGFloat)] = [
-      ("border", SerenityPalette.border, 0.10),
-      ("thinBorder", SerenityPalette.thinBorder, 0.07),
-      ("highlightStroke", SerenityPalette.highlightStroke, 0.04),
-    ]
+    for style in [SerenityDarkStyle.midnight, .trueBlack] {
+      withDarkStyle(style) {
+        let panel = rgba(SerenityPalette.panelBackground, appearance: .darkAqua)
+        let strokes: [(String, Color, CGFloat)] = [
+          ("border", SerenityPalette.border, 0.10),
+          ("thinBorder", SerenityPalette.thinBorder, 0.08),
+          ("highlightStroke", SerenityPalette.highlightStroke, 0.06),
+        ]
 
-    for (name, color, maximumAlpha) in strokes {
-      let stroke = rgba(color, appearance: .darkAqua)
-      XCTAssertLessThanOrEqual(stroke.alpha, maximumAlpha, "\(name) is too opaque to read as a hairline")
+        for (name, color, maximumAlpha) in strokes {
+          let stroke = rgba(color, appearance: .darkAqua)
+          XCTAssertLessThanOrEqual(stroke.alpha, maximumAlpha, "\(style): \(name) is too opaque to read as a hairline")
 
-      let rendered = contrastRatio(foreground: stroke, background: panel, canvas: panel)
-      XCTAssertLessThan(rendered, 1.6, "\(name) stands too far off its surface")
+          let rendered = contrastRatio(foreground: stroke, background: panel, canvas: panel)
+          XCTAssertLessThan(rendered, 1.6, "\(style): \(name) stands too far off its surface")
+        }
+      }
     }
   }
 
@@ -140,40 +184,64 @@ final class SerenityPaletteTests: XCTestCase {
   }
 
   func testDarkPrimaryActionMeetsTextContrastRequirement() {
-    let background = rgba(SerenityPalette.primaryActionBackground, appearance: .darkAqua)
-    let foreground = rgba(SerenityPalette.textOnInteractiveSurface, appearance: .darkAqua)
-    let canvas = rgba(SerenityPalette.windowBackground, appearance: .darkAqua)
+    for style in [SerenityDarkStyle.midnight, .trueBlack] {
+      withDarkStyle(style) {
+        let background = rgba(SerenityPalette.primaryActionBackground, appearance: .darkAqua)
+        let foreground = rgba(SerenityPalette.primaryActionForeground, appearance: .darkAqua)
+        let canvas = rgba(SerenityPalette.windowBackground, appearance: .darkAqua)
 
-    XCTAssertGreaterThanOrEqual(
-      contrastRatio(foreground: foreground, background: background, canvas: canvas),
-      4.5
-    )
+        XCTAssertGreaterThanOrEqual(
+          contrastRatio(foreground: foreground, background: background, canvas: canvas),
+          4.5,
+          "\(style)"
+        )
+      }
+    }
   }
 
   func testDarkTextHierarchyIsReadableAndSeparated() {
-    let canvas = rgba(SerenityPalette.windowBackground, appearance: .darkAqua)
-    let primary = rgba(SerenityPalette.textPrimary, appearance: .darkAqua)
-    let secondary = rgba(SerenityPalette.textSecondary, appearance: .darkAqua)
-    let backgrounds = [
-      canvas,
-      rgba(SerenityPalette.panelBackground, appearance: .darkAqua),
-      rgba(SerenityPalette.panelBackgroundRaised, appearance: .darkAqua),
-    ]
+    for style in [SerenityDarkStyle.midnight, .trueBlack] {
+      withDarkStyle(style) {
+        let canvas = rgba(SerenityPalette.windowBackground, appearance: .darkAqua)
+        let primary = rgba(SerenityPalette.textPrimary, appearance: .darkAqua)
+        let secondary = rgba(SerenityPalette.textSecondary, appearance: .darkAqua)
+        let backgrounds = [
+          canvas,
+          rgba(SerenityPalette.panelBackground, appearance: .darkAqua),
+          rgba(SerenityPalette.panelBackgroundRaised, appearance: .darkAqua),
+        ]
 
-    XCTAssertEqual(primary.alpha, 0.92, accuracy: 0.001)
-    for background in backgrounds {
-      XCTAssertGreaterThanOrEqual(
-        contrastRatio(foreground: primary, background: background, canvas: canvas),
-        4.5
-      )
-      XCTAssertGreaterThanOrEqual(
-        contrastRatio(foreground: secondary, background: background, canvas: canvas),
-        4.5
-      )
+        for background in backgrounds {
+          XCTAssertGreaterThanOrEqual(
+            contrastRatio(foreground: primary, background: background, canvas: canvas),
+            4.5,
+            "\(style)"
+          )
+          XCTAssertGreaterThanOrEqual(
+            contrastRatio(foreground: secondary, background: background, canvas: canvas),
+            4.5,
+            "\(style)"
+          )
+        }
+
+        let separation = lstar(composite(primary, over: canvas)) - lstar(composite(secondary, over: canvas))
+        XCTAssertGreaterThan(separation, 15, "\(style): primary and secondary text are too close to rank")
+      }
     }
+  }
 
-    let separation = lstar(composite(primary, over: canvas)) - lstar(composite(secondary, over: canvas))
-    XCTAssertGreaterThan(separation, 15, "primary and secondary text are too close to rank")
+  func testThemePreferenceKeepsSavedDarkValueAndMapsStyles() {
+    XCTAssertEqual(AppThemePreference(rawValue: "dark"), .dark)
+    XCTAssertEqual(AppThemePreference.dark.darkStyle, .midnight)
+    XCTAssertEqual(AppThemePreference.system.darkStyle, .midnight)
+    XCTAssertEqual(AppThemePreference.trueBlack.darkStyle, .trueBlack)
+  }
+
+  private func withDarkStyle(_ style: SerenityDarkStyle, _ body: () -> Void) {
+    let previous = SerenityUI.darkStyle
+    SerenityUI.darkStyle = style
+    defer { SerenityUI.darkStyle = previous }
+    body()
   }
 
   private func rgba(

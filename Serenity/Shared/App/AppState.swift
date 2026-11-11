@@ -27,7 +27,9 @@ struct AppSettings {
 enum AppThemePreference: String, CaseIterable, Identifiable {
   case system
   case light
+  // Raw value kept as "dark" so saved and synced preferences still resolve.
   case dark
+  case trueBlack
 
   var id: String { rawValue }
 
@@ -38,8 +40,14 @@ enum AppThemePreference: String, CaseIterable, Identifiable {
     case .light:
       return "Light"
     case .dark:
-      return "Dark"
+      return "Midnight"
+    case .trueBlack:
+      return "True Black"
     }
+  }
+
+  var darkStyle: SerenityDarkStyle {
+    self == .trueBlack ? .trueBlack : .midnight
   }
 }
 
@@ -125,7 +133,9 @@ final class AppState: ObservableObject {
   @Published var selectedSection: AppSection? = .home
   @Published var pendingSettingsTab: SettingsTab?
   @Published var settings = AppSettings()
-  @Published var themePreference: AppThemePreference = .system
+  @Published var themePreference: AppThemePreference = .system {
+    didSet { SerenityUI.darkStyle = themePreference.darkStyle }
+  }
   @Published var backendSelectionState = BackendProfileSelectionState(
     activeProfile: .sqliteLocal,
     descriptors: BackendProfileRegistry.live.orderedDescriptors,
@@ -273,6 +283,8 @@ final class AppState: ObservableObject {
        let preference = AppThemePreference(rawValue: storedTheme) {
       themePreference = preference
     }
+    // Observers don't fire for assignments made in init.
+    SerenityUI.darkStyle = themePreference.darkStyle
 
     settings.localLockEnabled = UserDefaults.standard.bool(forKey: Self.localLockEnabledDefaultsKey)
 

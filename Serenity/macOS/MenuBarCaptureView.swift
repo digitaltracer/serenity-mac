@@ -27,9 +27,9 @@ struct MenuBarCaptureView: View {
         } label: {
           Image(systemName: "arrow.up")
             .font(SerenityType.scaledSystem(size: 12, weight: .bold))
-            .frame(width: 26, height: 26)
+            .frame(width: 12, height: 14)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(SerenityPrimaryButtonStyle())
         .disabled(!canSubmit)
       }
 

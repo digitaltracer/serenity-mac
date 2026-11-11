@@ -26,6 +26,8 @@ struct SerenityAppScene: View {
           }
       }
     }
+    // Midnight and True Black share the dark appearance, so switching between them must rebuild for colors to re-resolve.
+    .id(appState.themePreference.darkStyle)
     .environmentObject(appState)
     .environment(\.serenityCompactLayout, isCompactLayout)
     .groupBoxStyle(SerenityPanelGroupBoxStyle())
@@ -189,7 +191,7 @@ private extension AppThemePreference {
       return nil
     case .light:
       return .light
-    case .dark:
+    case .dark, .trueBlack:
       return .dark
     }
   }
@@ -202,18 +204,13 @@ private extension AppThemePreference {
       return "sun.max"
     case .dark:
       return "moon"
+    case .trueBlack:
+      return "moon.fill"
     }
   }
 
   var moreRowDetail: String {
-    switch self {
-    case .system:
-      return "System"
-    case .light:
-      return "Light"
-    case .dark:
-      return "Dark"
-    }
+    title
   }
 }
 
@@ -1608,7 +1605,7 @@ private struct HomeSectionView: View {
 
         Text("Build it")
           .font(SerenityType.bodyMedium)
-          .foregroundStyle(SerenityPalette.textOnInteractiveSurface)
+          .foregroundStyle(SerenityPalette.primaryActionForeground)
           .padding(.horizontal, 16)
           .padding(.vertical, 8)
           .background(SerenityPalette.primaryActionBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -2029,7 +2026,7 @@ private struct HomeSectionView: View {
         } else {
           Image(systemName: "arrow.up")
             .font(SerenityType.scaledSystem(size: 12, weight: .bold))
-            .foregroundStyle(canSubmitQuickCapture ? Color.white : SerenityPalette.textSecondary)
+            .foregroundStyle(canSubmitQuickCapture ? SerenityPalette.primaryActionForeground : SerenityPalette.textSecondary)
         }
       }
       .frame(width: 28, height: 28)
@@ -5524,7 +5521,7 @@ private struct SerenityDateRangePicker: View {
         .font(SerenityType.bodyMedium.weight(isEndpoint ? .semibold : .regular))
         .foregroundStyle(
           isEndpoint
-            ? SerenityPalette.textOnInteractiveSurface
+            ? SerenityPalette.primaryActionForeground
             : SerenityPalette.textPrimary
         )
         .frame(maxWidth: .infinity, minHeight: compactLayout ? SerenityTouchMetrics.minimumTarget : 30)
@@ -6381,7 +6378,7 @@ private struct ProjectsSectionView: View {
               newProjectDescription = ""
               newProjectColor = ProjectColorCodec.fallbackColor
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(SerenityPrimaryButtonStyle())
           .hoverCursor(.pointingHand)
 
             Toggle("Include archived", isOn: $appState.includeArchivedProjects)
@@ -10261,7 +10258,7 @@ private struct SettingsSectionView: View {
       systemImage: "paintpalette",
       tint: SerenityPalette.accent
     ) {
-      settingsField("Theme", help: "Choose whether Serenity follows the system appearance or forces light/dark mode.") {
+      settingsField("Theme", help: "System follows your Mac or iPhone and uses Midnight when it is dark. True Black uses pure black for OLED screens.") {
         Picker(
           "Theme",
           selection: Binding(
@@ -11937,7 +11934,7 @@ private struct LocalLockOverlayView: View {
 
   private var unlockButtonForeground: Color {
     if colorScheme == .dark {
-      return unlockDisabled ? SerenityPalette.textSecondary : Color.white
+      return unlockDisabled ? SerenityPalette.textSecondary : SerenityPalette.primaryActionForeground
     }
     return unlockDisabled ? Color.white.opacity(0.62) : Color(red: 0.08, green: 0.11, blue: 0.20)
   }
@@ -14798,7 +14795,7 @@ private struct JournalEntryEditorView: View {
           onSave(title, content, mood, tagsIncludingPendingInput(tags, input: tagInputText))
           dismiss()
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(SerenityPrimaryButtonStyle())
           .hoverCursor(.pointingHand)
       }
     }
@@ -14852,7 +14849,7 @@ private struct ProjectEditorView: View {
           onSave(name, description, ProjectColorCodec.hex(from: color))
           dismiss()
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(SerenityPrimaryButtonStyle())
           .hoverCursor(.pointingHand)
       }
     }

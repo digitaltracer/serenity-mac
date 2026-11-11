@@ -68,6 +68,7 @@ struct SerenityMacApp: App {
 
     MenuBarExtra {
       MenuBarCaptureView(appState: appState)
+        .id(appState.themePreference.darkStyle)
     } label: {
       // Carries today's remaining count so the app is glanceable without being
       // opened.

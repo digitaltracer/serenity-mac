@@ -7,16 +7,25 @@ import UIKit
 typealias SerenityNativeColor = UIColor
 #endif
 
+enum SerenityDarkStyle: Hashable {
+  case midnight
+  case trueBlack
+}
+
 enum SerenityUI {
+  // Read by the dynamic colors at resolve time; the app root re-identifies its view tree when this changes.
+  nonisolated(unsafe) static var darkStyle: SerenityDarkStyle = .midnight
+
   private static func dynamicNativeColor(
     light: (CGFloat, CGFloat, CGFloat, CGFloat),
-    dark: SerenityNativeColor
+    dark: KeyPath<SerenityDarkPalette, SerenityNativeColor>
   ) -> SerenityNativeColor {
+    let resolveDark = { SerenityDarkPalette.current[keyPath: dark] }
 #if os(macOS)
-    NSColor(name: nil) { appearance in
+    return NSColor(name: nil) { appearance in
       let bestMatch = appearance.bestMatch(from: [.darkAqua, .vibrantDark, .aqua, .vibrantLight])
       if bestMatch == .darkAqua || bestMatch == .vibrantDark {
-        return dark
+        return resolveDark()
       }
       return NSColor(
         srgbRed: light.0,
@@ -26,9 +35,9 @@ enum SerenityUI {
       )
     }
 #else
-    SerenityNativeColor { traits in
+    return SerenityNativeColor { traits in
       if traits.userInterfaceStyle == .dark {
-        return dark
+        return resolveDark()
       }
       return SerenityNativeColor(
         red: light.0,
@@ -42,7 +51,7 @@ enum SerenityUI {
 
   private static func dynamicColor(
     light: (CGFloat, CGFloat, CGFloat, CGFloat),
-    dark: SerenityNativeColor
+    dark: KeyPath<SerenityDarkPalette, SerenityNativeColor>
   ) -> Color {
     let nativeColor = dynamicNativeColor(light: light, dark: dark)
 #if os(macOS)
@@ -55,95 +64,99 @@ enum SerenityUI {
   enum Palette {
     static let accent = SerenityUI.dynamicColor(
       light: (0.27, 0.52, 0.95, 1.0),
-      dark: SerenityDarkPalette.accent
+      dark: \.accent
     )
     static let primaryActionBackground = SerenityUI.dynamicColor(
       light: (0.27, 0.52, 0.95, 1.0),
-      dark: SerenityDarkPalette.primaryActionBackground
+      dark: \.primaryActionBackground
+    )
+    static let primaryActionForeground = SerenityUI.dynamicColor(
+      light: (1.0, 1.0, 1.0, 1.0),
+      dark: \.primaryActionForeground
     )
     static let detailAccentGlow = SerenityUI.dynamicColor(
       light: (0.27, 0.52, 0.95, 0.07),
-      dark: .clear
+      dark: \.clear
     )
     static let controlGlow = SerenityUI.dynamicColor(
       light: (0.27, 0.52, 0.95, 1.0),
-      dark: .clear
+      dark: \.clear
     )
     static let windowBackground = SerenityUI.dynamicColor(
       light: (0.96, 0.97, 0.99, 1.0),
-      dark: SerenityDarkPalette.windowBackground
+      dark: \.windowBackground
     )
     static let windowBackgroundDepth = SerenityUI.dynamicColor(
       light: (0.93, 0.94, 0.97, 1.0),
-      dark: SerenityDarkPalette.windowBackgroundDepth
+      dark: \.windowBackgroundDepth
     )
     static let ambientGlow = SerenityUI.dynamicColor(
       light: (0.45, 0.33, 0.92, 0.015),
-      dark: .clear
+      dark: \.clear
     )
     static let sidebarBackground = SerenityUI.dynamicColor(
       light: (0.93, 0.94, 0.97, 1.0),
-      dark: SerenityDarkPalette.sidebarBackground
+      dark: \.sidebarBackground
     )
     static let sidebarHeaderBackground = SerenityUI.dynamicColor(
       light: (0.93, 0.94, 0.97, 1.0),
-      dark: SerenityDarkPalette.sidebarBackground
+      dark: \.sidebarBackground
     )
     static let panelBackground = SerenityUI.dynamicColor(
       light: (0.97, 0.98, 0.99, 1.0),
-      dark: SerenityDarkPalette.panelBackground
+      dark: \.panelBackground
     )
     static let panelBackgroundRaised = SerenityUI.dynamicColor(
       light: (0.95, 0.96, 0.98, 1.0),
-      dark: SerenityDarkPalette.panelBackgroundRaised
+      dark: \.panelBackgroundRaised
     )
     static let innerCardBackground = SerenityUI.dynamicColor(
       light: (0.93, 0.95, 0.97, 1.0),
-      dark: SerenityDarkPalette.panelBackgroundRaised
+      dark: \.panelBackgroundRaised
     )
     static let inputBackground = SerenityUI.dynamicColor(
       light: (0.98, 0.99, 1.00, 1.0),
-      dark: SerenityDarkPalette.panelBackgroundRaised
+      dark: \.panelBackgroundRaised
     )
     static let inputBackgroundHover = SerenityUI.dynamicColor(
       light: (0.97, 0.98, 1.00, 1.0),
-      dark: SerenityDarkPalette.hoverBackground
+      dark: \.hoverBackground
     )
     static let border = SerenityUI.dynamicColor(
       light: (0.60, 0.66, 0.76, 0.45),
-      dark: SerenityDarkPalette.border
+      dark: \.border
     )
     static let thinBorder = SerenityUI.dynamicColor(
       light: (0.60, 0.66, 0.76, 0.24),
-      dark: SerenityDarkPalette.thinBorder
+      dark: \.thinBorder
     )
     static let activeItemBackground = SerenityUI.dynamicColor(
       light: (0.79, 0.86, 0.97, 1.0),
-      dark: SerenityDarkPalette.activeItemBackground
+      dark: \.activeItemBackground
     )
     static let headerIconBackground = SerenityUI.dynamicColor(
       light: (0.89, 0.92, 0.97, 1.0),
-      dark: SerenityDarkPalette.headerIconBackground
+      dark: \.headerIconBackground
     )
     static let textSecondary = SerenityUI.dynamicColor(
       light: (0.31, 0.39, 0.51, 1.0),
-      dark: SerenityDarkPalette.textSecondary
+      dark: \.textSecondary
     )
     static let textPrimary = SerenityUI.dynamicColor(
       light: (0.14, 0.20, 0.31, 1.0),
-      dark: SerenityDarkPalette.textPrimary
+      dark: \.textPrimary
     )
     static let textOnInteractiveSurface = SerenityUI.dynamicColor(
       light: (0.14, 0.20, 0.31, 1.0),
-      dark: SerenityDarkPalette.textOnInteractiveSurface
+      dark: \.textOnInteractiveSurface
     )
     static let quickCaptureTint = SerenityUI.dynamicColor(
       light: (0.49, 0.58, 0.88, 0.10),
-      dark: SerenityDarkPalette.quickCaptureTint
+      dark: \.quickCaptureTint
     )
     static let highlightStroke = SerenityUI.dynamicColor(
       light: (1.00, 1.00, 1.00, 0.28),
-      dark: SerenityDarkPalette.highlightStroke
+      dark: \.highlightStroke
     )
   }
 
@@ -169,7 +182,75 @@ enum SerenityUI {
   }
 }
 
-private enum SerenityDarkPalette {
+fileprivate struct SerenityDarkPalette {
+  let sidebarBackground: SerenityNativeColor
+  let windowBackgroundDepth: SerenityNativeColor
+  let windowBackground: SerenityNativeColor
+  let panelBackground: SerenityNativeColor
+  let panelBackgroundRaised: SerenityNativeColor
+  let hoverBackground: SerenityNativeColor
+  let border: SerenityNativeColor
+  let thinBorder: SerenityNativeColor
+  let highlightStroke: SerenityNativeColor
+  let accent: SerenityNativeColor
+  let primaryActionBackground: SerenityNativeColor
+  let primaryActionForeground: SerenityNativeColor
+  let activeItemBackground: SerenityNativeColor
+  let headerIconBackground: SerenityNativeColor
+  let quickCaptureTint: SerenityNativeColor
+  let textPrimary: SerenityNativeColor
+  let textSecondary: SerenityNativeColor
+  let textOnInteractiveSurface: SerenityNativeColor
+  var clear: SerenityNativeColor { .clear }
+
+  static var current: SerenityDarkPalette {
+    SerenityUI.darkStyle == .trueBlack ? trueBlack : midnight
+  }
+
+  // Blue-tinted near-black; each surface sits a clear step above the one beneath it.
+  static let midnight = SerenityDarkPalette(
+    sidebarBackground: srgb(10, 12, 17),
+    windowBackgroundDepth: srgb(10, 12, 17),
+    windowBackground: srgb(14, 17, 23),
+    panelBackground: srgb(21, 25, 34),
+    panelBackgroundRaised: srgb(27, 32, 43),
+    hoverBackground: srgb(34, 40, 54),
+    border: white(0.08),
+    thinBorder: white(0.06),
+    highlightStroke: white(0.05),
+    accent: srgb(141, 180, 255),
+    primaryActionBackground: srgb(55, 103, 224),
+    primaryActionForeground: white(1),
+    activeItemBackground: srgb(141, 180, 255, 0.10),
+    headerIconBackground: srgb(141, 180, 255, 0.08),
+    quickCaptureTint: srgb(141, 180, 255, 0.03),
+    textPrimary: srgb(231, 234, 240),
+    textSecondary: srgb(163, 171, 186),
+    textOnInteractiveSurface: srgb(242, 244, 248)
+  )
+
+  // Pure black for OLED; neutral greys, and blue kept to small accents only.
+  static let trueBlack = SerenityDarkPalette(
+    sidebarBackground: srgb(0, 0, 0),
+    windowBackgroundDepth: srgb(0, 0, 0),
+    windowBackground: srgb(0, 0, 0),
+    panelBackground: srgb(13, 13, 13),
+    panelBackgroundRaised: srgb(23, 23, 23),
+    hoverBackground: srgb(31, 31, 31),
+    border: white(0.10),
+    thinBorder: white(0.08),
+    highlightStroke: white(0.06),
+    accent: srgb(141, 180, 255),
+    primaryActionBackground: srgb(237, 237, 237),
+    primaryActionForeground: srgb(0, 0, 0),
+    activeItemBackground: white(0.10),
+    headerIconBackground: white(0.07),
+    quickCaptureTint: white(0.02),
+    textPrimary: srgb(237, 237, 237),
+    textSecondary: srgb(163, 163, 163),
+    textOnInteractiveSurface: srgb(245, 245, 245)
+  )
+
   private static func srgb(
     _ red: CGFloat,
     _ green: CGFloat,
@@ -186,35 +267,6 @@ private enum SerenityDarkPalette {
   private static func white(_ alpha: CGFloat) -> SerenityNativeColor {
     srgb(255, 255, 255, alpha)
   }
-
-  private static func accentTint(_ alpha: CGFloat) -> SerenityNativeColor {
-    srgb(76, 141, 255, alpha)
-  }
-
-  // Elevation ramp, ~3 L* per step: surfaces separate by fill, not by outline.
-  static let sidebarBackground = srgb(20, 20, 23)
-  static let windowBackgroundDepth = srgb(20, 20, 23)
-  static let windowBackground = srgb(27, 27, 30)
-  static let panelBackground = srgb(33, 33, 37)
-  static let panelBackgroundRaised = srgb(38, 38, 43)
-  static let hoverBackground = srgb(44, 44, 50)
-
-  // Hairlines only confirm an edge the fill step has already established.
-  static let border = white(0.08)
-  static let thinBorder = white(0.055)
-  static let highlightStroke = white(0.03)
-
-  // Selected/emphasised surfaces read as a brand tint instead of a grey slab.
-  static let accent = srgb(76, 141, 255)
-  static let primaryActionBackground = srgb(37, 99, 235)
-  static let activeItemBackground = accentTint(0.16)
-  static let headerIconBackground = accentTint(0.10)
-  // Spans half the capture card as a gradient stop, so it has to stay near-invisible.
-  static let quickCaptureTint = accentTint(0.035)
-
-  static let textPrimary = white(0.92)
-  static let textSecondary = white(0.60)
-  static let textOnInteractiveSurface = white(0.95)
 }
 
 enum SerenityScreenMetrics {
@@ -279,7 +331,7 @@ struct SerenityPrimaryButtonStyle: ButtonStyle {
       .font(SerenityType.bodyMedium)
       .padding(.horizontal, 12)
       .padding(.vertical, 7)
-      .foregroundStyle(Color.white.opacity(isEnabled ? 1 : 0.5))
+      .foregroundStyle(SerenityPalette.primaryActionForeground.opacity(isEnabled ? 1 : 0.5))
       .frame(minHeight: compactLayout ? SerenityTouchMetrics.minimumTarget : 0)
       .background(
         RoundedRectangle(cornerRadius: 10, style: .continuous)
