@@ -857,8 +857,8 @@ final class GRDBFocusBlockRepository: CoreFocusBlockRepository {
       INSERT INTO focus_blocks (
         id, title, start_at, end_at, goal_id, task_ids_json, status,
         started_at, finished_at, logged_minutes, created_at, updated_at,
-        paused_at, paused_seconds
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        paused_at, paused_seconds, journal_entry_id, open_ended
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         start_at = excluded.start_at,
@@ -871,7 +871,9 @@ final class GRDBFocusBlockRepository: CoreFocusBlockRepository {
         logged_minutes = excluded.logged_minutes,
         updated_at = excluded.updated_at,
         paused_at = excluded.paused_at,
-        paused_seconds = excluded.paused_seconds;
+        paused_seconds = excluded.paused_seconds,
+        journal_entry_id = excluded.journal_entry_id,
+        open_ended = excluded.open_ended;
       """,
       arguments: [
         block.id,
@@ -888,6 +890,8 @@ final class GRDBFocusBlockRepository: CoreFocusBlockRepository {
         CoreRepositoryCodec.encodeDate(block.updatedAt),
         block.pausedAt.map(CoreRepositoryCodec.encodeDate),
         block.pausedSeconds,
+        block.journalEntryId,
+        block.isOpenEnded ? 1 : 0,
       ]
     )
   }
@@ -920,7 +924,9 @@ final class GRDBFocusBlockRepository: CoreFocusBlockRepository {
       createdAt: try CoreRepositoryCodec.decodeDate(row["created_at"]),
       updatedAt: try CoreRepositoryCodec.decodeDate(row["updated_at"]),
       pausedAt: try pausedAt.map { try CoreRepositoryCodec.decodeDate($0) },
-      pausedSeconds: row["paused_seconds"] ?? 0
+      pausedSeconds: row["paused_seconds"] ?? 0,
+      journalEntryId: row["journal_entry_id"],
+      isOpenEnded: (row["open_ended"] as Int? ?? 0) == 1
     )
   }
 }

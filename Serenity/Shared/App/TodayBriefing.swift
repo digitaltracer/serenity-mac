@@ -217,6 +217,7 @@ enum TodayBriefing {
     tasks: [TaskEntity],
     focusBlocks: [FocusBlockEntity],
     day: Date,
+    now: Date = Date(),
     calendar: Calendar = .current
   ) -> (timed: [PlanItem], untimed: [TaskEntity]) {
     var timed: [PlanItem] = []
@@ -240,11 +241,13 @@ enum TodayBriefing {
     }
 
     for block in focusBlocks where calendar.isDate(block.start, inSameDayAs: day) {
+      // A session with no set length grows with the clock until it is finished.
+      let end = block.isActive && block.isOpenEnded ? (block.pausedAt ?? now) : block.end
       timed.append(PlanItem(
         id: "focus-\(block.id)",
         title: block.title,
         start: block.start,
-        end: max(block.end, block.start.addingTimeInterval(15 * 60)),
+        end: max(end, block.start.addingTimeInterval(15 * 60)),
         kind: .focus,
         isDone: block.status == .done
       ))

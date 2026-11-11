@@ -4190,7 +4190,7 @@ final class AppState: ObservableObject {
       id: UUID().uuidString,
       title: Self.focusTitle(title),
       start: start,
-      end: start.addingTimeInterval(Double(max(minutes, 5)) * 60),
+      end: start.addingTimeInterval(Double(min(max(minutes, Self.focusLengthRange.lowerBound), Self.focusLengthRange.upperBound)) * 60),
       goalId: goalId,
       taskIds: [],
       status: .planned,
@@ -4211,9 +4211,31 @@ final class AppState: ObservableObject {
     await begin(block, title: block.title, minutes: block.plannedMinutes, goalId: block.goalId, now: now)
   }
 
-  /// Starts a session named for what it is on. A block planned around now is started with these
-  /// details instead of opening a second one beside it.
-  func startFocus(title: String, minutes: Int, goalId: String?, now: Date = Date()) async {
+  static let focusLengthDefaultsKey = "serenity.focus.lastMinutes"
+  static let focusLengthRange = 5...240
+
+  /// The length the last session was started with, so a one-step start runs your usual length.
+  /// Nil means no set length.
+  static var lastFocusMinutes: Int? {
+    get {
+      guard UserDefaults.standard.object(forKey: focusLengthDefaultsKey) != nil else { return 50 }
+      let stored = UserDefaults.standard.integer(forKey: focusLengthDefaultsKey)
+      return stored == 0 ? nil : min(max(stored, focusLengthRange.lowerBound), focusLengthRange.upperBound)
+    }
+    set { UserDefaults.standard.set(newValue ?? 0, forKey: focusLengthDefaultsKey) }
+  }
+
+  /// Starts a session named for what it is on, for `minutes` or with no set length when nil. A block
+  /// planned around now is started with these details instead of opening a second one beside it.
+  func startFocus(
+    title: String,
+    minutes: Int?,
+    goalId: String?,
+    taskId: String? = nil,
+    journalEntryId: String? = nil,
+    now: Date = Date()
+  ) async {
+    Self.lastFocusMinutes = minutes.map { min(max($0, Self.focusLengthRange.lowerBound), Self.focusLengthRange.upperBound) }
     let base = plannedFocusBlockNearby(now: now) ?? FocusBlockEntity(
       id: UUID().uuidString,
       title: "",
@@ -4228,16 +4250,21 @@ final class AppState: ObservableObject {
       createdAt: now,
       updatedAt: now
     )
-    await begin(base, title: title, minutes: Double(max(minutes, 5)), goalId: goalId, now: now)
+    var linked = base
+    if let taskId { linked.taskIds = [taskId] }
+    if let journalEntryId { linked.journalEntryId = journalEntryId }
+    let length = minutes.map { Double(min(max($0, Self.focusLengthRange.lowerBound), Self.focusLengthRange.upperBound)) }
+    await begin(linked, title: title, minutes: length, goalId: goalId, now: now)
   }
 
-  private func begin(_ block: FocusBlockEntity, title: String, minutes: Double, goalId: String?, now: Date) async {
+  private func begin(_ block: FocusBlockEntity, title: String, minutes: Double?, goalId: String?, now: Date) async {
     let previous = activeFocusBlock.flatMap { $0.id == block.id ? nil : finished($0, now: now) }
     var started = block
     started.title = Self.focusTitle(title)
     started.goalId = goalId
     started.start = now
-    started.end = now.addingTimeInterval(minutes * 60)
+    started.isOpenEnded = minutes == nil
+    started.end = now.addingTimeInterval((minutes ?? 0) * 60)
     started.status = .running
     started.startedAt = now
     started.pausedAt = nil
@@ -4248,6 +4275,109 @@ final class AppState: ObservableObject {
       if let previous { try repositories.focusBlocks.save(previous) }
       try repositories.focusBlocks.save(session)
     }
+    if let previous { await recordFocusOnTask(previous) }
+  }
+
+  /// Adds or takes time off a session with a set length, never below five minutes.
+  func extendFocusBlock(id: String, byMinutes minutes: Int) async {
+    guard var block = focusBlocks.first(where: { $0.id == id }), block.isActive, !block.isOpenEnded else { return }
+    let planned = block.end.timeIntervalSince(block.start) - block.pausedSeconds
+    let target = min(max(planned + Double(minutes) * 60, Double(Self.focusLengthRange.lowerBound) * 60), Double(Self.focusLengthRange.upperBound) * 60)
+    block.end = block.end.addingTimeInterval(target - planned)
+    block.updatedAt = Date()
+    let changed = block
+    await mutateLocalData(failureTitle: "Failed to change focus length") { repositories in
+      try repositories.focusBlocks.save(changed)
+    }
+  }
+
+  func renameFocusBlock(id: String, title: String) async {
+    guard var block = focusBlocks.first(where: { $0.id == id }) else { return }
+    let newTitle = Self.focusTitle(title)
+    guard newTitle != block.title else { return }
+    block.title = newTitle
+    block.updatedAt = Date()
+    let renamed = block
+    await mutateLocalData(failureTitle: "Failed to rename focus") { repositories in
+      try repositories.focusBlocks.save(renamed)
+    }
+    if renamed.status == .done { await recordFocusOnTask(renamed) }
+  }
+
+  /// Points a session at a task, or at none. A finished session's time moves with the link.
+  func linkFocusBlock(id: String, toTask taskId: String?) async {
+    guard var block = focusBlocks.first(where: { $0.id == id }) else { return }
+    let previousTask = block.taskId
+    guard previousTask != taskId else { return }
+    block.taskIds = taskId.map { [$0] } ?? []
+    block.updatedAt = Date()
+    let linked = block
+    await mutateLocalData(failureTitle: "Failed to link focus") { repositories in
+      try repositories.focusBlocks.save(linked)
+    }
+    if let previousTask { await removeFocusRecord(blockID: id, fromTask: previousTask) }
+    if linked.status == .done { await recordFocusOnTask(linked) }
+  }
+
+  func linkFocusBlock(id: String, toJournalEntry entryId: String?) async {
+    guard var block = focusBlocks.first(where: { $0.id == id }), block.journalEntryId != entryId else { return }
+    block.journalEntryId = entryId
+    block.updatedAt = Date()
+    let linked = block
+    await mutateLocalData(failureTitle: "Failed to link focus") { repositories in
+      try repositories.focusBlocks.save(linked)
+    }
+  }
+
+  /// Writes a journal entry for a session and links the two. An empty title gets one written for it.
+  @discardableResult
+  func createJournalEntryForFocusBlock(id: String, title: String, content: String) async -> Bool {
+    let before = Set(journalEntries.map(\.id))
+    guard await createJournalEntry(title: title, content: content, mood: nil, tags: ["focus"]),
+          let entry = journalEntries.first(where: { !before.contains($0.id) })
+    else { return false }
+    await linkFocusBlock(id: id, toJournalEntry: entry.id)
+    return true
+  }
+
+  /// What a session is linked to, for a one-line caption on the plan.
+  func focusLinkSummary(for block: FocusBlockEntity) -> String? {
+    let task = block.taskId.flatMap { id in tasks.first { $0.id == id } }?.title
+    let entry = block.journalEntryId.flatMap { id in journalEntries.first { $0.id == id } }.map { $0.title ?? "Journal entry" }
+    let parts = [task, entry].compactMap { $0 }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+  }
+
+  /// Finished focus time spent on a task, in minutes.
+  func focusMinutes(onTask taskId: String) -> Double {
+    focusBlocks.filter { $0.status == .done && $0.taskId == taskId }.reduce(0) { $0 + $1.loggedMinutes }
+  }
+
+  func focusMinutes(onJournalEntry entryId: String) -> Double {
+    focusBlocks.filter { $0.status == .done && $0.journalEntryId == entryId }.reduce(0) { $0 + $1.loggedMinutes }
+  }
+
+  static func focusActivityID(blockID: String) -> String {
+    "focus-\(blockID)"
+  }
+
+  /// One line per session in the task's history, replaced rather than duplicated when it changes.
+  private func recordFocusOnTask(_ block: FocusBlockEntity) async {
+    guard block.status == .done, let taskId = block.taskId, tasks.contains(where: { $0.id == taskId }) else { return }
+    let activityID = Self.focusActivityID(blockID: block.id)
+    let duration = TodayBriefing.durationText(minutes: block.loggedMinutes)
+    let text = block.title == "Focus" ? "Focused \(duration)" : "Focused \(duration) · \(block.title)"
+    await adjustTask(id: taskId) { task in
+      task.activity.removeAll { $0.id == activityID }
+      task.activity.append(TaskActivityEntry(id: activityID, kind: .event, text: text, createdAt: block.finishedAt ?? block.end))
+      task.activity.sort { $0.createdAt < $1.createdAt }
+    }
+  }
+
+  private func removeFocusRecord(blockID: String, fromTask taskId: String) async {
+    let activityID = Self.focusActivityID(blockID: blockID)
+    guard tasks.first(where: { $0.id == taskId })?.activity.contains(where: { $0.id == activityID }) == true else { return }
+    await adjustTask(id: taskId) { $0.activity.removeAll { $0.id == activityID } }
   }
 
   func pauseFocusBlock(id: String, now: Date = Date()) async {
@@ -4282,12 +4412,15 @@ final class AppState: ObservableObject {
     await mutateLocalData(failureTitle: "Failed to finish focus") { repositories in
       try repositories.focusBlocks.save(done)
     }
+    await recordFocusOnTask(done)
   }
 
   func deleteFocusBlock(id: String) async {
+    let taskId = focusBlocks.first(where: { $0.id == id })?.taskId
     await mutateLocalData(failureTitle: "Failed to delete focus block") { repositories in
       try repositories.focusBlocks.delete(id: id)
     }
+    if let taskId { await removeFocusRecord(blockID: id, fromTask: taskId) }
   }
 
   static func focusTitle(_ raw: String) -> String {

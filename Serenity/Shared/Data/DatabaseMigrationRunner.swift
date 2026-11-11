@@ -1058,5 +1058,13 @@ actor DatabaseMigrationRunner {
         "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '16');",
       ]
     ),
+    DatabaseMigration(
+      identifier: "20261112_019_focus_block_links",
+      statements: [
+        "ALTER TABLE focus_blocks ADD COLUMN journal_entry_id TEXT;",
+        "ALTER TABLE focus_blocks ADD COLUMN open_ended INTEGER NOT NULL DEFAULT 0;",
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '17');",
+      ]
+    ),
   ]
 }

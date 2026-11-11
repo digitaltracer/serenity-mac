@@ -5910,6 +5910,13 @@ private struct JournalSectionView: View {
             .font(SerenityType.caption)
             .foregroundStyle(SerenityPalette.textSecondary)
         }
+
+        let focused = appState.focusMinutes(onJournalEntry: entry.id)
+        if focused > 0 {
+          Label("From \(TodayBriefing.durationText(minutes: focused)) of focus", systemImage: "timer")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
       }
 
       HStack(spacing: 4) {
@@ -14170,6 +14177,13 @@ private struct TaskDetailPanel: View {
         .font(SerenityType.caption)
         .foregroundStyle(SerenityPalette.textSecondary)
 
+      let focused = appState.focusMinutes(onTask: task.id)
+      if focused > 0 {
+        Label("\(TodayBriefing.durationText(minutes: focused)) of focus", systemImage: "timer")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
       if let description = task.description, !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         descriptionPreview(description)
       }
@@ -15809,6 +15823,9 @@ enum FocusBlockTiming {
   }
 
   static func remainingText(for block: FocusBlockEntity, now: Date) -> String {
+    if block.isOpenEnded {
+      return "\(Int((block.activeSeconds(at: now) / 60).rounded(.down))) min so far"
+    }
     let remaining = remainingSeconds(for: block, now: now) / 60
     if remaining >= 1 {
       return "\(Int(remaining.rounded())) min left"
@@ -15816,12 +15833,21 @@ enum FocusBlockTiming {
     return "\(Int((-remaining).rounded())) min over"
   }
 
-  /// mm:ss counting down, then +mm:ss once the planned time is used up.
+  /// Counts down, then shows +mm:ss once the planned time is used up. With no set length it counts up.
   static func clockText(for block: FocusBlockEntity, now: Date) -> String {
+    if block.isOpenEnded {
+      return format(seconds: Int(block.activeSeconds(at: now).rounded(.down)))
+    }
     let remaining = remainingSeconds(for: block, now: now)
-    let seconds = Int(abs(remaining).rounded(.down))
-    let text = String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    let text = format(seconds: Int(abs(remaining).rounded(.down)))
     return remaining < 0 ? "+" + text : text
+  }
+
+  private static func format(seconds: Int) -> String {
+    if seconds >= 3600 {
+      return String(format: "%d:%02d:%02d", seconds / 3600, seconds % 3600 / 60, seconds % 60)
+    }
+    return String(format: "%02d:%02d", seconds / 60, seconds % 60)
   }
 }
 
@@ -15963,14 +15989,6 @@ private struct TodayPlanPanel: View {
         Task { await appState.planFocusBlock(title: title, start: start, minutes: minutes, goalId: goalID) }
       }
     }
-    .sheet(isPresented: $showStartFocus) {
-      FocusStartSheet(
-        planned: appState.plannedFocusBlockNearby(),
-        goals: appState.goals.filter { $0.status == .active }
-      ) { title, minutes, goalID in
-        Task { await appState.startFocus(title: title, minutes: minutes, goalId: goalID) }
-      }
-    }
   }
 
   private var focusButtons: some View {
@@ -15990,12 +16008,16 @@ private struct TodayPlanPanel: View {
         }
         .buttonStyle(SerenityPrimaryButtonStyle())
         .hoverCursor(.pointingHand)
+        .popover(isPresented: $showStartFocus, arrowEdge: .bottom) {
+          FocusStartPopover()
+            .environmentObject(appState)
+        }
       }
     }
   }
 
   private func content(now: Date) -> some View {
-    let plan = TodayBriefing.planItems(tasks: appState.tasks, focusBlocks: appState.focusBlocks(on: now), day: now)
+    let plan = TodayBriefing.planItems(tasks: appState.tasks, focusBlocks: appState.focusBlocks(on: now), day: now, now: now)
     let hours = hourRange(for: plan.timed, now: now)
 
     return VStack(alignment: .leading, spacing: 14) {
@@ -16151,6 +16173,7 @@ private struct TodayPlanPanel: View {
 
 private struct PlanBlock: View {
   @EnvironmentObject private var appState: AppState
+  @State private var showLink = false
 
   let item: PlanItem
   let block: FocusBlockEntity?
@@ -16237,7 +16260,22 @@ private struct PlanBlock: View {
         Text("Logged \(TodayBriefing.durationText(minutes: block.loggedMinutes))")
           .foregroundStyle(SerenityPalette.textSecondary)
       }
+      if let summary = appState.focusLinkSummary(for: block) {
+        Text(summary)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(1)
+      }
       Spacer(minLength: 0)
+      Button("Link") {
+        showLink = true
+      }
+      .buttonStyle(.plain)
+      .foregroundStyle(SerenityPalette.accent)
+      .hoverCursor(.pointingHand)
+      .sheet(isPresented: $showLink) {
+        FocusLinkSheet(blockID: block.id)
+          .environmentObject(appState)
+      }
       if !block.isActive {
         Button {
           Task { await appState.deleteFocusBlock(id: block.id) }
@@ -16386,7 +16424,7 @@ private struct FocusPlanSheet: View {
     let rounded = calendar.date(byAdding: .minute, value: minute < 30 ? 30 - minute : 60 - minute, to: now) ?? now
     return calendar.date(bySetting: .second, value: 0, of: rounded) ?? rounded
   }()
-  @State private var minutes = 50
+  @State private var minutes = AppState.lastFocusMinutes ?? 50
   @State private var goalID: String?
 
   var body: some View {
@@ -16400,21 +16438,15 @@ private struct FocusPlanSheet: View {
           .serenityInputField()
       }
 
-      HStack(alignment: .top, spacing: 16) {
-        field("Starts") {
-          DatePicker("Starts", selection: $start, displayedComponents: [.date, .hourAndMinute])
-            .labelsHidden()
-        }
-        field("Length") {
-          Picker("Length", selection: $minutes) {
-            Text("25 min").tag(25)
-            Text("50 min").tag(50)
-            Text("90 min").tag(90)
-            Text("2 h").tag(120)
-          }
+      field("Starts") {
+        DatePicker("Starts", selection: $start, displayedComponents: [.date, .hourAndMinute])
           .labelsHidden()
-          .pickerStyle(.segmented)
-        }
+      }
+      field("Length") {
+        FocusLengthPicker(
+          minutes: Binding(get: { minutes }, set: { minutes = $0 ?? minutes }),
+          allowsOpenEnded: false
+        )
       }
 
       if !goals.isEmpty {
@@ -17320,22 +17352,34 @@ private struct WeeklyReviewSheet: View {
 
 // MARK: - Focus session
 
-/// The session under way: a live countdown with pause, finish and discard.
+/// The session under way: a live clock with pause, length changes, links, finish and discard.
 private struct TodayFocusCard: View {
   @EnvironmentObject private var appState: AppState
   @State private var confirmDiscard = false
+  @State private var showLink = false
+  @State private var titleDraft = ""
+  @FocusState private var titleFocused: Bool
 
   var body: some View {
     if let block = appState.activeFocusBlock {
       TimelineView(.periodic(from: .now, by: 1)) { context in
         card(block, now: context.date)
       }
+      .onAppear { titleDraft = block.title == "Focus" ? "" : block.title }
+      .onChange(of: block.id) { _, _ in titleDraft = block.title == "Focus" ? "" : block.title }
+      .onChange(of: titleFocused) { _, focused in
+        if !focused { commitTitle(block) }
+      }
+      .sheet(isPresented: $showLink) {
+        FocusLinkSheet(blockID: block.id)
+          .environmentObject(appState)
+      }
     }
   }
 
   private func card(_ block: FocusBlockEntity, now: Date) -> some View {
     let paused = block.status == .paused
-    let over = FocusBlockTiming.remainingSeconds(for: block, now: now) < 0
+    let over = !block.isOpenEnded && FocusBlockTiming.remainingSeconds(for: block, now: now) < 0
     let todays = appState.focusBlocks(on: now)
     let position = (todays.firstIndex { $0.id == block.id } ?? 0) + 1
 
@@ -17351,13 +17395,15 @@ private struct TodayFocusCard: View {
           .foregroundStyle(SerenityPalette.textSecondary)
       }
 
-      HStack(alignment: .center, spacing: 16) {
+      HStack(alignment: .center, spacing: 12) {
         Text(FocusBlockTiming.clockText(for: block, now: now))
           .font(.system(size: SerenityType.scaledSize(44), weight: .semibold))
           .monospacedDigit()
           .foregroundStyle(over ? SerenityPalette.attention : SerenityPalette.textPrimary)
           .opacity(paused ? 0.55 : 1)
-          .accessibilityLabel(over ? "\(FocusBlockTiming.remainingText(for: block, now: now))" : "\(FocusBlockTiming.remainingText(for: block, now: now)) remaining")
+          .lineLimit(1)
+          .minimumScaleFactor(0.6)
+          .accessibilityLabel(FocusBlockTiming.remainingText(for: block, now: now))
         Spacer(minLength: 8)
         Button {
           Task {
@@ -17379,10 +17425,34 @@ private struct TodayFocusCard: View {
         .accessibilityLabel(paused ? "Resume focus" : "Pause focus")
       }
 
-      Text(block.title)
+      if block.isOpenEnded {
+        Text("No set length · counting up")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      } else {
+        HStack(spacing: 6) {
+          Button("−5 min") {
+            Task { await appState.extendFocusBlock(id: block.id, byMinutes: -5) }
+          }
+          .buttonStyle(SerenityPillButtonStyle(selected: false))
+          .hoverCursor(.pointingHand)
+          .accessibilityLabel("Five minutes shorter")
+          Button("+5 min") {
+            Task { await appState.extendFocusBlock(id: block.id, byMinutes: 5) }
+          }
+          .buttonStyle(SerenityPillButtonStyle(selected: false))
+          .hoverCursor(.pointingHand)
+          .accessibilityLabel("Five minutes longer")
+        }
+      }
+
+      TextField("What are you focusing on?", text: $titleDraft)
+        .textFieldStyle(.plain)
         .font(SerenityType.bodyLarge.weight(.medium))
-        .foregroundStyle(SerenityPalette.textPrimary)
-        .lineLimit(2)
+        .focused($titleFocused)
+        .onSubmit { commitTitle(block) }
+
+      links(block)
 
       Text(loggingCaption(for: block))
         .font(SerenityType.caption)
@@ -17390,7 +17460,13 @@ private struct TodayFocusCard: View {
 
       HStack(spacing: 8) {
         Button("Finish") {
+          commitTitle(block)
           Task { await appState.finishFocusBlock(id: block.id) }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        Button("Link…") {
+          showLink = true
         }
         .buttonStyle(SerenitySecondaryButtonStyle())
         .hoverCursor(.pointingHand)
@@ -17418,6 +17494,62 @@ private struct TodayFocusCard: View {
     }
   }
 
+  @ViewBuilder
+  private func links(_ block: FocusBlockEntity) -> some View {
+    if let taskId = block.taskId, let task = appState.tasks.first(where: { $0.id == taskId }) {
+      HStack(spacing: 10) {
+        Button {
+          Task { await appState.toggleTaskCompletion(id: task.id) }
+        } label: {
+          SerenityCheckbox(isOn: task.completed, size: 16)
+        }
+        .buttonStyle(.plain)
+        .hoverCursor(.pointingHand)
+        .accessibilityLabel(task.completed ? "Mark \(task.title) incomplete" : "Mark \(task.title) complete")
+        Text(task.title)
+          .font(SerenityType.body)
+          .strikethrough(task.completed, color: SerenityPalette.textSecondary)
+          .lineLimit(1)
+        Spacer(minLength: 4)
+        unlinkButton("Unlink task") {
+          Task { await appState.linkFocusBlock(id: block.id, toTask: nil) }
+        }
+      }
+    }
+    if let entryId = block.journalEntryId, let entry = appState.journalEntries.first(where: { $0.id == entryId }) {
+      HStack(spacing: 10) {
+        Image(systemName: "book")
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .frame(width: 16)
+          .accessibilityHidden(true)
+        Text(entry.title ?? "Journal entry")
+          .font(SerenityType.body)
+          .lineLimit(1)
+        Spacer(minLength: 4)
+        unlinkButton("Unlink journal entry") {
+          Task { await appState.linkFocusBlock(id: block.id, toJournalEntry: nil) }
+        }
+      }
+    }
+  }
+
+  private func unlinkButton(_ label: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Image(systemName: "xmark")
+        .font(SerenityType.scaledSystem(size: 10, weight: .semibold))
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .frame(width: 22, height: 22)
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+    .accessibilityLabel(label)
+  }
+
+  private func commitTitle(_ block: FocusBlockEntity) {
+    let draft = titleDraft
+    Task { await appState.renameFocusBlock(id: block.id, title: draft) }
+  }
+
   private func loggingCaption(for block: FocusBlockEntity) -> String {
     if let goalID = block.goalId, let goal = appState.goals.first(where: { $0.id == goalID }) {
       return "Logs time to \(goal.title)"
@@ -17426,96 +17558,337 @@ private struct TodayFocusCard: View {
   }
 }
 
-/// Starting a session asks what it is for, so the plan and the goal it feeds read as real work.
-private struct FocusStartSheet: View {
-  @Environment(\.dismiss) private var dismiss
+/// Any length from 5 minutes to 4 hours, with quick picks, or no set length at all.
+private struct FocusLengthPicker: View {
+  @Binding var minutes: Int?
+  var allowsOpenEnded = true
 
-  let planned: FocusBlockEntity?
-  let goals: [GoalEntity]
-  let onStart: (String, Int, String?) -> Void
+  @State private var text = ""
 
-  @State private var title: String
-  @State private var minutes: Int
-  @State private var goalID: String?
-
-  init(planned: FocusBlockEntity?, goals: [GoalEntity], onStart: @escaping (String, Int, String?) -> Void) {
-    self.planned = planned
-    self.goals = goals
-    self.onStart = onStart
-    let plannedTitle = planned.map(\.title).flatMap { $0 == "Focus" ? nil : $0 }
-    _title = State(initialValue: plannedTitle ?? "")
-    let plannedMinutes = planned.map { Int($0.plannedMinutes.rounded()) }
-    _minutes = State(initialValue: [25, 50, 90, 120].contains(plannedMinutes ?? 0) ? plannedMinutes! : 50)
-    _goalID = State(initialValue: planned?.goalId)
-  }
+  private static let presets = [15, 25, 45, 60, 90]
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      Text("Start focus")
-        .font(SerenityType.sectionTitle)
-
-      if let planned {
-        Text("Starts the block you planned for \(planned.start.formatted(date: .omitted, time: .shortened)).")
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 6) {
+        ForEach(Self.presets, id: \.self) { preset in
+          Button(preset < 60 ? "\(preset)m" : (preset == 60 ? "1h" : "\(preset)m")) {
+            minutes = preset
+          }
+          .buttonStyle(SerenityPillButtonStyle(selected: minutes == preset))
+          .hoverCursor(.pointingHand)
+        }
       }
-
-      VStack(alignment: .leading, spacing: 7) {
-        Text("What are you focusing on?")
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
-        TextField("Sync fixes", text: $title)
+      HStack(spacing: 8) {
+        TextField("50", text: $text)
           .textFieldStyle(.plain)
           .serenityInputField()
-          .onSubmit(start)
+          .frame(width: 80)
+          .disabled(minutes == nil)
+          .onChange(of: text) { _, value in
+            // Kept as typed; the 5-minute to 4-hour range is applied when the session starts.
+            if let number = Int(value.filter(\.isNumber)), number > 0 {
+              minutes = number
+            }
+          }
+        Text("minutes")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        if allowsOpenEnded {
+          Spacer(minLength: 8)
+          Toggle("No set length", isOn: Binding(
+            get: { minutes == nil },
+            set: { minutes = $0 ? nil : (Int(text) ?? 50) }
+          ))
+          .toggleStyle(.switch)
+          .font(SerenityType.body)
+        }
       }
+    }
+    .onAppear { text = minutes.map(String.init) ?? "" }
+    .onChange(of: minutes) { _, value in
+      if let value, Int(text) != value { text = String(value) }
+    }
+  }
+}
 
-      VStack(alignment: .leading, spacing: 7) {
-        Text("For")
+/// One step to start: type what it is for, or nothing, and press Return. More options holds the rest.
+private struct FocusStartPopover: View {
+  @EnvironmentObject private var appState: AppState
+  @Environment(\.dismiss) private var dismiss
+
+  @State private var title = ""
+  @State private var minutes: Int? = AppState.lastFocusMinutes
+  @State private var goalID: String?
+  @State private var taskID: String?
+  @State private var journalEntryID: String?
+  @State private var showMore = false
+  @State private var planned: FocusBlockEntity?
+  @FocusState private var titleFocused: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      TextField("What are you focusing on? (optional)", text: $title)
+        .textFieldStyle(.plain)
+        .serenityInputField()
+        .focused($titleFocused)
+        .onSubmit(start)
+
+      HStack(spacing: 8) {
+        Text(lengthSummary)
           .font(SerenityType.caption)
           .foregroundStyle(SerenityPalette.textSecondary)
-        Picker("Length", selection: $minutes) {
-          Text("25 min").tag(25)
-          Text("50 min").tag(50)
-          Text("90 min").tag(90)
-          Text("2 h").tag(120)
+        Spacer()
+        Button(showMore ? "Fewer options" : "More options") {
+          withAnimation(.easeOut(duration: 0.15)) { showMore.toggle() }
         }
-        .labelsHidden()
-        .pickerStyle(.segmented)
+        .buttonStyle(.plain)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.accent)
+        .hoverCursor(.pointingHand)
+        Button("Start", action: start)
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .keyboardShortcut(.defaultAction)
       }
 
-      if !goals.isEmpty {
-        VStack(alignment: .leading, spacing: 7) {
-          Text("Counts toward (optional)")
-            .font(SerenityType.caption)
-            .foregroundStyle(SerenityPalette.textSecondary)
-          Picker("Goal", selection: $goalID) {
-            Text("Every focus-time goal").tag(String?.none)
-            ForEach(goals) { goal in
-              Text(goal.title).tag(Optional(goal.id))
+      if showMore {
+        Divider()
+        option("Length") {
+          FocusLengthPicker(minutes: $minutes)
+        }
+        let goals = appState.goals.filter { $0.status == .active }
+        if !goals.isEmpty {
+          option("Counts toward") {
+            Picker("Goal", selection: $goalID) {
+              Text("Every focus-time goal").tag(String?.none)
+              ForEach(goals) { goal in
+                Text(goal.title).tag(Optional(goal.id))
+              }
+            }
+            .labelsHidden()
+          }
+        }
+        option("Working on a task") {
+          Picker("Task", selection: $taskID) {
+            Text("No task").tag(String?.none)
+            ForEach(FocusLinkSheet.taskChoices(appState.tasks)) { task in
+              Text(task.title).tag(Optional(task.id))
+            }
+          }
+          .labelsHidden()
+        }
+        option("Journal entry") {
+          Picker("Journal entry", selection: $journalEntryID) {
+            Text("None").tag(String?.none)
+            ForEach(appState.journalEntries.prefix(30)) { entry in
+              Text(entry.title ?? entry.content).tag(Optional(entry.id))
             }
           }
           .labelsHidden()
         }
       }
 
+      if let planned {
+        Text("Starts the block planned for \(planned.start.formatted(date: .omitted, time: .shortened)).")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+    }
+    .padding(16)
+    .frame(width: 420)
+    .onAppear {
+      planned = appState.plannedFocusBlockNearby()
+      if let planned {
+        title = planned.title == "Focus" ? "" : planned.title
+        minutes = Int(planned.plannedMinutes.rounded())
+        goalID = planned.goalId
+        taskID = planned.taskId
+        journalEntryID = planned.journalEntryId
+      }
+      titleFocused = true
+    }
+  }
+
+  private var lengthSummary: String {
+    guard let minutes else { return "No set length" }
+    return "For \(TodayBriefing.durationText(minutes: Double(minutes)))"
+  }
+
+  private func option<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(label)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+      content()
+    }
+  }
+
+  private func start() {
+    let chosen = (title, minutes, goalID, taskID, journalEntryID)
+    Task {
+      await appState.startFocus(title: chosen.0, minutes: chosen.1, goalId: chosen.2, taskId: chosen.3, journalEntryId: chosen.4)
+    }
+    dismiss()
+  }
+}
+
+/// Points a session at a task or a journal entry, during the session or any time after it.
+private struct FocusLinkSheet: View {
+  private enum Kind: Hashable {
+    case task
+    case journal
+  }
+
+  @EnvironmentObject private var appState: AppState
+  @Environment(\.dismiss) private var dismiss
+
+  let blockID: String
+
+  @State private var kind: Kind = .task
+  @State private var query = ""
+  @State private var writingEntry = false
+  @State private var entryTitle = ""
+  @State private var entryContent = ""
+
+  /// Open tasks, the ones due soonest first.
+  static func taskChoices(_ tasks: [TaskEntity]) -> [TaskEntity] {
+    tasks
+      .filter { !$0.completed }
+      .sorted { ($0.dueDate ?? .distantFuture, $0.createdAt) < ($1.dueDate ?? .distantFuture, $1.createdAt) }
+  }
+
+  private var block: FocusBlockEntity? {
+    appState.focusBlocks.first { $0.id == blockID }
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
       HStack {
+        Text("Link this session")
+          .font(SerenityType.sectionTitle)
         Spacer()
-        Button("Cancel") { dismiss() }
-          .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-        Button("Start", action: start)
+        Button("Done") { dismiss() }
           .buttonStyle(SerenityPrimaryButtonStyle())
           .hoverCursor(.pointingHand)
           .keyboardShortcut(.defaultAction)
       }
+
+      Picker("Link to", selection: $kind) {
+        Text("Task").tag(Kind.task)
+        Text("Journal entry").tag(Kind.journal)
+      }
+      .labelsHidden()
+      .pickerStyle(.segmented)
+
+      if writingEntry {
+        newEntryForm
+      } else {
+        TextField(kind == .task ? "Search open tasks" : "Search journal entries", text: $query)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+
+        if kind == .journal {
+          Button {
+            entryTitle = block.map { $0.title == "Focus" ? "" : $0.title } ?? ""
+            writingEntry = true
+          } label: {
+            Label("New entry from this session", systemImage: "square.and.pencil")
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        }
+
+        ScrollView {
+          VStack(alignment: .leading, spacing: 4) {
+            switch kind {
+            case .task:
+              ForEach(matchingTasks.prefix(40)) { task in
+                choiceRow(task.title, detail: task.dueDate.map { SerenityDateText.due($0) }, selected: block?.taskId == task.id) {
+                  Task { await appState.linkFocusBlock(id: blockID, toTask: block?.taskId == task.id ? nil : task.id) }
+                }
+              }
+            case .journal:
+              ForEach(matchingEntries.prefix(40)) { entry in
+                choiceRow(entry.title ?? entry.content, detail: entry.date.formatted(date: .abbreviated, time: .omitted), selected: block?.journalEntryId == entry.id) {
+                  Task { await appState.linkFocusBlock(id: blockID, toJournalEntry: block?.journalEntryId == entry.id ? nil : entry.id) }
+                }
+              }
+            }
+          }
+        }
+        .frame(minHeight: 220, maxHeight: 360)
+      }
     }
     .padding(20)
-    .frame(minWidth: 440)
+    .frame(minWidth: 480)
   }
 
-  private func start() {
-    onStart(title, minutes, goalID)
-    dismiss()
+  private var matchingTasks: [TaskEntity] {
+    let choices = Self.taskChoices(appState.tasks)
+    let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
+    return trimmed.isEmpty ? choices : choices.filter { $0.title.lowercased().contains(trimmed) }
+  }
+
+  private var matchingEntries: [JournalEntryEntity] {
+    let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
+    guard !trimmed.isEmpty else { return appState.journalEntries }
+    return appState.journalEntries.filter { "\($0.title ?? "") \($0.content)".lowercased().contains(trimmed) }
+  }
+
+  private func choiceRow(_ title: String, detail: String?, selected: Bool, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      HStack(spacing: 10) {
+        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+          .foregroundStyle(selected ? SerenityPalette.accent : SerenityPalette.textSecondary)
+        Text(title)
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textPrimary)
+          .lineLimit(1)
+        Spacer(minLength: 8)
+        if let detail {
+          Text(detail)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+      }
+      .padding(.horizontal, 10)
+      .padding(.vertical, 8)
+      .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(selected ? SerenityPalette.activeItemBackground : .clear))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+    .accessibilityAddTraits(selected ? .isSelected : [])
+  }
+
+  private var newEntryForm: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      TextField("Title (leave blank and one is written for you)", text: $entryTitle)
+        .textFieldStyle(.plain)
+        .serenityInputField()
+      TextEditor(text: $entryContent)
+        .font(SerenityType.body)
+        .scrollContentBackground(.hidden)
+        .serenityTextArea(minHeight: 140)
+      HStack {
+        Spacer()
+        Button("Back") { writingEntry = false }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        Button("Save and link") {
+          let title = entryTitle
+          let content = entryContent
+          Task {
+            if await appState.createJournalEntryForFocusBlock(id: blockID, title: title, content: content) {
+              writingEntry = false
+              entryContent = ""
+            }
+          }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .disabled(entryContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+    }
   }
 }

@@ -619,6 +619,10 @@ public struct FocusBlockEntity: Identifiable, Equatable, Sendable {
   public var pausedAt: Date?
   /// Total time spent in earlier pauses.
   public var pausedSeconds: Double
+  /// The journal entry this session is linked to. Several sessions can share one entry.
+  public var journalEntryId: String?
+  /// No set length: the clock counts up and the block ends when finished.
+  public var isOpenEnded: Bool
 
   public init(
     id: String,
@@ -634,10 +638,14 @@ public struct FocusBlockEntity: Identifiable, Equatable, Sendable {
     createdAt: Date,
     updatedAt: Date,
     pausedAt: Date? = nil,
-    pausedSeconds: Double = 0
+    pausedSeconds: Double = 0,
+    journalEntryId: String? = nil,
+    isOpenEnded: Bool = false
   ) {
     self.pausedAt = pausedAt
     self.pausedSeconds = pausedSeconds
+    self.journalEntryId = journalEntryId
+    self.isOpenEnded = isOpenEnded
     self.id = id
     self.title = title
     self.start = start
@@ -664,5 +672,10 @@ public struct FocusBlockEntity: Identifiable, Equatable, Sendable {
 
   public var isActive: Bool {
     status == .running || status == .paused
+  }
+
+  /// One task per session for now; the stored list leaves room for more.
+  public var taskId: String? {
+    taskIds.first
   }
 }
