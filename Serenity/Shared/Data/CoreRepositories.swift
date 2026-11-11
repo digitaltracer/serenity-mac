@@ -160,6 +160,13 @@ protocol CoreRoutineRepository {
   func delete(id: String) throws
 }
 
+protocol CoreFocusBlockRepository {
+  func fetchAll() throws -> [FocusBlockEntity]
+  func fetchByID(_ id: String) throws -> FocusBlockEntity?
+  func save(_ block: FocusBlockEntity) throws
+  func delete(id: String) throws
+}
+
 protocol CoreRoutineCheckRepository {
   func fetchAll() throws -> [RoutineCheckEntity]
   func fetchByID(_ id: String) throws -> RoutineCheckEntity?
@@ -817,6 +824,98 @@ final class GRDBRoutineCheckRepository: CoreRoutineCheckRepository {
   }
 }
 
+final class GRDBFocusBlockRepository: CoreFocusBlockRepository {
+  let dbQueue: DatabaseQueue
+
+  init(dbQueue: DatabaseQueue) {
+    self.dbQueue = dbQueue
+  }
+
+  func fetchAll() throws -> [FocusBlockEntity] {
+    try dbQueue.read { db in
+      let rows = try Row.fetchAll(db, sql: "SELECT * FROM focus_blocks ORDER BY start_at ASC;")
+      return try rows.map(Self.makeBlock(from:))
+    }
+  }
+
+  func fetchByID(_ id: String) throws -> FocusBlockEntity? {
+    try dbQueue.read { db in
+      try Row.fetchOne(db, sql: "SELECT * FROM focus_blocks WHERE id = ?;", arguments: [id]).map(Self.makeBlock(from:))
+    }
+  }
+
+  func save(_ block: FocusBlockEntity) throws {
+    try dbQueue.write { db in
+      try save(block, in: db)
+    }
+  }
+
+  func save(_ block: FocusBlockEntity, in db: Database) throws {
+    try db.execute(
+      sql: """
+      INSERT INTO focus_blocks (
+        id, title, start_at, end_at, goal_id, task_ids_json, status,
+        started_at, finished_at, logged_minutes, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        start_at = excluded.start_at,
+        end_at = excluded.end_at,
+        goal_id = excluded.goal_id,
+        task_ids_json = excluded.task_ids_json,
+        status = excluded.status,
+        started_at = excluded.started_at,
+        finished_at = excluded.finished_at,
+        logged_minutes = excluded.logged_minutes,
+        updated_at = excluded.updated_at;
+      """,
+      arguments: [
+        block.id,
+        block.title,
+        CoreRepositoryCodec.encodeDate(block.start),
+        CoreRepositoryCodec.encodeDate(block.end),
+        block.goalId,
+        try CoreRepositoryCodec.encodeJSON(block.taskIds),
+        block.status.rawValue,
+        block.startedAt.map(CoreRepositoryCodec.encodeDate),
+        block.finishedAt.map(CoreRepositoryCodec.encodeDate),
+        block.loggedMinutes,
+        CoreRepositoryCodec.encodeDate(block.createdAt),
+        CoreRepositoryCodec.encodeDate(block.updatedAt),
+      ]
+    )
+  }
+
+  func delete(id: String) throws {
+    try dbQueue.write { db in
+      try delete(id: id, in: db)
+    }
+  }
+
+  func delete(id: String, in db: Database) throws {
+    try db.execute(sql: "DELETE FROM focus_blocks WHERE id = ?;", arguments: [id])
+  }
+
+  private static func makeBlock(from row: Row) throws -> FocusBlockEntity {
+    let startedAt: String? = row["started_at"]
+    let finishedAt: String? = row["finished_at"]
+    return FocusBlockEntity(
+      id: row["id"],
+      title: row["title"],
+      start: try CoreRepositoryCodec.decodeDate(row["start_at"]),
+      end: try CoreRepositoryCodec.decodeDate(row["end_at"]),
+      goalId: row["goal_id"],
+      taskIds: try CoreRepositoryCodec.decodeJSONOrDefault([String].self, from: row["task_ids_json"], default: []),
+      status: FocusBlockStatus(rawValue: (row["status"] as String?) ?? "") ?? .planned,
+      startedAt: try startedAt.map { try CoreRepositoryCodec.decodeDate($0) },
+      finishedAt: try finishedAt.map { try CoreRepositoryCodec.decodeDate($0) },
+      loggedMinutes: row["logged_minutes"] ?? 0,
+      createdAt: try CoreRepositoryCodec.decodeDate(row["created_at"]),
+      updatedAt: try CoreRepositoryCodec.decodeDate(row["updated_at"])
+    )
+  }
+}
+
 struct GRDBCoreRepositorySet {
   /// Sync-aware task repository — every save/delete also enqueues a pending
   /// sync change. The iCloud engine drains those into CloudKit, and pulled
@@ -827,6 +926,7 @@ struct GRDBCoreRepositorySet {
   let goals: SyncAwareGoalRepository
   let routines: SyncAwareRoutineRepository
   let routineChecks: SyncAwareRoutineCheckRepository
+  let focusBlocks: SyncAwareFocusBlockRepository
   let pendingSyncChanges: PendingSyncChangeStore
   let cloudSyncState: CloudSyncStateStore
   let cloudSyncRecords: GRDBCloudSyncRecordStore
@@ -861,6 +961,10 @@ struct GRDBCoreRepositorySet {
       ),
       routineChecks: SyncAwareRoutineCheckRepository(
         underlying: GRDBRoutineCheckRepository(dbQueue: dbQueue),
+        pendingStore: pendingStore
+      ),
+      focusBlocks: SyncAwareFocusBlockRepository(
+        underlying: GRDBFocusBlockRepository(dbQueue: dbQueue),
         pendingStore: pendingStore
       ),
       pendingSyncChanges: pendingStore,

@@ -10,7 +10,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
 
     let summary = try await runner.bootstrapDatabase(at: databaseURL)
 
-    XCTAssertEqual(summary.appliedMigrations.count, 15)
+    XCTAssertEqual(summary.appliedMigrations.count, 16)
     XCTAssertTrue(summary.skippedMigrations.isEmpty)
 
     let dbQueue = try DatabaseQueue(path: databaseURL.path)
@@ -73,7 +73,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     let secondRun = try await runner.bootstrapDatabase(at: databaseURL)
 
     XCTAssertTrue(secondRun.appliedMigrations.isEmpty)
-    XCTAssertEqual(secondRun.skippedMigrations.count, 15)
+    XCTAssertEqual(secondRun.skippedMigrations.count, 16)
   }
 
   func testNvidiaIsAcceptedByEveryProviderConstrainedTable() async throws {
@@ -188,6 +188,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
         "20260923_014_cloud_sync_bookkeeping",
         "20260923_015_github_imported_pull_requests",
         "20261111_016_routines",
+        "20261111_017_focus_blocks",
       ]
     )
 

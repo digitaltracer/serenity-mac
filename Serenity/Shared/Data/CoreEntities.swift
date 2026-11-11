@@ -592,3 +592,58 @@ public struct RoutineCheckEntity: Identifiable, Equatable, Sendable {
     "\(routineId):\(day)"
   }
 }
+
+public enum FocusBlockStatus: String, Codable, Sendable {
+  case planned
+  case running
+  case done
+}
+
+/// A stretch of time set aside for focused work. Finished blocks log their minutes, which feed
+/// focus-time goals.
+public struct FocusBlockEntity: Identifiable, Equatable, Sendable {
+  public var id: String
+  public var title: String
+  public var start: Date
+  public var end: Date
+  public var goalId: String?
+  public var taskIds: [String]
+  public var status: FocusBlockStatus
+  public var startedAt: Date?
+  public var finishedAt: Date?
+  public var loggedMinutes: Double
+  public var createdAt: Date
+  public var updatedAt: Date
+
+  public init(
+    id: String,
+    title: String,
+    start: Date,
+    end: Date,
+    goalId: String?,
+    taskIds: [String],
+    status: FocusBlockStatus,
+    startedAt: Date?,
+    finishedAt: Date?,
+    loggedMinutes: Double,
+    createdAt: Date,
+    updatedAt: Date
+  ) {
+    self.id = id
+    self.title = title
+    self.start = start
+    self.end = end
+    self.goalId = goalId
+    self.taskIds = taskIds
+    self.status = status
+    self.startedAt = startedAt
+    self.finishedAt = finishedAt
+    self.loggedMinutes = loggedMinutes
+    self.createdAt = createdAt
+    self.updatedAt = updatedAt
+  }
+
+  public var plannedMinutes: Double {
+    max(end.timeIntervalSince(start) / 60, 0)
+  }
+}

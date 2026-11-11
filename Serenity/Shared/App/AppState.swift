@@ -158,6 +158,9 @@ final class AppState: ObservableObject {
   @Published var goals: [GoalEntity] = []
   @Published var routines: [RoutineEntity] = []
   @Published var routineChecks: [RoutineCheckEntity] = []
+  @Published var focusBlocks: [FocusBlockEntity] = []
+  /// Set when another screen opens Goals on one goal; Goals expands it and clears this.
+  @Published var focusedGoalID: String?
   @Published var taskFilter = TaskWorkflowFilter()
   @Published var selectedTaskIDs: Set<String> = []
   @Published var journalDateRangeEnabled = false
@@ -3064,6 +3067,7 @@ final class AppState: ObservableObject {
       goals = loadedGoals.sorted { $0.updatedAt > $1.updatedAt }
       routines = loadedRoutines.routines
       routineChecks = loadedRoutines.checks
+      focusBlocks = loadedRoutines.focusBlocks
 
       selectedTaskIDs = selectedTaskIDs.filter { id in tasks.contains(where: { $0.id == id }) }
       rebuildGlobalSearchIndex()
@@ -3716,7 +3720,14 @@ final class AppState: ObservableObject {
   // MARK: - Goal reports
 
   var goalProgressInputs: GoalProgressInputs {
-    GoalProgressInputs(tasks: tasks, routineChecks: routineChecks, journalEntries: journalEntries, focusHours: [])
+    GoalProgressInputs(
+      tasks: tasks,
+      routineChecks: routineChecks,
+      journalEntries: journalEntries,
+      focusHours: focusBlocks
+        .filter { $0.status == .done && $0.loggedMinutes > 0 }
+        .map { (date: $0.finishedAt ?? $0.end, hours: $0.loggedMinutes / 60, goalId: $0.goalId) }
+    )
   }
 
   /// Live progress and pace for every goal that is not abandoned, most urgent first.
@@ -3854,7 +3865,7 @@ final class AppState: ObservableObject {
       createdAt: now,
       updatedAt: now
     )
-    await mutateRoutines(failureTitle: "Failed to create routine") { repositories in
+    await mutateLocalData(failureTitle: "Failed to create routine") { repositories in
       try repositories.routines.save(routine)
     }
   }
@@ -3867,7 +3878,7 @@ final class AppState: ObservableObject {
       return
     }
     updated.updatedAt = Date()
-    await mutateRoutines(failureTitle: "Failed to update routine") { repositories in
+    await mutateLocalData(failureTitle: "Failed to update routine") { repositories in
       try repositories.routines.save(updated)
     }
   }
@@ -3876,13 +3887,13 @@ final class AppState: ObservableObject {
     guard var routine = routines.first(where: { $0.id == id }) else { return }
     routine.archived = archived
     routine.updatedAt = Date()
-    await mutateRoutines(failureTitle: "Failed to update routine") { repositories in
+    await mutateLocalData(failureTitle: "Failed to update routine") { repositories in
       try repositories.routines.save(routine)
     }
   }
 
   func deleteRoutine(id: String) async {
-    await mutateRoutines(failureTitle: "Failed to delete routine") { repositories in
+    await mutateLocalData(failureTitle: "Failed to delete routine") { repositories in
       try repositories.routineChecks.deleteAll(routineId: id)
       try repositories.routines.delete(id: id)
     }
@@ -3907,7 +3918,7 @@ final class AppState: ObservableObject {
     let id = RoutineCheckEntity.id(routineId: routineID, day: day)
     let existing = routineChecks.first(where: { $0.id == id })
 
-    await mutateRoutines(failureTitle: "Failed to update routine") { repositories in
+    await mutateLocalData(failureTitle: "Failed to update routine") { repositories in
       if existing?.status == status {
         try repositories.routineChecks.delete(id: id)
       } else {
@@ -3924,7 +3935,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  private func mutateRoutines(
+  private func mutateLocalData(
     failureTitle: String,
     _ change: (GRDBCoreRepositorySet) throws -> Void
   ) async {
@@ -3937,6 +3948,7 @@ final class AppState: ObservableObject {
       try change(repositories)
       routines = try repositories.routines.fetchAll()
       routineChecks = try repositories.routineChecks.fetchAll()
+      focusBlocks = try repositories.focusBlocks.fetchAll()
       triggerICloudSync()
     } catch {
       showError(title: failureTitle, message: error.localizedDescription)
@@ -3944,12 +3956,122 @@ final class AppState: ObservableObject {
   }
 
   static let routinesNeedLocalStorageMessage =
-    "Routines are kept in this device's database and synced with iCloud. Switch to local storage in Settings > Database to use them."
+    "Routines and focus blocks are kept in this device's database and synced with iCloud. Switch to local storage in Settings > Database to use them."
 
-  private func fetchRoutineData() async throws -> (routines: [RoutineEntity], checks: [RoutineCheckEntity]) {
-    guard settings.backendProfile == .sqliteLocal else { return ([], []) }
+  // MARK: - Focus blocks
+
+  /// A block left running past this is assumed forgotten, so finishing it logs no more than this.
+  static let maximumFocusMinutes: Double = 240
+
+  var runningFocusBlock: FocusBlockEntity? {
+    focusBlocks.first { $0.status == .running }
+  }
+
+  func focusBlocks(on day: Date, calendar: Calendar = .current) -> [FocusBlockEntity] {
+    focusBlocks.filter { calendar.isDate($0.start, inSameDayAs: day) }.sorted { $0.start < $1.start }
+  }
+
+  func planFocusBlock(title: String, start: Date, minutes: Int, goalId: String?) async {
+    let now = Date()
+    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    let block = FocusBlockEntity(
+      id: UUID().uuidString,
+      title: trimmed.isEmpty ? "Focus" : trimmed,
+      start: start,
+      end: start.addingTimeInterval(Double(max(minutes, 5)) * 60),
+      goalId: goalId,
+      taskIds: [],
+      status: .planned,
+      startedAt: nil,
+      finishedAt: nil,
+      loggedMinutes: 0,
+      createdAt: now,
+      updatedAt: now
+    )
+    await mutateLocalData(failureTitle: "Failed to plan focus block") { repositories in
+      try repositories.focusBlocks.save(block)
+    }
+  }
+
+  /// Starts a block now, moving its slot to the actual start. Any other running block finishes first.
+  func startFocusBlock(id: String, now: Date = Date()) async {
+    guard var block = focusBlocks.first(where: { $0.id == id }), block.status != .done else { return }
+    let running = runningFocusBlock.flatMap { $0.id == id ? nil : finished($0, now: now) }
+    let duration = block.end.timeIntervalSince(block.start)
+    block.start = now
+    block.end = now.addingTimeInterval(duration)
+    block.status = .running
+    block.startedAt = now
+    block.updatedAt = now
+    let started = block
+    await mutateLocalData(failureTitle: "Failed to start focus") { repositories in
+      if let running { try repositories.focusBlocks.save(running) }
+      try repositories.focusBlocks.save(started)
+    }
+  }
+
+  /// Starts the block planned around now, or a fresh 50-minute one when nothing is planned.
+  func startFocusNow(now: Date = Date()) async {
+    if let running = runningFocusBlock {
+      await finishFocusBlock(id: running.id, now: now)
+      return
+    }
+    let soon = focusBlocks(on: now)
+      .filter { $0.status == .planned && $0.end > now && $0.start.timeIntervalSince(now) < 30 * 60 }
+      .min { $0.start < $1.start }
+    if let soon {
+      await startFocusBlock(id: soon.id, now: now)
+      return
+    }
+    let block = FocusBlockEntity(
+      id: UUID().uuidString,
+      title: "Focus",
+      start: now,
+      end: now.addingTimeInterval(50 * 60),
+      goalId: nil,
+      taskIds: [],
+      status: .running,
+      startedAt: now,
+      finishedAt: nil,
+      loggedMinutes: 0,
+      createdAt: now,
+      updatedAt: now
+    )
+    await mutateLocalData(failureTitle: "Failed to start focus") { repositories in
+      try repositories.focusBlocks.save(block)
+    }
+  }
+
+  func finishFocusBlock(id: String, now: Date = Date()) async {
+    guard let block = focusBlocks.first(where: { $0.id == id }), block.status == .running else { return }
+    let done = finished(block, now: now)
+    await mutateLocalData(failureTitle: "Failed to finish focus") { repositories in
+      try repositories.focusBlocks.save(done)
+    }
+  }
+
+  func deleteFocusBlock(id: String) async {
+    await mutateLocalData(failureTitle: "Failed to delete focus block") { repositories in
+      try repositories.focusBlocks.delete(id: id)
+    }
+  }
+
+  private func finished(_ block: FocusBlockEntity, now: Date) -> FocusBlockEntity {
+    var done = block
+    let minutes = max(now.timeIntervalSince(block.startedAt ?? block.start) / 60, 0)
+    done.loggedMinutes = min(minutes, Self.maximumFocusMinutes)
+    done.status = .done
+    done.finishedAt = now
+    done.end = (block.startedAt ?? block.start).addingTimeInterval(done.loggedMinutes * 60)
+    done.updatedAt = now
+    return done
+  }
+
+  /// Routines and focus blocks only live in the local database; other backends get none.
+  private func fetchRoutineData() async throws -> (routines: [RoutineEntity], checks: [RoutineCheckEntity], focusBlocks: [FocusBlockEntity]) {
+    guard settings.backendProfile == .sqliteLocal else { return ([], [], []) }
     let repositories = try await requireSQLiteCoreRepositories()
-    return (try repositories.routines.fetchAll(), try repositories.routineChecks.fetchAll())
+    return (try repositories.routines.fetchAll(), try repositories.routineChecks.fetchAll(), try repositories.focusBlocks.fetchAll())
   }
 
   func setGlobalSearchQuery(_ query: String) {
@@ -4320,6 +4442,7 @@ final class AppState: ObservableObject {
         GoalSyncRecordKind(repository: repositories.goals),
         RoutineSyncRecordKind(repository: repositories.routines),
         RoutineCheckSyncRecordKind(repository: repositories.routineChecks),
+        FocusBlockSyncRecordKind(repository: repositories.focusBlocks),
         AIInsightSyncRecordKind(repository: insightRepository),
         AIRecapSyncRecordKind(repository: recapRepository),
         SummarySyncRecordKind(repository: summaryRepository),
@@ -4360,6 +4483,7 @@ final class AppState: ObservableObject {
       SyncEntityType.goal,
       SyncEntityType.routine,
       SyncEntityType.routineCheck,
+      SyncEntityType.focusBlock,
     ]
     if !entityTypes.isDisjoint(with: core) {
       await refreshCoreWorkflowData()

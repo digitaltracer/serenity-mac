@@ -15,6 +15,7 @@ enum SyncEntityType {
   static let standup = "Standup"
   static let routine = "Routine"
   static let routineCheck = "RoutineCheck"
+  static let focusBlock = "FocusBlock"
 }
 
 /// Wraps a `CoreTaskRepository` so every successful save/delete pushes a
@@ -307,6 +308,46 @@ final class SyncAwareRoutineCheckRepository: CoreRoutineCheckRepository {
 
   func applyRemoteUpsert(_ check: RoutineCheckEntity, in db: Database) throws {
     try underlying.save(check, in: db)
+  }
+
+  func applyRemoteDelete(id: String, in db: Database) throws {
+    try underlying.delete(id: id, in: db)
+  }
+}
+
+final class SyncAwareFocusBlockRepository: CoreFocusBlockRepository {
+  private let underlying: GRDBFocusBlockRepository
+  private let pendingStore: PendingSyncChangeStore
+
+  init(underlying: GRDBFocusBlockRepository, pendingStore: PendingSyncChangeStore) {
+    self.underlying = underlying
+    self.pendingStore = pendingStore
+  }
+
+  func fetchAll() throws -> [FocusBlockEntity] {
+    try underlying.fetchAll()
+  }
+
+  func fetchByID(_ id: String) throws -> FocusBlockEntity? {
+    try underlying.fetchByID(id)
+  }
+
+  func save(_ block: FocusBlockEntity) throws {
+    try underlying.dbQueue.write { db in
+      try underlying.save(block, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.focusBlock, entityId: block.id, operation: .upsert, in: db)
+    }
+  }
+
+  func delete(id: String) throws {
+    try underlying.dbQueue.write { db in
+      try underlying.delete(id: id, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.focusBlock, entityId: id, operation: .delete, in: db)
+    }
+  }
+
+  func applyRemoteUpsert(_ block: FocusBlockEntity, in db: Database) throws {
+    try underlying.save(block, in: db)
   }
 
   func applyRemoteDelete(id: String, in db: Database) throws {

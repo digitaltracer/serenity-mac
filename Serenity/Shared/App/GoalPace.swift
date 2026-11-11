@@ -5,8 +5,8 @@ struct GoalProgressInputs {
   var tasks: [TaskEntity] = []
   var routineChecks: [RoutineCheckEntity] = []
   var journalEntries: [JournalEntryEntity] = []
-  /// Logged focus time as (when it ended, hours).
-  var focusHours: [(date: Date, hours: Double)] = []
+  /// Logged focus time as (when it ended, hours, the goal it was booked to if any).
+  var focusHours: [(date: Date, hours: Double, goalId: String?)] = []
 }
 
 enum GoalPace: Equatable {
@@ -329,7 +329,10 @@ enum GoalReports {
         events.append((entry.date, 1))
       }
     case .focusTime:
-      events.append(contentsOf: inputs.focusHours.map { ($0.date, $0.hours) })
+      // A block booked to another goal is that goal's; unbooked blocks count for every focus goal.
+      for entry in inputs.focusHours where entry.goalId == nil || entry.goalId == goal.id {
+        events.append((entry.date, entry.hours))
+      }
     }
     return events
   }

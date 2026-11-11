@@ -436,6 +436,60 @@ struct RoutineCheckSyncRecordKind: SyncRecordKind {
   }
 }
 
+// MARK: - Focus blocks
+
+struct FocusBlockSyncRecordKind: SyncRecordKind {
+  let repository: SyncAwareFocusBlockRepository
+
+  let entityType = SyncEntityType.focusBlock
+  let tableName = "focus_blocks"
+
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool {
+    guard let block = try repository.fetchByID(id) else { return false }
+    try Self.encode(block, into: record)
+    return true
+  }
+
+  func applyPulled(_ record: CKRecord, in db: Database) throws {
+    try repository.applyRemoteUpsert(try Self.decode(record), in: db)
+  }
+
+  func applyPulledDelete(recordName: String, in db: Database) throws {
+    try repository.applyRemoteDelete(id: recordName, in: db)
+  }
+
+  static func encode(_ block: FocusBlockEntity, into record: CKRecord) throws {
+    record["title"] = block.title as CKRecordValue
+    record["start"] = block.start as CKRecordValue
+    record["end"] = block.end as CKRecordValue
+    record["goalId"] = block.goalId as CKRecordValue?
+    record["taskIdsJSON"] = try CloudKitJSONCodec.encode(block.taskIds) as CKRecordValue
+    record["status"] = block.status.rawValue as CKRecordValue
+    record["startedAt"] = block.startedAt as CKRecordValue?
+    record["finishedAt"] = block.finishedAt as CKRecordValue?
+    record["loggedMinutes"] = block.loggedMinutes as CKRecordValue
+    record["createdAt"] = block.createdAt as CKRecordValue
+    record["updatedAt"] = block.updatedAt as CKRecordValue
+  }
+
+  static func decode(_ record: CKRecord) throws -> FocusBlockEntity {
+    FocusBlockEntity(
+      id: record.recordID.recordName,
+      title: try requireField(record, "title"),
+      start: try requireField(record, "start"),
+      end: try requireField(record, "end"),
+      goalId: record["goalId"] as? String,
+      taskIds: try (record["taskIdsJSON"] as? String).map { try CloudKitJSONCodec.decode($0) } ?? [],
+      status: (record["status"] as? String).flatMap(FocusBlockStatus.init(rawValue:)) ?? .planned,
+      startedAt: record["startedAt"] as? Date,
+      finishedAt: record["finishedAt"] as? Date,
+      loggedMinutes: record["loggedMinutes"] as? Double ?? 0,
+      createdAt: try requireField(record, "createdAt"),
+      updatedAt: try requireField(record, "updatedAt")
+    )
+  }
+}
+
 // MARK: - AI insights
 
 struct AIInsightSyncRecordKind: SyncRecordKind {
