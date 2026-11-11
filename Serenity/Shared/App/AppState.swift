@@ -156,6 +156,8 @@ final class AppState: ObservableObject {
   @Published var projects: [ProjectEntity] = []
   @Published var journalEntries: [JournalEntryEntity] = []
   @Published var goals: [GoalEntity] = []
+  @Published var routines: [RoutineEntity] = []
+  @Published var routineChecks: [RoutineCheckEntity] = []
   @Published var taskFilter = TaskWorkflowFilter()
   @Published var selectedTaskIDs: Set<String> = []
   @Published var journalDateRangeEnabled = false
@@ -3048,6 +3050,7 @@ final class AppState: ObservableObject {
       let loadedProjects = try await fetchProjects()
       let loadedJournalEntries = try await fetchJournalEntries()
       let loadedGoals = try await fetchGoals()
+      let loadedRoutines = try await fetchRoutineData()
 
       tasks = loadedTasks.sorted { $0.createdAt > $1.createdAt }
       projects = loadedProjects.sorted { lhs, rhs in
@@ -3059,6 +3062,8 @@ final class AppState: ObservableObject {
       }
       journalEntries = loadedJournalEntries.sorted { $0.date > $1.date }
       goals = loadedGoals.sorted { $0.updatedAt > $1.updatedAt }
+      routines = loadedRoutines.routines
+      routineChecks = loadedRoutines.checks
 
       selectedTaskIDs = selectedTaskIDs.filter { id in tasks.contains(where: { $0.id == id }) }
       rebuildGlobalSearchIndex()
@@ -3708,6 +3713,140 @@ final class AppState: ObservableObject {
     }
   }
 
+  // MARK: - Routines
+
+  /// Active routines with today's state and streaks, in the order they were added.
+  func routineSummaries(now: Date = Date()) -> [RoutineSummary] {
+    let checksByRoutine = Dictionary(grouping: routineChecks, by: \.routineId)
+    return routines
+      .filter { !$0.archived }
+      .map { routine in
+        let checks = (checksByRoutine[routine.id] ?? []).reduce(into: [String: RoutineCheckStatus]()) { map, check in
+          map[check.day] = check.status
+        }
+        return RoutineStreaks.summary(for: routine, checks: checks, now: now)
+      }
+  }
+
+  var archivedRoutines: [RoutineEntity] {
+    routines.filter(\.archived)
+  }
+
+  func createRoutine(title: String, schedule: RoutineSchedule, timeOfDay: RoutineTimeOfDay) async {
+    let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedTitle.isEmpty else {
+      showToast("Routine name cannot be empty")
+      return
+    }
+
+    let now = Date()
+    let routine = RoutineEntity(
+      id: UUID().uuidString,
+      title: trimmedTitle,
+      schedule: schedule,
+      timeOfDay: timeOfDay,
+      archived: false,
+      createdAt: now,
+      updatedAt: now
+    )
+    await mutateRoutines(failureTitle: "Failed to create routine") { repositories in
+      try repositories.routines.save(routine)
+    }
+  }
+
+  func updateRoutine(_ routine: RoutineEntity) async {
+    var updated = routine
+    updated.title = routine.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !updated.title.isEmpty else {
+      showToast("Routine name cannot be empty")
+      return
+    }
+    updated.updatedAt = Date()
+    await mutateRoutines(failureTitle: "Failed to update routine") { repositories in
+      try repositories.routines.save(updated)
+    }
+  }
+
+  func setRoutineArchived(id: String, archived: Bool) async {
+    guard var routine = routines.first(where: { $0.id == id }) else { return }
+    routine.archived = archived
+    routine.updatedAt = Date()
+    await mutateRoutines(failureTitle: "Failed to update routine") { repositories in
+      try repositories.routines.save(routine)
+    }
+  }
+
+  func deleteRoutine(id: String) async {
+    await mutateRoutines(failureTitle: "Failed to delete routine") { repositories in
+      try repositories.routineChecks.deleteAll(routineId: id)
+      try repositories.routines.delete(id: id)
+    }
+  }
+
+  /// Marks today done, or clears it. Only today can change: past days are never backfilled.
+  func toggleRoutineDone(id: String, now: Date = Date()) async {
+    await setTodayMark(routineID: id, toggling: .done, now: now)
+  }
+
+  /// A skip is planned rest: it keeps the streak without counting toward it.
+  func toggleRoutineSkip(id: String, now: Date = Date()) async {
+    await setTodayMark(routineID: id, toggling: .skipped, now: now)
+  }
+
+  private func setTodayMark(routineID: String, toggling status: RoutineCheckStatus, now: Date) async {
+    guard let routine = routines.first(where: { $0.id == routineID }) else { return }
+    let today = RoutineDay.current(now: now)
+    guard RoutineStreaks.isScheduled(routine.schedule, on: today) else { return }
+
+    let day = RoutineDay.key(for: today)
+    let id = RoutineCheckEntity.id(routineId: routineID, day: day)
+    let existing = routineChecks.first(where: { $0.id == id })
+
+    await mutateRoutines(failureTitle: "Failed to update routine") { repositories in
+      if existing?.status == status {
+        try repositories.routineChecks.delete(id: id)
+      } else {
+        try repositories.routineChecks.save(
+          RoutineCheckEntity(
+            routineId: routineID,
+            day: day,
+            status: status,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now
+          )
+        )
+      }
+    }
+  }
+
+  private func mutateRoutines(
+    failureTitle: String,
+    _ change: (GRDBCoreRepositorySet) throws -> Void
+  ) async {
+    guard settings.backendProfile == .sqliteLocal else {
+      showError(title: failureTitle, message: Self.routinesNeedLocalStorageMessage)
+      return
+    }
+    do {
+      let repositories = try await requireSQLiteCoreRepositories()
+      try change(repositories)
+      routines = try repositories.routines.fetchAll()
+      routineChecks = try repositories.routineChecks.fetchAll()
+      triggerICloudSync()
+    } catch {
+      showError(title: failureTitle, message: error.localizedDescription)
+    }
+  }
+
+  static let routinesNeedLocalStorageMessage =
+    "Routines are kept in this device's database and synced with iCloud. Switch to local storage in Settings > Database to use them."
+
+  private func fetchRoutineData() async throws -> (routines: [RoutineEntity], checks: [RoutineCheckEntity]) {
+    guard settings.backendProfile == .sqliteLocal else { return ([], []) }
+    let repositories = try await requireSQLiteCoreRepositories()
+    return (try repositories.routines.fetchAll(), try repositories.routineChecks.fetchAll())
+  }
+
   func setGlobalSearchQuery(_ query: String) {
     globalSearchQuery = query
 
@@ -4074,6 +4213,8 @@ final class AppState: ObservableObject {
         ProjectSyncRecordKind(repository: repositories.projects),
         JournalEntrySyncRecordKind(repository: repositories.journal),
         GoalSyncRecordKind(repository: repositories.goals),
+        RoutineSyncRecordKind(repository: repositories.routines),
+        RoutineCheckSyncRecordKind(repository: repositories.routineChecks),
         AIInsightSyncRecordKind(repository: insightRepository),
         AIRecapSyncRecordKind(repository: recapRepository),
         SummarySyncRecordKind(repository: summaryRepository),
@@ -4107,7 +4248,14 @@ final class AppState: ObservableObject {
   /// Pulled records are already in SQLite; reloading the affected collections puts them on screen,
   /// and later edits start from the pulled copy instead of reverting it.
   func reloadAfterICloudPull(entityTypes: Set<String>) async {
-    let core: Set<String> = [SyncEntityType.task, SyncEntityType.project, SyncEntityType.journalEntry, SyncEntityType.goal]
+    let core: Set<String> = [
+      SyncEntityType.task,
+      SyncEntityType.project,
+      SyncEntityType.journalEntry,
+      SyncEntityType.goal,
+      SyncEntityType.routine,
+      SyncEntityType.routineCheck,
+    ]
     if !entityTypes.isDisjoint(with: core) {
       await refreshCoreWorkflowData()
     }

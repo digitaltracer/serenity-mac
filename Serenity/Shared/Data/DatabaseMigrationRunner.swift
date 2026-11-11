@@ -998,5 +998,34 @@ actor DatabaseMigrationRunner {
         "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '13');",
       ]
     ),
+    DatabaseMigration(
+      identifier: "20261111_016_routines",
+      statements: [
+        """
+        CREATE TABLE IF NOT EXISTS routines (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          schedule_json TEXT NOT NULL,
+          time_of_day TEXT NOT NULL DEFAULT 'anytime',
+          archived INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        """,
+        // No foreign key: iCloud can deliver a day's check before the routine it belongs to.
+        """
+        CREATE TABLE IF NOT EXISTS routine_checks (
+          id TEXT PRIMARY KEY,
+          routine_id TEXT NOT NULL,
+          day TEXT NOT NULL,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_routine_checks_routine_day ON routine_checks(routine_id, day);",
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '14');",
+      ]
+    ),
   ]
 }

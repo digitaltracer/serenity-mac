@@ -454,3 +454,81 @@ public struct GoalEntity: Identifiable, Equatable, Sendable {
     self.userId = userId
   }
 }
+
+public enum RoutineTimeOfDay: String, Codable, Sendable, CaseIterable {
+  case morning
+  case afternoon
+  case evening
+  case anytime
+}
+
+public enum RoutineSchedule: Codable, Equatable, Sendable {
+  case daily
+  case timesPerWeek(Int)
+  /// `Calendar` weekday numbers, 1 = Sunday.
+  case weekdays([Int])
+}
+
+public struct RoutineEntity: Identifiable, Equatable, Sendable {
+  public var id: String
+  public var title: String
+  public var schedule: RoutineSchedule
+  public var timeOfDay: RoutineTimeOfDay
+  public var archived: Bool
+  public var createdAt: Date
+  public var updatedAt: Date
+
+  public init(
+    id: String,
+    title: String,
+    schedule: RoutineSchedule,
+    timeOfDay: RoutineTimeOfDay,
+    archived: Bool,
+    createdAt: Date,
+    updatedAt: Date
+  ) {
+    self.id = id
+    self.title = title
+    self.schedule = schedule
+    self.timeOfDay = timeOfDay
+    self.archived = archived
+    self.createdAt = createdAt
+    self.updatedAt = updatedAt
+  }
+}
+
+public enum RoutineCheckStatus: String, Codable, Sendable {
+  case done
+  case skipped
+}
+
+/// One routine's mark for one day. The id is derived from both, so two devices ticking the same
+/// day write the same record instead of two.
+public struct RoutineCheckEntity: Identifiable, Equatable, Sendable {
+  public var id: String
+  public var routineId: String
+  /// `yyyy-MM-dd` in the user's calendar.
+  public var day: String
+  public var status: RoutineCheckStatus
+  public var createdAt: Date
+  public var updatedAt: Date
+
+  public init(
+    routineId: String,
+    day: String,
+    status: RoutineCheckStatus,
+    createdAt: Date,
+    updatedAt: Date
+  ) {
+    self.id = Self.id(routineId: routineId, day: day)
+    self.routineId = routineId
+    self.day = day
+    self.status = status
+    self.createdAt = createdAt
+    self.updatedAt = updatedAt
+  }
+
+  public static func id(routineId: String, day: String) -> String {
+    "\(routineId):\(day)"
+  }
+}

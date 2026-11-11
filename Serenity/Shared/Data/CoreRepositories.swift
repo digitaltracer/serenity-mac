@@ -153,6 +153,20 @@ protocol CoreGoalRepository {
   func delete(id: String) throws
 }
 
+protocol CoreRoutineRepository {
+  func fetchAll() throws -> [RoutineEntity]
+  func fetchByID(_ id: String) throws -> RoutineEntity?
+  func save(_ routine: RoutineEntity) throws
+  func delete(id: String) throws
+}
+
+protocol CoreRoutineCheckRepository {
+  func fetchAll() throws -> [RoutineCheckEntity]
+  func fetchByID(_ id: String) throws -> RoutineCheckEntity?
+  func save(_ check: RoutineCheckEntity) throws
+  func delete(id: String) throws
+}
+
 final class GRDBTaskRepository: CoreTaskRepository {
   let dbQueue: DatabaseQueue
 
@@ -663,6 +677,146 @@ final class GRDBGoalRepository: CoreGoalRepository {
   }
 }
 
+final class GRDBRoutineRepository: CoreRoutineRepository {
+  let dbQueue: DatabaseQueue
+
+  init(dbQueue: DatabaseQueue) {
+    self.dbQueue = dbQueue
+  }
+
+  func fetchAll() throws -> [RoutineEntity] {
+    try dbQueue.read { db in
+      let rows = try Row.fetchAll(db, sql: "SELECT * FROM routines ORDER BY created_at ASC;")
+      return try rows.map(Self.makeRoutine(from:))
+    }
+  }
+
+  func fetchByID(_ id: String) throws -> RoutineEntity? {
+    try dbQueue.read { db in
+      try Row.fetchOne(db, sql: "SELECT * FROM routines WHERE id = ?;", arguments: [id]).map(Self.makeRoutine(from:))
+    }
+  }
+
+  func save(_ routine: RoutineEntity) throws {
+    try dbQueue.write { db in
+      try save(routine, in: db)
+    }
+  }
+
+  func save(_ routine: RoutineEntity, in db: Database) throws {
+    try db.execute(
+      sql: """
+      INSERT INTO routines (id, title, schedule_json, time_of_day, archived, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        schedule_json = excluded.schedule_json,
+        time_of_day = excluded.time_of_day,
+        archived = excluded.archived,
+        updated_at = excluded.updated_at;
+      """,
+      arguments: [
+        routine.id,
+        routine.title,
+        try CoreRepositoryCodec.encodeJSON(routine.schedule),
+        routine.timeOfDay.rawValue,
+        routine.archived ? 1 : 0,
+        CoreRepositoryCodec.encodeDate(routine.createdAt),
+        CoreRepositoryCodec.encodeDate(routine.updatedAt),
+      ]
+    )
+  }
+
+  func delete(id: String) throws {
+    try dbQueue.write { db in
+      try delete(id: id, in: db)
+    }
+  }
+
+  func delete(id: String, in db: Database) throws {
+    try db.execute(sql: "DELETE FROM routines WHERE id = ?;", arguments: [id])
+  }
+
+  private static func makeRoutine(from row: Row) throws -> RoutineEntity {
+    RoutineEntity(
+      id: row["id"],
+      title: row["title"],
+      schedule: try CoreRepositoryCodec.decodeJSONOrDefault(RoutineSchedule.self, from: row["schedule_json"], default: .daily),
+      timeOfDay: RoutineTimeOfDay(rawValue: (row["time_of_day"] as String?) ?? "") ?? .anytime,
+      archived: (row["archived"] as Int? ?? 0) == 1,
+      createdAt: try CoreRepositoryCodec.decodeDate(row["created_at"]),
+      updatedAt: try CoreRepositoryCodec.decodeDate(row["updated_at"])
+    )
+  }
+}
+
+final class GRDBRoutineCheckRepository: CoreRoutineCheckRepository {
+  let dbQueue: DatabaseQueue
+
+  init(dbQueue: DatabaseQueue) {
+    self.dbQueue = dbQueue
+  }
+
+  func fetchAll() throws -> [RoutineCheckEntity] {
+    try dbQueue.read { db in
+      let rows = try Row.fetchAll(db, sql: "SELECT * FROM routine_checks ORDER BY day ASC;")
+      return try rows.map(Self.makeCheck(from:))
+    }
+  }
+
+  func fetchByID(_ id: String) throws -> RoutineCheckEntity? {
+    try dbQueue.read { db in
+      try Row.fetchOne(db, sql: "SELECT * FROM routine_checks WHERE id = ?;", arguments: [id]).map(Self.makeCheck(from:))
+    }
+  }
+
+  func save(_ check: RoutineCheckEntity) throws {
+    try dbQueue.write { db in
+      try save(check, in: db)
+    }
+  }
+
+  func save(_ check: RoutineCheckEntity, in db: Database) throws {
+    try db.execute(
+      sql: """
+      INSERT INTO routine_checks (id, routine_id, day, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        updated_at = excluded.updated_at;
+      """,
+      arguments: [
+        check.id,
+        check.routineId,
+        check.day,
+        check.status.rawValue,
+        CoreRepositoryCodec.encodeDate(check.createdAt),
+        CoreRepositoryCodec.encodeDate(check.updatedAt),
+      ]
+    )
+  }
+
+  func delete(id: String) throws {
+    try dbQueue.write { db in
+      try delete(id: id, in: db)
+    }
+  }
+
+  func delete(id: String, in db: Database) throws {
+    try db.execute(sql: "DELETE FROM routine_checks WHERE id = ?;", arguments: [id])
+  }
+
+  private static func makeCheck(from row: Row) throws -> RoutineCheckEntity {
+    RoutineCheckEntity(
+      routineId: row["routine_id"],
+      day: row["day"],
+      status: RoutineCheckStatus(rawValue: (row["status"] as String?) ?? "") ?? .done,
+      createdAt: try CoreRepositoryCodec.decodeDate(row["created_at"]),
+      updatedAt: try CoreRepositoryCodec.decodeDate(row["updated_at"])
+    )
+  }
+}
+
 struct GRDBCoreRepositorySet {
   /// Sync-aware task repository — every save/delete also enqueues a pending
   /// sync change. The iCloud engine drains those into CloudKit, and pulled
@@ -671,6 +825,8 @@ struct GRDBCoreRepositorySet {
   let projects: SyncAwareProjectRepository
   let journal: SyncAwareJournalRepository
   let goals: SyncAwareGoalRepository
+  let routines: SyncAwareRoutineRepository
+  let routineChecks: SyncAwareRoutineCheckRepository
   let pendingSyncChanges: PendingSyncChangeStore
   let cloudSyncState: CloudSyncStateStore
   let cloudSyncRecords: GRDBCloudSyncRecordStore
@@ -697,6 +853,14 @@ struct GRDBCoreRepositorySet {
       ),
       goals: SyncAwareGoalRepository(
         underlying: GRDBGoalRepository(dbQueue: dbQueue),
+        pendingStore: pendingStore
+      ),
+      routines: SyncAwareRoutineRepository(
+        underlying: GRDBRoutineRepository(dbQueue: dbQueue),
+        pendingStore: pendingStore
+      ),
+      routineChecks: SyncAwareRoutineCheckRepository(
+        underlying: GRDBRoutineCheckRepository(dbQueue: dbQueue),
         pendingStore: pendingStore
       ),
       pendingSyncChanges: pendingStore,

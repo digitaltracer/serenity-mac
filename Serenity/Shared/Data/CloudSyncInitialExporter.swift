@@ -33,6 +33,12 @@ struct CloudSyncInitialExporter {
     for goal in try coreRepositories.goals.fetchAll() {
       try pendingStore.enqueue(entityType: SyncEntityType.goal, entityId: goal.id, operation: .upsert)
     }
+    for routine in try coreRepositories.routines.fetchAll() {
+      try pendingStore.enqueue(entityType: SyncEntityType.routine, entityId: routine.id, operation: .upsert)
+    }
+    for check in try coreRepositories.routineChecks.fetchAll() {
+      try pendingStore.enqueue(entityType: SyncEntityType.routineCheck, entityId: check.id, operation: .upsert)
+    }
     for insight in try aiRepositories.insights.fetchAll(limit: Int.max) {
       try pendingStore.enqueue(entityType: SyncEntityType.aiInsight, entityId: insight.id, operation: .upsert)
     }

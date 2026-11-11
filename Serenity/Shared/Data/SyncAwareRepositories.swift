@@ -13,6 +13,8 @@ enum SyncEntityType {
   static let aiRecap = "AIRecap"
   static let summary = "Summary"
   static let standup = "Standup"
+  static let routine = "Routine"
+  static let routineCheck = "RoutineCheck"
 }
 
 /// Wraps a `CoreTaskRepository` so every successful save/delete pushes a
@@ -214,6 +216,97 @@ final class SyncAwareGoalRepository: CoreGoalRepository {
 
   func applyRemoteUpsert(_ goal: GoalEntity, in db: Database) throws {
     try underlying.save(goal, in: db)
+  }
+
+  func applyRemoteDelete(id: String, in db: Database) throws {
+    try underlying.delete(id: id, in: db)
+  }
+}
+
+final class SyncAwareRoutineRepository: CoreRoutineRepository {
+  private let underlying: GRDBRoutineRepository
+  private let pendingStore: PendingSyncChangeStore
+
+  init(underlying: GRDBRoutineRepository, pendingStore: PendingSyncChangeStore) {
+    self.underlying = underlying
+    self.pendingStore = pendingStore
+  }
+
+  func fetchAll() throws -> [RoutineEntity] {
+    try underlying.fetchAll()
+  }
+
+  func fetchByID(_ id: String) throws -> RoutineEntity? {
+    try underlying.fetchByID(id)
+  }
+
+  func save(_ routine: RoutineEntity) throws {
+    try underlying.dbQueue.write { db in
+      try underlying.save(routine, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.routine, entityId: routine.id, operation: .upsert, in: db)
+    }
+  }
+
+  func delete(id: String) throws {
+    try underlying.dbQueue.write { db in
+      try underlying.delete(id: id, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.routine, entityId: id, operation: .delete, in: db)
+    }
+  }
+
+  func applyRemoteUpsert(_ routine: RoutineEntity, in db: Database) throws {
+    try underlying.save(routine, in: db)
+  }
+
+  func applyRemoteDelete(id: String, in db: Database) throws {
+    try underlying.delete(id: id, in: db)
+  }
+}
+
+final class SyncAwareRoutineCheckRepository: CoreRoutineCheckRepository {
+  private let underlying: GRDBRoutineCheckRepository
+  private let pendingStore: PendingSyncChangeStore
+
+  init(underlying: GRDBRoutineCheckRepository, pendingStore: PendingSyncChangeStore) {
+    self.underlying = underlying
+    self.pendingStore = pendingStore
+  }
+
+  func fetchAll() throws -> [RoutineCheckEntity] {
+    try underlying.fetchAll()
+  }
+
+  func fetchByID(_ id: String) throws -> RoutineCheckEntity? {
+    try underlying.fetchByID(id)
+  }
+
+  func save(_ check: RoutineCheckEntity) throws {
+    try underlying.dbQueue.write { db in
+      try underlying.save(check, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.routineCheck, entityId: check.id, operation: .upsert, in: db)
+    }
+  }
+
+  func delete(id: String) throws {
+    try underlying.dbQueue.write { db in
+      try underlying.delete(id: id, in: db)
+      try pendingStore.enqueue(entityType: SyncEntityType.routineCheck, entityId: id, operation: .delete, in: db)
+    }
+  }
+
+  /// Removes a routine's history along with it, queueing each deletion for sync.
+  func deleteAll(routineId: String) throws {
+    try underlying.dbQueue.write { db in
+      let ids = try String.fetchAll(db, sql: "SELECT id FROM routine_checks WHERE routine_id = ?;", arguments: [routineId])
+      for id in ids {
+        try underlying.delete(id: id, in: db)
+        try pendingStore.enqueue(entityType: SyncEntityType.routineCheck, entityId: id, operation: .delete, in: db)
+      }
+    }
+  }
+
+  func applyRemoteUpsert(_ check: RoutineCheckEntity, in db: Database) throws {
+    try underlying.save(check, in: db)
   }
 
   func applyRemoteDelete(id: String, in db: Database) throws {

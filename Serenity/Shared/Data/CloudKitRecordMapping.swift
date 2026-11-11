@@ -353,6 +353,89 @@ struct GoalSyncRecordKind: SyncRecordKind {
   }
 }
 
+// MARK: - Routines
+
+struct RoutineSyncRecordKind: SyncRecordKind {
+  let repository: SyncAwareRoutineRepository
+
+  let entityType = SyncEntityType.routine
+  let tableName = "routines"
+
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool {
+    guard let routine = try repository.fetchByID(id) else { return false }
+    try Self.encode(routine, into: record)
+    return true
+  }
+
+  func applyPulled(_ record: CKRecord, in db: Database) throws {
+    try repository.applyRemoteUpsert(try Self.decode(record), in: db)
+  }
+
+  func applyPulledDelete(recordName: String, in db: Database) throws {
+    try repository.applyRemoteDelete(id: recordName, in: db)
+  }
+
+  static func encode(_ routine: RoutineEntity, into record: CKRecord) throws {
+    record["title"] = routine.title as CKRecordValue
+    record["scheduleJSON"] = try CloudKitJSONCodec.encode(routine.schedule) as CKRecordValue
+    record["timeOfDay"] = routine.timeOfDay.rawValue as CKRecordValue
+    record["archived"] = (routine.archived ? 1 : 0) as CKRecordValue
+    record["createdAt"] = routine.createdAt as CKRecordValue
+    record["updatedAt"] = routine.updatedAt as CKRecordValue
+  }
+
+  static func decode(_ record: CKRecord) throws -> RoutineEntity {
+    RoutineEntity(
+      id: record.recordID.recordName,
+      title: try requireField(record, "title"),
+      schedule: try (record["scheduleJSON"] as? String).map { try CloudKitJSONCodec.decode($0) } ?? .daily,
+      timeOfDay: (record["timeOfDay"] as? String).flatMap(RoutineTimeOfDay.init(rawValue:)) ?? .anytime,
+      archived: (record["archived"] as? Int ?? 0) != 0,
+      createdAt: try requireField(record, "createdAt"),
+      updatedAt: try requireField(record, "updatedAt")
+    )
+  }
+}
+
+struct RoutineCheckSyncRecordKind: SyncRecordKind {
+  let repository: SyncAwareRoutineCheckRepository
+
+  let entityType = SyncEntityType.routineCheck
+  let tableName = "routine_checks"
+
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool {
+    guard let check = try repository.fetchByID(id) else { return false }
+    Self.encode(check, into: record)
+    return true
+  }
+
+  func applyPulled(_ record: CKRecord, in db: Database) throws {
+    try repository.applyRemoteUpsert(try Self.decode(record), in: db)
+  }
+
+  func applyPulledDelete(recordName: String, in db: Database) throws {
+    try repository.applyRemoteDelete(id: recordName, in: db)
+  }
+
+  static func encode(_ check: RoutineCheckEntity, into record: CKRecord) {
+    record["routineId"] = check.routineId as CKRecordValue
+    record["day"] = check.day as CKRecordValue
+    record["status"] = check.status.rawValue as CKRecordValue
+    record["createdAt"] = check.createdAt as CKRecordValue
+    record["updatedAt"] = check.updatedAt as CKRecordValue
+  }
+
+  static func decode(_ record: CKRecord) throws -> RoutineCheckEntity {
+    RoutineCheckEntity(
+      routineId: try requireField(record, "routineId"),
+      day: try requireField(record, "day"),
+      status: (record["status"] as? String).flatMap(RoutineCheckStatus.init(rawValue:)) ?? .done,
+      createdAt: try requireField(record, "createdAt"),
+      updatedAt: try requireField(record, "updatedAt")
+    )
+  }
+}
+
 // MARK: - AI insights
 
 struct AIInsightSyncRecordKind: SyncRecordKind {
