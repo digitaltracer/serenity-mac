@@ -388,6 +388,64 @@ actor AIWorkflowService {
   /// Drafts the task behind a `/slack` or `/github` command. One call, through
   /// the same provider plumbing quick capture uses, including its repair shot
   /// when the JSON comes back malformed.
+  // MARK: - Voice capture
+
+  /// Transcription always goes to OpenAI, so it needs an enabled OpenAI key whatever the active provider is.
+  func transcribeVoiceCapture(fileURL: URL) async throws -> String {
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    let repositories = try await requireRepositories()
+    let openAI = try repositories.credentials.fetchAll(enabledOnly: true)
+      .filter { $0.provider == .openai }
+      .sorted { $0.priority < $1.priority }
+    for credential in openAI {
+      if let key = try secretStore.secret(for: keychainKeyForCredential(credential.id)), !key.isEmpty {
+        return try await VoiceTranscriptionClient.transcribe(
+          fileURL: fileURL,
+          apiKey: key,
+          model: VoiceTranscriptionSettings.model,
+          vocabulary: VoiceTranscriptionSettings.vocabulary
+        )
+      }
+    }
+    throw VoiceTranscriptionError.noOpenAIKey
+  }
+
+  /// Splits a transcript into tasks, journal lines, goal check-ins and routine ticks with the active
+  /// model. With no model configured the whole transcript comes back as one task to edit.
+  func splitVoiceCapture(transcript: String, context: VoiceCaptureContext, now: Date = Date()) async throws -> [VoiceCaptureItem] {
+    let repositories = try await requireRepositories()
+    let settings = try repositories.settings.fetch() ?? .defaultValue
+    let selection: AICredentialSelectionResult
+    do {
+      selection = try chooseCredential(settings: settings)
+    } catch AIWorkflowError.noCredentialConfigured {
+      return [VoiceCaptureItem(kind: .task, text: transcript)]
+    }
+
+    do {
+      let response = try await quickCaptureGenerator(
+        endpoint(for: selection.credential),
+        selection.apiKey,
+        selection.model,
+        VoiceCaptureParser.systemPrompt(),
+        VoiceCaptureParser.userPrompt(transcript: transcript, context: context, now: now),
+        VoiceCaptureParser.schema()
+      )
+      try recordUsage(
+        repositories: repositories,
+        selection: selection,
+        operation: .quickadd,
+        promptTokens: response.promptTokens,
+        completionTokens: response.completionTokens
+      )
+      let items = try VoiceCaptureParser.decode(response.text, context: context)
+      return items.isEmpty ? [VoiceCaptureItem(kind: .task, text: transcript)] : items
+    } catch {
+      recordFailure(error, repositories: repositories, selection: selection)
+      throw error
+    }
+  }
+
   func draftCaptureCommand(
     sources: [CaptureSource],
     context: String,

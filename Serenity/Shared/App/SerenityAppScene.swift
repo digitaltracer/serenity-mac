@@ -53,6 +53,13 @@ struct SerenityAppScene: View {
         .environmentObject(appState)
         .environment(\.serenityCompactLayout, isCompactLayout)
     }
+    .sheet(isPresented: $appState.isVoiceCapturePresented) {
+      VoiceCaptureView {
+        appState.isVoiceCapturePresented = false
+      }
+      .environmentObject(appState)
+      .environment(\.serenityCompactLayout, isCompactLayout)
+    }
     .sheet(isPresented: $appState.isHelpCenterPresented, onDismiss: {
       appState.closeHelpCenter()
     }) {
@@ -1703,6 +1710,7 @@ private struct HomeSectionView: View {
           Spacer()
 
           quickCaptureProviderDropdown
+          voiceCaptureButton
           submitButton
         }
 
@@ -1714,6 +1722,7 @@ private struct HomeSectionView: View {
           HStack {
             Spacer()
             quickCaptureProviderDropdown
+            voiceCaptureButton
             submitButton
           }
         }
@@ -2021,6 +2030,23 @@ private struct HomeSectionView: View {
     }
     guard let preview = commandPreview else { return true }
     return preview.settledError == nil && !preview.references.isEmpty
+  }
+
+  private var voiceCaptureButton: some View {
+    Button {
+      appState.isVoiceCapturePresented = true
+    } label: {
+      Image(systemName: "mic.fill")
+        .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+        .foregroundStyle(SerenityPalette.accent)
+        .frame(width: 28, height: 28)
+        .background(Circle().fill(SerenityPalette.panelBackgroundRaised))
+        .overlay(Circle().stroke(SerenityPalette.thinBorder, lineWidth: 1))
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+    .accessibilityLabel("Voice capture")
+    .help("Voice capture (Option-Space from any app)")
   }
 
   private var submitButton: some View {
@@ -10335,6 +10361,8 @@ private struct DatabaseBackendConfigurationPanel: View {
 }
 
 private struct SettingsSectionView: View {
+  @AppStorage(VoiceTranscriptionSettings.modelKey) private var voiceModel = VoiceTranscriptionModel.gpt4oTranscribe.rawValue
+  @AppStorage(VoiceTranscriptionSettings.vocabularyKey) private var voiceVocabulary = ""
   @EnvironmentObject private var appState: AppState
   @Environment(\.serenityCompactLayout) private var compactLayout
   @State private var authorizationCode = ""
@@ -10466,7 +10494,10 @@ private struct SettingsSectionView: View {
     case .appearance:
       appearancePanel
     case .aiProvider:
-      aiProviderPanel
+      VStack(alignment: .leading, spacing: 18) {
+        aiProviderPanel
+        voiceTranscriptionPanel
+      }
     case .costCenter:
       CostCenterSectionView()
     case .backend:
@@ -10561,6 +10592,39 @@ private struct SettingsSectionView: View {
             .frame(maxWidth: 240, alignment: .leading)
           }
         }
+      }
+    }
+  }
+
+  private var voiceTranscriptionPanel: some View {
+    let hasOpenAIKey = appState.aiCredentials.contains { $0.provider == .openai && $0.enabled }
+    return settingsPanel(
+      title: "Voice transcription",
+      subtitle: hasOpenAIKey ? "Uses your OpenAI key" : "Needs an OpenAI key",
+      systemImage: "mic",
+      tint: hasOpenAIKey ? SerenityPalette.accent : .orange
+    ) {
+      VStack(alignment: .leading, spacing: 16) {
+        settingsField("Model", help: VoiceTranscriptionModel(rawValue: voiceModel)?.detail) {
+          Picker("Model", selection: $voiceModel) {
+            ForEach(VoiceTranscriptionModel.allCases) { model in
+              Text(model.rawValue).tag(model.rawValue)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.segmented)
+          .frame(maxWidth: 460)
+        }
+        settingsField("Words it should know", help: "Names and jargon, separated by commas, so they come back spelled right.") {
+          TextField("Serenity, ActionHub, CloudKit", text: $voiceVocabulary)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+            .frame(maxWidth: 460)
+        }
+        Text("Recordings are sent to OpenAI to be transcribed and deleted from this device straight after. Splitting the transcript into items uses your active AI provider.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
   }
@@ -16336,6 +16400,414 @@ private struct FocusPlanSheet: View {
         .font(SerenityType.caption)
         .foregroundStyle(SerenityPalette.textSecondary)
       content()
+    }
+  }
+}
+
+// MARK: - Voice capture
+
+extension Notification.Name {
+  /// Posted by the Mac's global shortcut when a press or a released hold should end the recording.
+  static let voiceCaptureFinishRequested = Notification.Name("Serenity.voiceCaptureFinishRequested")
+}
+
+struct VoiceCaptureView: View {
+  private enum Phase: Equatable {
+    case idle
+    case recording
+    case transcribing
+    case splitting
+    case review
+    case failed(String)
+  }
+
+  @EnvironmentObject private var appState: AppState
+  @StateObject private var recorder = VoiceRecorder()
+
+  let onClose: () -> Void
+
+  @State private var phase: Phase = .idle
+  @State private var transcript = ""
+  @State private var items: [VoiceCaptureItem] = []
+  @State private var splitProblem: String?
+  @State private var saving = false
+  @State private var showTranscript = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      header
+
+      switch phase {
+      case .idle, .recording:
+        recordingBody
+      case .transcribing, .splitting:
+        HStack(spacing: 12) {
+          ProgressView()
+            .controlSize(.small)
+          Text(phase == .transcribing ? "Transcribing…" : "Sorting what you said…")
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 120)
+      case .review:
+        reviewBody
+      case .failed(let message):
+        VStack(alignment: .leading, spacing: 14) {
+          Text(message)
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+          HStack {
+            Spacer()
+            Button("Close", action: onClose)
+              .buttonStyle(SerenitySecondaryButtonStyle())
+              .hoverCursor(.pointingHand)
+            Button("Try again") { Task { await begin() } }
+              .buttonStyle(SerenityPrimaryButtonStyle())
+              .hoverCursor(.pointingHand)
+          }
+        }
+      }
+    }
+    .padding(20)
+    .frame(minWidth: 480, idealWidth: 560, maxWidth: 720, alignment: .topLeading)
+    .background(SerenityPalette.panelBackground)
+    .task {
+      await begin()
+    }
+    .onDisappear {
+      if recorder.isRecording { recorder.cancel() }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .voiceCaptureFinishRequested)) { _ in
+      if phase == .recording { finish() }
+    }
+  }
+
+  private var header: some View {
+    HStack(spacing: 10) {
+      Circle()
+        .fill(phase == .recording ? SerenityPalette.attention : SerenityPalette.textSecondary.opacity(0.5))
+        .frame(width: 9, height: 9)
+      Text(title)
+        .font(SerenityType.bodyLarge.weight(.semibold))
+      if phase == .recording {
+        Text(Self.elapsedText(recorder.elapsed))
+          .font(SerenityType.body)
+          .monospacedDigit()
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+      Spacer()
+      Text(VoiceTranscriptionSettings.model.rawValue)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(SerenityPalette.panelBackgroundRaised))
+      Button {
+        recorder.cancel()
+        onClose()
+      } label: {
+        Image(systemName: "xmark")
+          .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .frame(width: 24, height: 24)
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+      .accessibilityLabel("Close voice capture")
+      .keyboardShortcut(.cancelAction)
+    }
+  }
+
+  private var title: String {
+    switch phase {
+    case .idle:
+      return "Voice capture"
+    case .recording:
+      return "Listening"
+    case .transcribing, .splitting:
+      return "Working on it"
+    case .review:
+      return items.count == 1 ? "1 thing heard" : "\(items.count) things heard"
+    case .failed:
+      return "Voice capture"
+    }
+  }
+
+  private var recordingBody: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      HStack(alignment: .center, spacing: 3) {
+        ForEach(Array(recorder.levels.enumerated()), id: \.offset) { _, level in
+          Capsule()
+            .fill(phase == .recording ? SerenityPalette.accent : SerenityPalette.border)
+            .frame(maxWidth: .infinity)
+            .frame(height: max(4, 56 * level))
+        }
+      }
+      .frame(height: 56)
+      .animation(.linear(duration: 0.08), value: recorder.levels)
+      .accessibilityHidden(true)
+
+      Text("Say several things at once: a task with a day, how far you ran, how you feel. Serenity sorts them before anything is saved.")
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      HStack {
+#if os(macOS)
+        Text("Press Option-Space again, or let go after holding it, to stop.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+#endif
+        Spacer()
+        Button("Cancel") {
+          recorder.cancel()
+          onClose()
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        Button("Stop and sort") {
+          finish()
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .disabled(phase != .recording)
+        .keyboardShortcut(.defaultAction)
+      }
+    }
+  }
+
+  private var reviewBody: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      if let splitProblem {
+        Text(splitProblem)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.attention)
+      }
+
+      VStack(spacing: 8) {
+        ForEach($items) { $item in
+          VoiceCaptureItemRow(item: $item)
+        }
+      }
+
+      Button(showTranscript ? "Hide transcript" : "Show transcript") {
+        showTranscript.toggle()
+      }
+      .buttonStyle(.plain)
+      .font(SerenityType.caption)
+      .foregroundStyle(SerenityPalette.accent)
+      .hoverCursor(.pointingHand)
+
+      if showTranscript {
+        Text(transcript)
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .textSelection(.enabled)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      HStack(spacing: 8) {
+        Button("Record again") {
+          Task { await begin() }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        Spacer()
+        Button("Discard") { onClose() }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        Button(saveTitle) {
+          saving = true
+          let chosen = items
+          Task {
+            await appState.saveVoiceCaptureItems(chosen)
+            saving = false
+            onClose()
+          }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .disabled(saving || !items.contains(where: \.include))
+        .keyboardShortcut(.defaultAction)
+      }
+    }
+  }
+
+  private var saveTitle: String {
+    let count = items.filter(\.include).count
+    return count == 1 ? "Save 1" : "Save \(count)"
+  }
+
+  private func begin() async {
+    transcript = ""
+    items = []
+    splitProblem = nil
+    guard await VoiceRecorder.requestPermission() else {
+      phase = .failed("Serenity doesn't have microphone access. Allow it in System Settings > Privacy & Security > Microphone, then try again.")
+      return
+    }
+    do {
+      try recorder.start()
+      phase = .recording
+    } catch {
+      phase = .failed("Recording could not start: \(error.localizedDescription)")
+    }
+  }
+
+  private func finish() {
+    guard let url = recorder.stop() else { return }
+    phase = .transcribing
+    Task {
+      do {
+        let text = try await appState.transcribeVoiceCapture(fileURL: url)
+        transcript = text
+        phase = .splitting
+        do {
+          items = try await appState.splitVoiceCapture(transcript: text)
+        } catch {
+          items = [VoiceCaptureItem(kind: .task, text: text)]
+          splitProblem = "Couldn't split it into separate items (\(error.localizedDescription)), so it's one task you can edit."
+        }
+        phase = .review
+      } catch {
+        phase = .failed(error.localizedDescription)
+      }
+    }
+  }
+
+  static func elapsedText(_ interval: TimeInterval) -> String {
+    let seconds = Int(interval)
+    return String(format: "%d:%02d", seconds / 60, seconds % 60)
+  }
+}
+
+private struct VoiceCaptureItemRow: View {
+  @EnvironmentObject private var appState: AppState
+  @Binding var item: VoiceCaptureItem
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 12) {
+      Button {
+        item.include.toggle()
+      } label: {
+        SerenityCheckbox(isOn: item.include, size: 18)
+      }
+      .buttonStyle(.plain)
+      .hoverCursor(.pointingHand)
+      .padding(.top, 4)
+      .accessibilityLabel(item.include ? "Leave this out" : "Include this")
+
+      VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 8) {
+          Picker("Kind", selection: kindBinding) {
+            Text("Task").tag(VoiceCaptureItem.Kind.task)
+            Text("Journal").tag(VoiceCaptureItem.Kind.journal)
+            if !appState.voiceCaptureContext.goals.isEmpty {
+              Text("Goal check-in").tag(VoiceCaptureItem.Kind.goalCheckIn)
+            }
+            if !appState.voiceCaptureContext.routines.isEmpty {
+              Text("Routine done").tag(VoiceCaptureItem.Kind.routineDone)
+            }
+          }
+          .labelsHidden()
+          .fixedSize()
+
+          TextField(placeholder, text: $item.text, axis: .vertical)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+
+        detail
+      }
+    }
+    .padding(12)
+    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(SerenityPalette.innerCardBackground))
+    .opacity(item.include ? 1 : 0.55)
+  }
+
+  private var placeholder: String {
+    switch item.kind {
+    case .task:
+      return "Task"
+    case .journal:
+      return "Journal line"
+    case .goalCheckIn, .routineDone:
+      return "Note (optional)"
+    }
+  }
+
+  private var kindBinding: Binding<VoiceCaptureItem.Kind> {
+    Binding(
+      get: { item.kind },
+      set: { kind in
+        item.kind = kind
+        let context = appState.voiceCaptureContext
+        if kind == .goalCheckIn, item.goalId == nil { item.goalId = context.goals.first?.id }
+        if kind == .routineDone, item.routineId == nil { item.routineId = context.routines.first?.id }
+      }
+    )
+  }
+
+  @ViewBuilder
+  private var detail: some View {
+    let context = appState.voiceCaptureContext
+    switch item.kind {
+    case .task:
+      HStack(spacing: 8) {
+        if let due = item.dueDate {
+          Text(item.hasTime ? due.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()) : due.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
+            .font(SerenityType.caption)
+          Button {
+            item.dueDate = nil
+            item.hasTime = false
+          } label: {
+            Image(systemName: "xmark.circle.fill")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Remove date")
+        }
+        Picker("Project", selection: $item.projectId) {
+          Text("No project").tag(String?.none)
+          ForEach(context.projects, id: \.id) { project in
+            Text(project.name).tag(Optional(project.id))
+          }
+        }
+        .labelsHidden()
+        .fixedSize()
+      }
+      .foregroundStyle(SerenityPalette.textSecondary)
+    case .journal:
+      EmptyView()
+    case .goalCheckIn:
+      HStack(spacing: 8) {
+        Picker("Goal", selection: $item.goalId) {
+          ForEach(context.goals, id: \.id) { goal in
+            Text(goal.title).tag(Optional(goal.id))
+          }
+        }
+        .labelsHidden()
+        .fixedSize()
+        TextField("Amount", value: $item.amount, format: .number)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+          .frame(width: 100)
+        if let unit = context.goals.first(where: { $0.id == item.goalId })?.unit, !unit.isEmpty {
+          Text(unit)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+      }
+    case .routineDone:
+      Picker("Routine", selection: $item.routineId) {
+        ForEach(context.routines, id: \.id) { routine in
+          Text(routine.title).tag(Optional(routine.id))
+        }
+      }
+      .labelsHidden()
+      .fixedSize()
     }
   }
 }

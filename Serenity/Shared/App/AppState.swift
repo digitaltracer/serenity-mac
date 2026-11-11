@@ -161,6 +161,8 @@ final class AppState: ObservableObject {
   @Published var focusBlocks: [FocusBlockEntity] = []
   /// Set when another screen opens Goals on one goal; Goals expands it and clears this.
   @Published var focusedGoalID: String?
+  /// Shows the voice capture sheet. The Mac also opens it as a floating panel from the global shortcut.
+  @Published var isVoiceCapturePresented = false
   @Published var taskFilter = TaskWorkflowFilter()
   @Published var selectedTaskIDs: Set<String> = []
   @Published var journalDateRangeEnabled = false
@@ -3957,6 +3959,62 @@ final class AppState: ObservableObject {
 
   static let routinesNeedLocalStorageMessage =
     "Routines and focus blocks are kept in this device's database and synced with iCloud. Switch to local storage in Settings > Database to use them."
+
+  // MARK: - Voice capture
+
+  var voiceCaptureContext: VoiceCaptureContext {
+    VoiceCaptureContext(
+      goals: goals
+        .filter { $0.status == .active && $0.config.kind != .area }
+        .map { VoiceCaptureContext.Goal(id: $0.id, title: $0.title, unit: $0.config.unit ?? "") },
+      routines: routines.filter { !$0.archived }.map { VoiceCaptureContext.Routine(id: $0.id, title: $0.title) },
+      projects: projects.filter { !$0.archived }.map { VoiceCaptureContext.Project(id: $0.id, name: $0.name) }
+    )
+  }
+
+  func transcribeVoiceCapture(fileURL: URL) async throws -> String {
+    try await aiWorkflowService.transcribeVoiceCapture(fileURL: fileURL)
+  }
+
+  func splitVoiceCapture(transcript: String) async throws -> [VoiceCaptureItem] {
+    try await aiWorkflowService.splitVoiceCapture(transcript: transcript, context: voiceCaptureContext)
+  }
+
+  /// Saves the items left switched on and reports how many made it.
+  @discardableResult
+  func saveVoiceCaptureItems(_ items: [VoiceCaptureItem], now: Date = Date()) async -> Int {
+    var saved = 0
+    for item in items where item.include {
+      switch item.kind {
+      case .task:
+        let due = item.dueDate.map { item.hasTime ? $0 : Calendar.current.startOfDay(for: $0) }
+        if await createTask(title: item.text, priority: .medium, dueDate: due, tags: ["voice"], subtaskTitles: [], projectID: item.projectId) {
+          saved += 1
+        }
+      case .journal:
+        // The journal table requires a title, so a spoken line is titled by its opening words.
+        let title = item.text.split(separator: " ").prefix(6).joined(separator: " ")
+        if await createJournalEntry(title: title, content: item.text, mood: nil, tags: ["voice"]) {
+          saved += 1
+        }
+      case .goalCheckIn:
+        guard let goalID = item.goalId, goals.contains(where: { $0.id == goalID }) else { continue }
+        await checkInGoal(id: goalID, amount: item.amount ?? 0, note: item.text, date: now)
+        saved += 1
+      case .routineDone:
+        guard let routineID = item.routineId else { continue }
+        let alreadyDone = routineSummaries(now: now).first { $0.id == routineID }?.today == .done
+        if !alreadyDone {
+          await toggleRoutineDone(id: routineID, now: now)
+        }
+        saved += 1
+      }
+    }
+    if saved > 0 {
+      showToast(saved == 1 ? "Saved 1 item from voice" : "Saved \(saved) items from voice")
+    }
+    return saved
+  }
 
   // MARK: - Focus blocks
 

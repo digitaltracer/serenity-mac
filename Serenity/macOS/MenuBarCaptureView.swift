@@ -23,6 +23,18 @@ struct MenuBarCaptureView: View {
           .serenityInputField()
 
         Button {
+          VoiceCapturePanelController.shared.show()
+        } label: {
+          Image(systemName: "mic.fill")
+            .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+            .foregroundStyle(SerenityPalette.accent)
+            .frame(width: 26, height: 26)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Voice capture")
+        .help("Voice capture (Option-Space)")
+
+        Button {
           submit()
         } label: {
           Image(systemName: "arrow.up")

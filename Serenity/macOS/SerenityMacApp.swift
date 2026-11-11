@@ -20,6 +20,7 @@ struct SerenityMacApp: App {
         .frame(minWidth: 1080, minHeight: 680)
         .onAppear {
           appDelegate.appState = appState
+          VoiceCapturePanelController.shared.install(appState: appState)
           NSApplication.shared.registerForRemoteNotifications()
         }
     }
