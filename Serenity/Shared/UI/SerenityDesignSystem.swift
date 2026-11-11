@@ -158,6 +158,11 @@ enum SerenityUI {
       light: (1.00, 1.00, 1.00, 0.28),
       dark: \.highlightStroke
     )
+    /// The halo around the capture card. True Black keeps blue off large areas, so it has none.
+    static let captureGlow = SerenityUI.dynamicColor(
+      light: (0.27, 0.52, 0.95, 1.0),
+      dark: \.captureGlow
+    )
     /// The app mark's green, used for routines so habits read apart from tasks and goals.
     static let routineAccent = SerenityUI.dynamicColor(
       light: (0.07, 0.52, 0.38, 1.0),
@@ -213,6 +218,7 @@ fileprivate struct SerenityDarkPalette {
   let textOnInteractiveSurface: SerenityNativeColor
   let routineAccent: SerenityNativeColor
   let attention: SerenityNativeColor
+  let captureGlow: SerenityNativeColor
   var clear: SerenityNativeColor { .clear }
 
   static var current: SerenityDarkPalette {
@@ -240,7 +246,8 @@ fileprivate struct SerenityDarkPalette {
     textSecondary: srgb(163, 171, 186),
     textOnInteractiveSurface: srgb(242, 244, 248),
     routineAccent: srgb(27, 156, 116),
-    attention: srgb(240, 184, 102)
+    attention: srgb(240, 184, 102),
+    captureGlow: srgb(141, 180, 255)
   )
 
   // Pure black for OLED; neutral greys, and blue kept to small accents only.
@@ -264,7 +271,8 @@ fileprivate struct SerenityDarkPalette {
     textSecondary: srgb(163, 163, 163),
     textOnInteractiveSurface: srgb(245, 245, 245),
     routineAccent: srgb(27, 156, 116),
-    attention: srgb(240, 184, 102)
+    attention: srgb(240, 184, 102),
+    captureGlow: .clear
   )
 
   private static func srgb(

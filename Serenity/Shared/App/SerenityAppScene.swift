@@ -1762,7 +1762,7 @@ private struct HomeSectionView: View {
         .stroke(quickCaptureFocused ? SerenityPalette.accent.opacity(0.7) : SerenityPalette.border.opacity(0.95), lineWidth: 1)
         .allowsHitTesting(false)
     )
-    .shadow(color: quickCaptureFocused ? SerenityPalette.accent.opacity(0.42) : SerenityPalette.accent.opacity(0.28), radius: quickCaptureFocused ? 30 : 24)
+    .shadow(color: quickCaptureFocused ? SerenityPalette.captureGlow.opacity(0.42) : SerenityPalette.captureGlow.opacity(0.28), radius: quickCaptureFocused ? 30 : 24)
     .overlay {
       RoundedRectangle(cornerRadius: 16, style: .continuous)
         .stroke(SerenityPalette.highlightStroke, lineWidth: 1)

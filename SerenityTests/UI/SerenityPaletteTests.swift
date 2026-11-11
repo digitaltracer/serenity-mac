@@ -230,6 +230,16 @@ final class SerenityPaletteTests: XCTestCase {
     }
   }
 
+  func testCaptureGlowIsGoneInTrueBlackOnly() {
+    withDarkStyle(.trueBlack) {
+      XCTAssertEqual(rgba(SerenityPalette.captureGlow, appearance: .darkAqua).alpha, 0, accuracy: 0.001)
+    }
+    withDarkStyle(.midnight) {
+      XCTAssertEqual(rgba(SerenityPalette.captureGlow, appearance: .darkAqua).alpha, 1, accuracy: 0.001)
+    }
+    XCTAssertEqual(rgba(SerenityPalette.captureGlow, appearance: .aqua).alpha, 1, accuracy: 0.001)
+  }
+
   func testThemePreferenceKeepsSavedDarkValueAndMapsStyles() {
     XCTAssertEqual(AppThemePreference(rawValue: "dark"), .dark)
     XCTAssertEqual(AppThemePreference.dark.darkStyle, .midnight)
