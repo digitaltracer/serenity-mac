@@ -271,4 +271,38 @@ final class FocusBlockAppStateTests: XCTestCase {
 
     XCTAssertEqual(state.focusMinutes(onJournalEntry: entry.id), 45, accuracy: 0.01)
   }
+
+  func testEditingRetimesPlannedBlocksAndCorrectsFinishedOnes() async throws {
+    let state = try makeState()
+    let later = Date().addingTimeInterval(4 * 3_600)
+    await state.planFocusBlock(title: "Draft", start: later, minutes: 30, goalId: nil)
+    let plannedID = try XCTUnwrap(state.focusBlocks.first?.id)
+
+    var edit = AppState.FocusBlockEdit(block: try XCTUnwrap(state.focusBlocks.first))
+    edit.title = "Spec draft"
+    edit.start = later.addingTimeInterval(3_600)
+    edit.minutes = 75
+    await state.editFocusBlock(id: plannedID, edit)
+    let planned = try XCTUnwrap(state.focusBlocks.first { $0.id == plannedID })
+    XCTAssertEqual(planned.title, "Spec draft")
+    XCTAssertEqual(planned.start.timeIntervalSince(later), 3_600, accuracy: 0.01)
+    XCTAssertEqual(planned.plannedMinutes, 75, accuracy: 0.01)
+
+    _ = await state.createTask(title: "Spec", priority: .medium, dueDate: nil, tags: [], subtaskTitles: [])
+    let task = try XCTUnwrap(state.tasks.first)
+    let start = Date()
+    await state.startFocus(title: "Spec", minutes: 50, goalId: nil, taskId: task.id, now: start)
+    let sessionID = try XCTUnwrap(state.activeFocusBlock?.id)
+    await state.finishFocusBlock(id: sessionID, now: start.addingTimeInterval(90 * 60))
+
+    var correction = AppState.FocusBlockEdit(block: try XCTUnwrap(state.focusBlocks.first { $0.id == sessionID }))
+    correction.loggedMinutes = 40
+    await state.editFocusBlock(id: sessionID, correction)
+
+    XCTAssertEqual(state.focusMinutes(onTask: task.id), 40, accuracy: 0.01)
+    XCTAssertEqual(
+      state.tasks.first?.activity.filter { $0.id == AppState.focusActivityID(blockID: sessionID) }.map(\.text),
+      ["Focused 40 min · Spec"]
+    )
+  }
 }

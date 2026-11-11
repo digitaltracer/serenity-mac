@@ -4340,6 +4340,50 @@ final class AppState: ObservableObject {
     return true
   }
 
+  /// The editable parts of a focus block. Which ones apply depends on where the session is.
+  struct FocusBlockEdit: Equatable {
+    var title: String
+    var goalId: String?
+    /// Planned blocks only.
+    var start: Date
+    /// Planned blocks only.
+    var minutes: Int
+    /// Finished sessions only.
+    var loggedMinutes: Double
+
+    init(block: FocusBlockEntity) {
+      title = block.title == "Focus" ? "" : block.title
+      goalId = block.goalId
+      start = block.start
+      minutes = Int(block.plannedMinutes.rounded())
+      loggedMinutes = block.loggedMinutes.rounded()
+    }
+  }
+
+  /// Saves an edit. A finished session's corrected minutes carry through to its linked task.
+  func editFocusBlock(id: String, _ edit: FocusBlockEdit) async {
+    guard var block = focusBlocks.first(where: { $0.id == id }) else { return }
+    block.title = Self.focusTitle(edit.title)
+    block.goalId = edit.goalId
+    switch block.status {
+    case .planned:
+      let minutes = min(max(edit.minutes, Self.focusLengthRange.lowerBound), Self.focusLengthRange.upperBound)
+      block.start = edit.start
+      block.end = edit.start.addingTimeInterval(Double(minutes) * 60)
+    case .done:
+      block.loggedMinutes = min(max(edit.loggedMinutes, 0), Self.maximumFocusMinutes)
+      block.end = (block.startedAt ?? block.start).addingTimeInterval(block.loggedMinutes * 60 + block.pausedSeconds)
+    case .running, .paused:
+      break
+    }
+    block.updatedAt = Date()
+    let edited = block
+    await mutateLocalData(failureTitle: "Failed to save focus session") { repositories in
+      try repositories.focusBlocks.save(edited)
+    }
+    if edited.status == .done { await recordFocusOnTask(edited) }
+  }
+
   /// What a session is linked to, for a one-line caption on the plan.
   func focusLinkSummary(for block: FocusBlockEntity) -> String? {
     let task = block.taskId.flatMap { id in tasks.first { $0.id == id } }?.title

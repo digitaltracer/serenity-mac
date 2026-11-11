@@ -16266,27 +16266,16 @@ private struct PlanBlock: View {
           .lineLimit(1)
       }
       Spacer(minLength: 0)
-      Button("Link") {
+      Button("Edit") {
         showLink = true
       }
       .buttonStyle(.plain)
       .foregroundStyle(SerenityPalette.accent)
       .hoverCursor(.pointingHand)
+      .accessibilityLabel("Edit focus session")
       .sheet(isPresented: $showLink) {
-        FocusLinkSheet(blockID: block.id)
+        FocusEditSheet(blockID: block.id)
           .environmentObject(appState)
-      }
-      if !block.isActive {
-        Button {
-          Task { await appState.deleteFocusBlock(id: block.id) }
-        } label: {
-          Image(systemName: "xmark")
-            .font(SerenityType.scaledSystem(size: 10, weight: .semibold))
-            .foregroundStyle(SerenityPalette.textSecondary)
-        }
-        .buttonStyle(.plain)
-        .hoverCursor(.pointingHand)
-        .accessibilityLabel("Remove focus block")
       }
     }
     .font(SerenityType.caption)
@@ -17471,7 +17460,7 @@ private struct TodayFocusCard: View {
         .buttonStyle(SerenitySecondaryButtonStyle())
         .hoverCursor(.pointingHand)
         Spacer()
-        Button("Discard", role: .destructive) {
+        Button("Delete", role: .destructive) {
           confirmDiscard = true
         }
         .buttonStyle(.borderless)
@@ -17485,12 +17474,12 @@ private struct TodayFocusCard: View {
       RoundedRectangle(cornerRadius: 14, style: .continuous)
         .stroke(paused ? SerenityPalette.border : SerenityPalette.accent, lineWidth: 1.5)
     )
-    .confirmationDialog("Discard this session?", isPresented: $confirmDiscard, titleVisibility: .visible) {
-      Button("Discard", role: .destructive) {
+    .confirmationDialog("Delete this focus session?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+      Button("Delete session", role: .destructive) {
         Task { await appState.deleteFocusBlock(id: block.id) }
       }
     } message: {
-      Text("Its time will not be logged.")
+      Text(FocusEditSheet.deleteMessage(for: block))
     }
   }
 
@@ -17889,6 +17878,185 @@ private struct FocusLinkSheet: View {
         .hoverCursor(.pointingHand)
         .disabled(entryContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       }
+    }
+  }
+}
+
+/// Rename, retime, correct or delete any focus session, planned, running or finished.
+private struct FocusEditSheet: View {
+  @EnvironmentObject private var appState: AppState
+  @Environment(\.dismiss) private var dismiss
+
+  let blockID: String
+
+  @State private var edit: AppState.FocusBlockEdit?
+  @State private var showLinks = false
+  @State private var confirmDelete = false
+
+  static func deleteMessage(for block: FocusBlockEntity) -> String {
+    switch block.status {
+    case .planned:
+      return "The planned block is removed from today's plan."
+    case .running, .paused:
+      return "The session stops and none of its time is logged."
+    case .done:
+      var message = "Its \(TodayBriefing.durationText(minutes: block.loggedMinutes)) will no longer count toward your goals"
+      message += block.taskId == nil ? "." : ", and the linked task loses its line for it."
+      return message
+    }
+  }
+
+  private var block: FocusBlockEntity? {
+    appState.focusBlocks.first { $0.id == blockID }
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      if let block, edit != nil {
+        form(block)
+      } else {
+        Text("This session no longer exists.")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        HStack {
+          Spacer()
+          Button("Close") { dismiss() }
+            .buttonStyle(SerenitySecondaryButtonStyle())
+        }
+      }
+    }
+    .padding(20)
+    .frame(minWidth: 460)
+    .onAppear {
+      if edit == nil, let block { edit = AppState.FocusBlockEdit(block: block) }
+    }
+    .sheet(isPresented: $showLinks) {
+      FocusLinkSheet(blockID: blockID)
+        .environmentObject(appState)
+    }
+  }
+
+  @ViewBuilder
+  private func form(_ block: FocusBlockEntity) -> some View {
+    Text(heading(for: block))
+      .font(SerenityType.sectionTitle)
+
+    field("Title") {
+      TextField("What it was for (blank reads as Focus)", text: binding(\.title))
+        .textFieldStyle(.plain)
+        .serenityInputField()
+    }
+
+    switch block.status {
+    case .planned:
+      field("Starts") {
+        DatePicker("Starts", selection: binding(\.start), displayedComponents: [.date, .hourAndMinute])
+          .labelsHidden()
+      }
+      field("Length") {
+        FocusLengthPicker(
+          minutes: Binding(get: { edit?.minutes }, set: { edit?.minutes = $0 ?? edit?.minutes ?? 50 }),
+          allowsOpenEnded: false
+        )
+      }
+    case .done:
+      field("Minutes logged") {
+        HStack(spacing: 8) {
+          TextField("45", value: binding(\.loggedMinutes), format: .number)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+            .frame(width: 90)
+          Text("Fix this if the timer ran on after you stopped working.")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+      }
+    case .running, .paused:
+      Text("Change the length from the focus card while it runs.")
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+    }
+
+    let goals = appState.goals.filter { $0.status == .active }
+    if !goals.isEmpty {
+      field("Counts toward") {
+        Picker("Goal", selection: binding(\.goalId)) {
+          Text("Every focus-time goal").tag(String?.none)
+          ForEach(goals) { goal in
+            Text(goal.title).tag(Optional(goal.id))
+          }
+        }
+        .labelsHidden()
+      }
+    }
+
+    field("Linked to") {
+      HStack(spacing: 10) {
+        Text(appState.focusLinkSummary(for: block) ?? "Nothing yet")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(1)
+        Spacer()
+        Button("Change links…") { showLinks = true }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+      }
+    }
+
+    HStack {
+      Button("Delete session…", role: .destructive) {
+        confirmDelete = true
+      }
+      .buttonStyle(.borderless)
+      .hoverCursor(.pointingHand)
+      Spacer()
+      Button("Cancel") { dismiss() }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      Button("Save") {
+        if let edit {
+          Task { await appState.editFocusBlock(id: blockID, edit) }
+        }
+        dismiss()
+      }
+      .buttonStyle(SerenityPrimaryButtonStyle())
+      .hoverCursor(.pointingHand)
+      .keyboardShortcut(.defaultAction)
+    }
+    .confirmationDialog("Delete this focus session?", isPresented: $confirmDelete, titleVisibility: .visible) {
+      Button("Delete session", role: .destructive) {
+        Task { await appState.deleteFocusBlock(id: blockID) }
+        dismiss()
+      }
+    } message: {
+      Text(Self.deleteMessage(for: block))
+    }
+  }
+
+  private func heading(for block: FocusBlockEntity) -> String {
+    switch block.status {
+    case .planned:
+      return "Edit planned focus"
+    case .running, .paused:
+      return "Edit focus session"
+    case .done:
+      return "Edit finished session"
+    }
+  }
+
+  private func binding<Value>(_ keyPath: WritableKeyPath<AppState.FocusBlockEdit, Value>) -> Binding<Value> {
+    Binding(
+      get: { edit![keyPath: keyPath] },
+      set: { edit?[keyPath: keyPath] = $0 }
+    )
+  }
+
+  private func field<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text(label)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+      content()
     }
   }
 }
