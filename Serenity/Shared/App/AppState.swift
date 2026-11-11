@@ -4168,20 +4168,27 @@ final class AppState: ObservableObject {
   /// A block left running past this is assumed forgotten, so finishing it logs no more than this.
   static let maximumFocusMinutes: Double = 240
 
-  var runningFocusBlock: FocusBlockEntity? {
-    focusBlocks.first { $0.status == .running }
+  /// The session under way, running or paused. There is at most one.
+  var activeFocusBlock: FocusBlockEntity? {
+    focusBlocks.first(where: \.isActive)
   }
 
   func focusBlocks(on day: Date, calendar: Calendar = .current) -> [FocusBlockEntity] {
     focusBlocks.filter { calendar.isDate($0.start, inSameDayAs: day) }.sorted { $0.start < $1.start }
   }
 
+  /// A planned block close enough to now that starting focus should pick it up.
+  func plannedFocusBlockNearby(now: Date = Date()) -> FocusBlockEntity? {
+    focusBlocks(on: now)
+      .filter { $0.status == .planned && $0.end > now && $0.start.timeIntervalSince(now) < 30 * 60 }
+      .min { $0.start < $1.start }
+  }
+
   func planFocusBlock(title: String, start: Date, minutes: Int, goalId: String?) async {
     let now = Date()
-    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
     let block = FocusBlockEntity(
       id: UUID().uuidString,
-      title: trimmed.isEmpty ? "Focus" : trimmed,
+      title: Self.focusTitle(title),
       start: start,
       end: start.addingTimeInterval(Double(max(minutes, 5)) * 60),
       goalId: goalId,
@@ -4198,57 +4205,79 @@ final class AppState: ObservableObject {
     }
   }
 
-  /// Starts a block now, moving its slot to the actual start. Any other running block finishes first.
+  /// Starts a planned block now, moving its slot to the actual start. Any other session finishes first.
   func startFocusBlock(id: String, now: Date = Date()) async {
-    guard var block = focusBlocks.first(where: { $0.id == id }), block.status != .done else { return }
-    let running = runningFocusBlock.flatMap { $0.id == id ? nil : finished($0, now: now) }
-    let duration = block.end.timeIntervalSince(block.start)
-    block.start = now
-    block.end = now.addingTimeInterval(duration)
-    block.status = .running
-    block.startedAt = now
-    block.updatedAt = now
-    let started = block
-    await mutateLocalData(failureTitle: "Failed to start focus") { repositories in
-      if let running { try repositories.focusBlocks.save(running) }
-      try repositories.focusBlocks.save(started)
-    }
+    guard let block = focusBlocks.first(where: { $0.id == id }), block.status == .planned else { return }
+    await begin(block, title: block.title, minutes: block.plannedMinutes, goalId: block.goalId, now: now)
   }
 
-  /// Starts the block planned around now, or a fresh 50-minute one when nothing is planned.
-  func startFocusNow(now: Date = Date()) async {
-    if let running = runningFocusBlock {
-      await finishFocusBlock(id: running.id, now: now)
-      return
-    }
-    let soon = focusBlocks(on: now)
-      .filter { $0.status == .planned && $0.end > now && $0.start.timeIntervalSince(now) < 30 * 60 }
-      .min { $0.start < $1.start }
-    if let soon {
-      await startFocusBlock(id: soon.id, now: now)
-      return
-    }
-    let block = FocusBlockEntity(
+  /// Starts a session named for what it is on. A block planned around now is started with these
+  /// details instead of opening a second one beside it.
+  func startFocus(title: String, minutes: Int, goalId: String?, now: Date = Date()) async {
+    let base = plannedFocusBlockNearby(now: now) ?? FocusBlockEntity(
       id: UUID().uuidString,
-      title: "Focus",
+      title: "",
       start: now,
-      end: now.addingTimeInterval(50 * 60),
+      end: now,
       goalId: nil,
       taskIds: [],
-      status: .running,
-      startedAt: now,
+      status: .planned,
+      startedAt: nil,
       finishedAt: nil,
       loggedMinutes: 0,
       createdAt: now,
       updatedAt: now
     )
+    await begin(base, title: title, minutes: Double(max(minutes, 5)), goalId: goalId, now: now)
+  }
+
+  private func begin(_ block: FocusBlockEntity, title: String, minutes: Double, goalId: String?, now: Date) async {
+    let previous = activeFocusBlock.flatMap { $0.id == block.id ? nil : finished($0, now: now) }
+    var started = block
+    started.title = Self.focusTitle(title)
+    started.goalId = goalId
+    started.start = now
+    started.end = now.addingTimeInterval(minutes * 60)
+    started.status = .running
+    started.startedAt = now
+    started.pausedAt = nil
+    started.pausedSeconds = 0
+    started.updatedAt = now
+    let session = started
     await mutateLocalData(failureTitle: "Failed to start focus") { repositories in
-      try repositories.focusBlocks.save(block)
+      if let previous { try repositories.focusBlocks.save(previous) }
+      try repositories.focusBlocks.save(session)
+    }
+  }
+
+  func pauseFocusBlock(id: String, now: Date = Date()) async {
+    guard var block = focusBlocks.first(where: { $0.id == id }), block.status == .running else { return }
+    block.status = .paused
+    block.pausedAt = now
+    block.updatedAt = now
+    let paused = block
+    await mutateLocalData(failureTitle: "Failed to pause focus") { repositories in
+      try repositories.focusBlocks.save(paused)
+    }
+  }
+
+  /// Resuming pushes the block's end back by the pause, so the plan shows when it will really finish.
+  func resumeFocusBlock(id: String, now: Date = Date()) async {
+    guard var block = focusBlocks.first(where: { $0.id == id }), block.status == .paused, let pausedAt = block.pausedAt else { return }
+    let pause = max(now.timeIntervalSince(pausedAt), 0)
+    block.pausedSeconds += pause
+    block.pausedAt = nil
+    block.end = block.end.addingTimeInterval(pause)
+    block.status = .running
+    block.updatedAt = now
+    let resumed = block
+    await mutateLocalData(failureTitle: "Failed to resume focus") { repositories in
+      try repositories.focusBlocks.save(resumed)
     }
   }
 
   func finishFocusBlock(id: String, now: Date = Date()) async {
-    guard let block = focusBlocks.first(where: { $0.id == id }), block.status == .running else { return }
+    guard let block = focusBlocks.first(where: { $0.id == id }), block.isActive else { return }
     let done = finished(block, now: now)
     await mutateLocalData(failureTitle: "Failed to finish focus") { repositories in
       try repositories.focusBlocks.save(done)
@@ -4261,13 +4290,22 @@ final class AppState: ObservableObject {
     }
   }
 
+  static func focusTitle(_ raw: String) -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? "Focus" : trimmed
+  }
+
+  /// Logs only focused time: pauses are left out, and a session left running is capped.
   private func finished(_ block: FocusBlockEntity, now: Date) -> FocusBlockEntity {
     var done = block
-    let minutes = max(now.timeIntervalSince(block.startedAt ?? block.start) / 60, 0)
-    done.loggedMinutes = min(minutes, Self.maximumFocusMinutes)
+    done.loggedMinutes = min(block.activeSeconds(at: now) / 60, Self.maximumFocusMinutes)
     done.status = .done
     done.finishedAt = now
-    done.end = (block.startedAt ?? block.start).addingTimeInterval(done.loggedMinutes * 60)
+    if let pausedAt = block.pausedAt {
+      done.pausedSeconds += max(now.timeIntervalSince(pausedAt), 0)
+      done.pausedAt = nil
+    }
+    done.end = min(now, (block.startedAt ?? block.start).addingTimeInterval(done.loggedMinutes * 60 + done.pausedSeconds))
     done.updatedAt = now
     return done
   }

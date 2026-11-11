@@ -596,6 +596,7 @@ public struct RoutineCheckEntity: Identifiable, Equatable, Sendable {
 public enum FocusBlockStatus: String, Codable, Sendable {
   case planned
   case running
+  case paused
   case done
 }
 
@@ -614,6 +615,10 @@ public struct FocusBlockEntity: Identifiable, Equatable, Sendable {
   public var loggedMinutes: Double
   public var createdAt: Date
   public var updatedAt: Date
+  /// Set while paused; the time since then is not focus time.
+  public var pausedAt: Date?
+  /// Total time spent in earlier pauses.
+  public var pausedSeconds: Double
 
   public init(
     id: String,
@@ -627,8 +632,12 @@ public struct FocusBlockEntity: Identifiable, Equatable, Sendable {
     finishedAt: Date?,
     loggedMinutes: Double,
     createdAt: Date,
-    updatedAt: Date
+    updatedAt: Date,
+    pausedAt: Date? = nil,
+    pausedSeconds: Double = 0
   ) {
+    self.pausedAt = pausedAt
+    self.pausedSeconds = pausedSeconds
     self.id = id
     self.title = title
     self.start = start
@@ -645,5 +654,15 @@ public struct FocusBlockEntity: Identifiable, Equatable, Sendable {
 
   public var plannedMinutes: Double {
     max(end.timeIntervalSince(start) / 60, 0)
+  }
+
+  /// Focused time so far, leaving out pauses.
+  public func activeSeconds(at now: Date) -> Double {
+    guard let startedAt else { return 0 }
+    return max((pausedAt ?? now).timeIntervalSince(startedAt) - pausedSeconds, 0)
+  }
+
+  public var isActive: Bool {
+    status == .running || status == .paused
   }
 }

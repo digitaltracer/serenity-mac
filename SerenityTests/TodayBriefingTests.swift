@@ -92,6 +92,8 @@ final class TodayBriefingTests: XCTestCase {
     focus.taskIds = ["t1"]
     focus.loggedMinutes = 42
     focus.finishedAt = focus.end
+    focus.pausedAt = focus.start.addingTimeInterval(600)
+    focus.pausedSeconds = 120
     let record = CKRecord(recordType: SyncEntityType.focusBlock, recordID: CKRecord.ID(recordName: focus.id, zoneID: SerenityCloudKit.zoneID))
 
     try FocusBlockSyncRecordKind.encode(focus, into: record)
@@ -102,17 +104,25 @@ final class TodayBriefingTests: XCTestCase {
 
 @MainActor
 final class FocusBlockAppStateTests: XCTestCase {
-  func testStartingAndFinishingLogsTimeTowardFocusGoals() async throws {
+  private var cleanups: [() -> Void] = []
+
+  override func tearDown() {
+    cleanups.forEach { $0() }
+    cleanups = []
+    super.tearDown()
+  }
+
+  private func makeState() throws -> AppState {
     let baseURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
       .appendingPathComponent("serenity-focus-state-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
     let suiteName = "serenity.focus.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
-    defer {
+    cleanups.append {
       defaults.removePersistentDomain(forName: suiteName)
       try? FileManager.default.removeItem(at: baseURL)
     }
-    let state = AppState(
+    return AppState(
       backendProfileManager: BackendProfileManager(
         defaults: defaults,
         defaultsKey: "focus.backend",
@@ -126,6 +136,11 @@ final class FocusBlockAppStateTests: XCTestCase {
       externalPostgresAdapter: nil
     )
 
+  }
+
+  func testPausedTimeIsLeftOutOfTheLog() async throws {
+    let state = try makeState()
+
     var draft = GoalDraft()
     draft.title = "Deep work"
     draft.kind = .target
@@ -134,15 +149,40 @@ final class FocusBlockAppStateTests: XCTestCase {
     await state.createGoal(draft)
 
     let start = Date()
-    await state.startFocusNow(now: start)
-    let running = try XCTUnwrap(state.runningFocusBlock)
+    await state.startFocus(title: "  Sync fixes ", minutes: 50, goalId: nil, now: start)
+    let running = try XCTUnwrap(state.activeFocusBlock)
+    XCTAssertEqual(running.title, "Sync fixes")
     XCTAssertEqual(running.plannedMinutes, 50, accuracy: 0.01)
 
-    await state.finishFocusBlock(id: running.id, now: start.addingTimeInterval(45 * 60))
-    XCTAssertNil(state.runningFocusBlock)
+    await state.pauseFocusBlock(id: running.id, now: start.addingTimeInterval(20 * 60))
+    XCTAssertEqual(state.activeFocusBlock?.status, .paused)
+    let paused = try XCTUnwrap(state.activeFocusBlock)
+    XCTAssertEqual(FocusBlockTiming.clockText(for: paused, now: start.addingTimeInterval(30 * 60)), "30:00", "the clock stops while paused")
+
+    await state.resumeFocusBlock(id: running.id, now: start.addingTimeInterval(30 * 60))
+    let resumed = try XCTUnwrap(state.activeFocusBlock)
+    XCTAssertEqual(resumed.pausedSeconds, 600, accuracy: 0.01)
+    XCTAssertEqual(resumed.end.timeIntervalSince(start), 60 * 60, accuracy: 0.01, "the end moves back by the pause")
+
+    await state.finishFocusBlock(id: running.id, now: start.addingTimeInterval(55 * 60))
+    XCTAssertNil(state.activeFocusBlock)
     XCTAssertEqual(state.focusBlocks.first?.loggedMinutes ?? 0, 45, accuracy: 0.01)
 
     let report = try XCTUnwrap(state.goalReports().first { $0.goal.title == "Deep work" })
     XCTAssertEqual(report.current, 0.75, accuracy: 0.01)
+  }
+
+  func testStartingPicksUpTheBlockPlannedForNow() async throws {
+    let state = try makeState()
+    let now = Date()
+    await state.planFocusBlock(title: "Draft", start: now.addingTimeInterval(10 * 60), minutes: 90, goalId: nil)
+    let planned = try XCTUnwrap(state.focusBlocks.first)
+
+    await state.startFocus(title: "Write the spec", minutes: 25, goalId: nil, now: now)
+
+    XCTAssertEqual(state.focusBlocks.count, 1, "no second block beside the planned one")
+    XCTAssertEqual(state.activeFocusBlock?.id, planned.id)
+    XCTAssertEqual(state.activeFocusBlock?.title, "Write the spec")
+    XCTAssertEqual(state.activeFocusBlock?.plannedMinutes ?? 0, 25, accuracy: 0.01)
   }
 }

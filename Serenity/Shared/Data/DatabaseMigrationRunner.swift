@@ -1050,5 +1050,13 @@ actor DatabaseMigrationRunner {
         "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '15');",
       ]
     ),
+    DatabaseMigration(
+      identifier: "20261111_018_focus_block_pauses",
+      statements: [
+        "ALTER TABLE focus_blocks ADD COLUMN paused_at TEXT;",
+        "ALTER TABLE focus_blocks ADD COLUMN paused_seconds REAL NOT NULL DEFAULT 0;",
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '16');",
+      ]
+    ),
   ]
 }

@@ -856,8 +856,9 @@ final class GRDBFocusBlockRepository: CoreFocusBlockRepository {
       sql: """
       INSERT INTO focus_blocks (
         id, title, start_at, end_at, goal_id, task_ids_json, status,
-        started_at, finished_at, logged_minutes, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        started_at, finished_at, logged_minutes, created_at, updated_at,
+        paused_at, paused_seconds
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         start_at = excluded.start_at,
@@ -868,7 +869,9 @@ final class GRDBFocusBlockRepository: CoreFocusBlockRepository {
         started_at = excluded.started_at,
         finished_at = excluded.finished_at,
         logged_minutes = excluded.logged_minutes,
-        updated_at = excluded.updated_at;
+        updated_at = excluded.updated_at,
+        paused_at = excluded.paused_at,
+        paused_seconds = excluded.paused_seconds;
       """,
       arguments: [
         block.id,
@@ -883,6 +886,8 @@ final class GRDBFocusBlockRepository: CoreFocusBlockRepository {
         block.loggedMinutes,
         CoreRepositoryCodec.encodeDate(block.createdAt),
         CoreRepositoryCodec.encodeDate(block.updatedAt),
+        block.pausedAt.map(CoreRepositoryCodec.encodeDate),
+        block.pausedSeconds,
       ]
     )
   }
@@ -900,6 +905,7 @@ final class GRDBFocusBlockRepository: CoreFocusBlockRepository {
   private static func makeBlock(from row: Row) throws -> FocusBlockEntity {
     let startedAt: String? = row["started_at"]
     let finishedAt: String? = row["finished_at"]
+    let pausedAt: String? = row["paused_at"]
     return FocusBlockEntity(
       id: row["id"],
       title: row["title"],
@@ -912,7 +918,9 @@ final class GRDBFocusBlockRepository: CoreFocusBlockRepository {
       finishedAt: try finishedAt.map { try CoreRepositoryCodec.decodeDate($0) },
       loggedMinutes: row["logged_minutes"] ?? 0,
       createdAt: try CoreRepositoryCodec.decodeDate(row["created_at"]),
-      updatedAt: try CoreRepositoryCodec.decodeDate(row["updated_at"])
+      updatedAt: try CoreRepositoryCodec.decodeDate(row["updated_at"]),
+      pausedAt: try pausedAt.map { try CoreRepositoryCodec.decodeDate($0) },
+      pausedSeconds: row["paused_seconds"] ?? 0
     )
   }
 }

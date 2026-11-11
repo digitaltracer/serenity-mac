@@ -468,6 +468,8 @@ struct FocusBlockSyncRecordKind: SyncRecordKind {
     record["startedAt"] = block.startedAt as CKRecordValue?
     record["finishedAt"] = block.finishedAt as CKRecordValue?
     record["loggedMinutes"] = block.loggedMinutes as CKRecordValue
+    record["pausedAt"] = block.pausedAt as CKRecordValue?
+    record["pausedSeconds"] = block.pausedSeconds as CKRecordValue
     record["createdAt"] = block.createdAt as CKRecordValue
     record["updatedAt"] = block.updatedAt as CKRecordValue
   }
@@ -485,7 +487,9 @@ struct FocusBlockSyncRecordKind: SyncRecordKind {
       finishedAt: record["finishedAt"] as? Date,
       loggedMinutes: record["loggedMinutes"] as? Double ?? 0,
       createdAt: try requireField(record, "createdAt"),
-      updatedAt: try requireField(record, "updatedAt")
+      updatedAt: try requireField(record, "updatedAt"),
+      pausedAt: record["pausedAt"] as? Date,
+      pausedSeconds: record["pausedSeconds"] as? Double ?? 0
     )
   }
 }
