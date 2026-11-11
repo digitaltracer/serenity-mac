@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A00000000000000000000051"
-               BuildableName = "SerenityIOS.app"
+               BuildableName = "Serenity.app"
                BlueprintName = "SerenityIOS"
                ReferencedContainer = "container:Serenity.xcodeproj">
             </BuildableReference>
@@ -45,7 +45,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A00000000000000000000051"
-            BuildableName = "SerenityIOS.app"
+            BuildableName = "Serenity.app"
             BlueprintName = "SerenityIOS"
             ReferencedContainer = "container:Serenity.xcodeproj">
          </BuildableReference>
@@ -62,7 +62,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A00000000000000000000051"
-            BuildableName = "SerenityIOS.app"
+            BuildableName = "Serenity.app"
             BlueprintName = "SerenityIOS"
             ReferencedContainer = "container:Serenity.xcodeproj">
          </BuildableReference>
