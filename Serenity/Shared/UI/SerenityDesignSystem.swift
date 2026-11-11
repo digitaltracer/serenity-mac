@@ -372,6 +372,38 @@ struct SerenitySecondaryButtonStyle: ButtonStyle {
   }
 }
 
+/// Completion box for tasks and subtasks; the enclosing button carries the accessibility label.
+struct SerenityCheckbox: View {
+  let isOn: Bool
+  var size: CGFloat = 18
+
+  @State private var hovering = false
+
+  var body: some View {
+    let side = SerenityType.scaledSize(size)
+    let shape = RoundedRectangle(cornerRadius: side * 0.28, style: .continuous)
+
+    ZStack {
+      shape.fill(isOn ? SerenityPalette.textPrimary : Color.clear)
+      shape.strokeBorder(
+        isOn ? SerenityPalette.textPrimary : SerenityPalette.textSecondary.opacity(hovering ? 1 : 0.7),
+        lineWidth: 1.5
+      )
+      Image(systemName: "checkmark")
+        .font(.system(size: side * 0.58, weight: .bold))
+        .foregroundStyle(SerenityPalette.windowBackground)
+        .scaleEffect(isOn ? 1 : 0.4)
+        .opacity(isOn ? 1 : 0)
+    }
+    .frame(width: side, height: side)
+    .contentShape(shape)
+    .onHover { hovering = $0 }
+    .animation(.easeOut(duration: 0.15), value: isOn)
+    .animation(.easeOut(duration: 0.12), value: hovering)
+    .accessibilityHidden(true)
+  }
+}
+
 struct SerenityPillButtonStyle: ButtonStyle {
   let selected: Bool
 

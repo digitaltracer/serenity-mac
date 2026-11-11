@@ -4485,8 +4485,7 @@ private struct ActionHubSectionView: View {
         Button {
           Task { await appState.toggleTaskCompletion(id: task.id) }
         } label: {
-          Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
-            .foregroundStyle(task.completed ? .green : SerenityPalette.textSecondary)
+          SerenityCheckbox(isOn: task.completed)
         }
         .buttonStyle(.plain)
           .hoverCursor(.pointingHand)
@@ -5270,9 +5269,7 @@ private struct TodayOverviewView: View {
         Button {
           Task { await appState.toggleTaskCompletion(id: task.id) }
         } label: {
-          Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
-            .font(SerenityType.scaledSystem(size: 18, weight: .regular))
-            .foregroundStyle(task.completed ? Color.green : SerenityPalette.textSecondary)
+          SerenityCheckbox(isOn: task.completed)
         }
         .buttonStyle(.plain)
         .hoverCursor(.pointingHand)
@@ -13065,10 +13062,8 @@ private struct GitHubFlavoredMarkdownView: View {
 
     case .taskListItem(let completed, let text):
       HStack(alignment: .top, spacing: 8) {
-        Image(systemName: completed ? "checkmark.square.fill" : "square")
-          .font(SerenityType.caption.weight(.semibold))
-          .foregroundStyle(completed ? .green : SerenityPalette.textSecondary)
-          .padding(.top, 2)
+        SerenityCheckbox(isOn: completed, size: 13)
+          .padding(.top, 3)
         Text(TaskMarkdownParser.inlineAttributedString(text))
           .font(SerenityType.body)
           .foregroundStyle(SerenityPalette.textSecondary)
@@ -13889,8 +13884,7 @@ private struct TaskDetailPanel: View {
               Task { await appState.toggleSubtask(taskID: task.id, subtaskID: subtask.id) }
             } label: {
               HStack(spacing: 6) {
-                Image(systemName: subtask.completed ? "checkmark.circle.fill" : "circle")
-                  .foregroundStyle(subtask.completed ? .green : SerenityPalette.textSecondary)
+                SerenityCheckbox(isOn: subtask.completed, size: 15)
                 Text(subtask.title)
                   .font(SerenityType.caption)
                   .strikethrough(subtask.completed)
@@ -14586,8 +14580,7 @@ private struct TaskEditorView: View {
                   Button {
                     subtask.completed.toggle()
                   } label: {
-                    Image(systemName: subtask.completed ? "checkmark.circle.fill" : "circle")
-                      .foregroundStyle(subtask.completed ? .green : SerenityPalette.textSecondary)
+                    SerenityCheckbox(isOn: subtask.completed, size: 16)
                   }
                   .buttonStyle(.plain)
                   .hoverCursor(.pointingHand)
