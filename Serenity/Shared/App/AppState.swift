@@ -3564,11 +3564,11 @@ final class AppState: ObservableObject {
       return false
     }
 
-    let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
     let now = Date()
+    let resolvedTitle = await journalTitle(title, content: trimmedContent, date: now)
     let entry = JournalEntryEntity(
       id: UUID().uuidString,
-      title: trimmedTitle.isEmpty ? nil : trimmedTitle,
+      title: resolvedTitle,
       content: trimmedContent,
       date: now,
       tags: tags.filter { !$0.isEmpty },
@@ -3620,9 +3620,8 @@ final class AppState: ObservableObject {
       return
     }
 
-    let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
     var updated = existing
-    updated.title = trimmedTitle.isEmpty ? nil : trimmedTitle
+    updated.title = await journalTitle(title, content: trimmedContent, date: existing.date)
     updated.content = trimmedContent
     updated.mood = mood
     updated.tags = tags.filter { !$0.isEmpty }
@@ -3969,6 +3968,44 @@ final class AppState: ObservableObject {
 
   static let routinesNeedLocalStorageMessage =
     "Routines and focus blocks are kept in this device's database and synced with iCloud. Switch to local storage in Settings > Database to use them."
+
+  // MARK: - Journal titles
+
+  /// How long an untitled entry waits on the model for a title before falling back to the date.
+  static let journalTitleTimeout: Duration = .seconds(8)
+
+  /// The typed title, else one from the active AI model, else the entry's date and time. Every entry
+  /// leaves with a title.
+  func journalTitle(_ typed: String, content: String, date: Date) async -> String {
+    let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmed.isEmpty { return trimmed }
+
+    let service = aiWorkflowService
+    let suggestion: String? = await withTaskGroup(of: String?.self) { group in
+      group.addTask { try? await service.suggestJournalTitle(content: content) }
+      group.addTask {
+        try? await Task.sleep(for: Self.journalTitleTimeout)
+        return nil
+      }
+      let first = await group.next() ?? nil
+      group.cancelAll()
+      return first
+    }
+
+    return Self.cleanJournalTitle(suggestion) ?? Self.datedJournalTitle(date)
+  }
+
+  static func cleanJournalTitle(_ raw: String?) -> String? {
+    guard var title = raw?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+    title = title.trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”‘’").union(.whitespaces))
+    while let last = title.last, ".!?:;,".contains(last) { title.removeLast() }
+    guard !title.isEmpty else { return nil }
+    return String(title.prefix(80))
+  }
+
+  static func datedJournalTitle(_ date: Date) -> String {
+    date.formatted(.dateTime.weekday(.wide).day().month(.abbreviated).hour().minute())
+  }
 
   // MARK: - Sorting, shutdown and review
 

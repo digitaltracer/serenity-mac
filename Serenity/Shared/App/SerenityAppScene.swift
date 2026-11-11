@@ -5737,7 +5737,7 @@ private struct JournalSectionView: View {
   private var composer: some View {
     VStack(alignment: .leading, spacing: 14) {
       if isComposing {
-        TextField("Title (optional)", text: $newEntryTitle)
+        TextField("Title (leave blank and one is written for you)", text: $newEntryTitle)
           .textFieldStyle(.plain)
           .serenityInputField()
       }

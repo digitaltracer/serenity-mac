@@ -388,6 +388,54 @@ actor AIWorkflowService {
   /// Drafts the task behind a `/slack` or `/github` command. One call, through
   /// the same provider plumbing quick capture uses, including its repair shot
   /// when the JSON comes back malformed.
+  // MARK: - Journal titles
+
+  /// A short title for an untitled journal entry from the active model. Throws when no model is
+  /// configured, so the caller can fall back to the date.
+  func suggestJournalTitle(content: String) async throws -> String {
+    let repositories = try await requireRepositories()
+    let settings = try repositories.settings.fetch() ?? .defaultValue
+    let selection = try chooseCredential(settings: settings)
+    let schema: [String: Any] = [
+      "title": "journal_title",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title"],
+      "properties": ["title": ["type": "string"]],
+    ]
+
+    do {
+      let response = try await quickCaptureGenerator(
+        endpoint(for: selection.credential),
+        selection.apiKey,
+        selection.model,
+        """
+        Write a title for a personal journal entry: two to six words, in the writer's own words where \
+        possible, sentence case, no quotes, no date and no closing punctuation.
+        """,
+        String(content.prefix(4_000)),
+        schema
+      )
+      try recordUsage(
+        repositories: repositories,
+        selection: selection,
+        operation: .quickadd,
+        promptTokens: response.promptTokens,
+        completionTokens: response.completionTokens
+      )
+
+      struct Payload: Decodable { let title: String }
+      let text = extractJSONObject(from: response.text)
+      guard let data = text.data(using: .utf8), let payload = try? JSONDecoder().decode(Payload.self, from: data) else {
+        throw AIProviderAPIError.decoding
+      }
+      return payload.title
+    } catch {
+      recordFailure(error, repositories: repositories, selection: selection)
+      throw error
+    }
+  }
+
   // MARK: - Voice capture
 
   /// Transcription always goes to OpenAI, so it needs an enabled OpenAI key whatever the active provider is.
