@@ -256,6 +256,38 @@ public enum GoalTimeframe: String, Codable, Sendable {
   case monthly
 }
 
+/// Outcomes have a finish line, targets reset every week or month, areas have no end and only
+/// ask to be kept alive.
+public enum GoalKind: String, Codable, Sendable, CaseIterable {
+  case outcome
+  case target
+  case area
+}
+
+/// Where a goal's progress comes from. Everything but `manual` fills itself in.
+public enum GoalSource: String, Codable, Sendable, CaseIterable {
+  case manual
+  case projectTasks = "project_tasks"
+  case completedTasks = "completed_tasks"
+  case routine
+  case journalEntries = "journal_entries"
+  case focusTime = "focus_time"
+}
+
+public struct GoalCheckIn: Codable, Equatable, Sendable, Identifiable {
+  public var id: String
+  public var date: Date
+  public var amount: Double
+  public var note: String?
+
+  public init(id: String = UUID().uuidString, date: Date, amount: Double, note: String?) {
+    self.id = id
+    self.date = date
+    self.amount = amount
+    self.note = note
+  }
+}
+
 public struct GoalConfig: Codable, Equatable, Sendable {
   public var targetCount: Double?
   public var projectId: String?
@@ -263,6 +295,16 @@ public struct GoalConfig: Codable, Equatable, Sendable {
   public var streakDays: Int?
   public var targetRate: Double?
   public var timeframe: GoalTimeframe
+  // Absent on goals made before kinds existed; those read as manual counts with no deadline.
+  public var kind: GoalKind?
+  public var source: GoalSource?
+  public var startDate: Date?
+  public var dueDate: Date?
+  public var unit: String?
+  public var routineId: String?
+  public var areaTag: String?
+  public var quietDays: Int?
+  public var checkIns: [GoalCheckIn]?
 
   public init(
     targetCount: Double?,
@@ -270,7 +312,16 @@ public struct GoalConfig: Codable, Equatable, Sendable {
     priority: TaskPriority?,
     streakDays: Int?,
     targetRate: Double?,
-    timeframe: GoalTimeframe
+    timeframe: GoalTimeframe,
+    kind: GoalKind? = nil,
+    source: GoalSource? = nil,
+    startDate: Date? = nil,
+    dueDate: Date? = nil,
+    unit: String? = nil,
+    routineId: String? = nil,
+    areaTag: String? = nil,
+    quietDays: Int? = nil,
+    checkIns: [GoalCheckIn]? = nil
   ) {
     self.targetCount = targetCount
     self.projectId = projectId
@@ -278,6 +329,15 @@ public struct GoalConfig: Codable, Equatable, Sendable {
     self.streakDays = streakDays
     self.targetRate = targetRate
     self.timeframe = timeframe
+    self.kind = kind
+    self.source = source
+    self.startDate = startDate
+    self.dueDate = dueDate
+    self.unit = unit
+    self.routineId = routineId
+    self.areaTag = areaTag
+    self.quietDays = quietDays
+    self.checkIns = checkIns
   }
 }
 

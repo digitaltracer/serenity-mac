@@ -3713,6 +3713,111 @@ final class AppState: ObservableObject {
     }
   }
 
+  // MARK: - Goal reports
+
+  var goalProgressInputs: GoalProgressInputs {
+    GoalProgressInputs(tasks: tasks, routineChecks: routineChecks, journalEntries: journalEntries, focusHours: [])
+  }
+
+  /// Live progress and pace for every goal that is not abandoned, most urgent first.
+  func goalReports(now: Date = Date()) -> [GoalReport] {
+    let inputs = goalProgressInputs
+    return goals
+      .filter { $0.status != .failed }
+      .map { GoalReports.report(for: $0, inputs: inputs, now: now) }
+  }
+
+  func createGoal(_ draft: GoalDraft) async {
+    let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !title.isEmpty else {
+      showToast("Goal title cannot be empty")
+      return
+    }
+
+    let now = Date()
+    let config = draft.apply(
+      to: GoalConfig(targetCount: nil, projectId: nil, priority: nil, streakDays: nil, targetRate: nil, timeframe: .weekly),
+      now: now
+    )
+    let goal = GoalEntity(
+      id: UUID().uuidString,
+      title: title,
+      description: draft.why.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+      type: .weeklyTasks,
+      config: config,
+      progress: GoalProgress(
+        current: 0,
+        target: max(config.targetCount ?? 1, 1),
+        percentage: 0,
+        isCompleted: false,
+        periodStart: now,
+        periodEnd: config.dueDate ?? now
+      ),
+      status: .active,
+      priority: .medium,
+      reminders: [],
+      createdAt: now,
+      updatedAt: now,
+      userId: nil
+    )
+
+    do {
+      try await createGoal(goal)
+      showToast("Goal created")
+      await refreshCoreWorkflowData()
+    } catch {
+      showError(title: "Failed to create goal", message: error.localizedDescription)
+    }
+  }
+
+  func updateGoal(id: String, with draft: GoalDraft) async {
+    guard var goal = goals.first(where: { $0.id == id }) else { return }
+    let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !title.isEmpty else {
+      showToast("Goal title cannot be empty")
+      return
+    }
+    let now = Date()
+    goal.title = title
+    goal.description = draft.why.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    goal.config = draft.apply(to: goal.config, now: now)
+    goal.progress.target = max(goal.config.targetCount ?? 1, 1)
+    goal.updatedAt = now
+    await persistGoal(goal, failureTitle: "Failed to update goal")
+  }
+
+  /// Logs progress by hand, such as kilometres run. Works on any goal; automatic sources add to it.
+  func checkInGoal(id: String, amount: Double, note: String?, date: Date = Date()) async {
+    guard var goal = goals.first(where: { $0.id == id }), amount != 0 || note?.isEmpty == false else { return }
+    let trimmedNote = note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    goal.config.checkIns = (goal.config.checkIns ?? []) + [GoalCheckIn(date: date, amount: amount, note: trimmedNote)]
+    goal.updatedAt = Date()
+    await persistGoal(goal, failureTitle: "Failed to check in")
+  }
+
+  func removeGoalCheckIn(goalID: String, checkInID: String) async {
+    guard var goal = goals.first(where: { $0.id == goalID }) else { return }
+    goal.config.checkIns = goal.config.checkIns?.filter { $0.id != checkInID }
+    goal.updatedAt = Date()
+    await persistGoal(goal, failureTitle: "Failed to remove check-in")
+  }
+
+  func setGoalStatus(id: String, status: GoalStatus) async {
+    guard var goal = goals.first(where: { $0.id == id }) else { return }
+    goal.status = status
+    goal.updatedAt = Date()
+    await persistGoal(goal, failureTitle: "Failed to update goal")
+  }
+
+  private func persistGoal(_ goal: GoalEntity, failureTitle: String) async {
+    do {
+      try await saveGoal(goal)
+      await refreshCoreWorkflowData()
+    } catch {
+      showError(title: failureTitle, message: error.localizedDescription)
+    }
+  }
+
   // MARK: - Routines
 
   /// Active routines with today's state and streaks, in the order they were added.
