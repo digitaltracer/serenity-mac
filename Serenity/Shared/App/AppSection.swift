@@ -24,7 +24,7 @@ public enum AppSection: String, CaseIterable, Identifiable {
   var title: String {
     switch self {
     case .home:
-      return "Home"
+      return "Today"
     case .actionHub:
       return "ActionHub"
     case .standup:
@@ -51,7 +51,7 @@ public enum AppSection: String, CaseIterable, Identifiable {
   var systemImage: String {
     switch self {
     case .home:
-      return "house"
+      return "sun.max"
     case .actionHub:
       return "checklist"
     case .standup:

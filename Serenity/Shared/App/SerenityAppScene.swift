@@ -414,7 +414,7 @@ enum SerenityPhoneTab: String, CaseIterable, Identifiable {
   var title: String {
     switch self {
     case .home:
-      return "Home"
+      return "Today"
     case .actionHub:
       return "Hub"
     case .journal:
@@ -768,7 +768,7 @@ private extension AppSection {
   var subtitle: String {
     switch self {
     case .home:
-      return "Boost productivity and mindfulness from one workspace"
+      return "Your day at a glance"
     case .actionHub:
       return "Task and project control center"
     case .journal:
@@ -1499,31 +1499,80 @@ private struct QuickCaptureEditor: View {
 #endif
 
 private struct HomeSectionHeader: View {
-  private static let dateFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "EEEE, MMMM d, yyyy"
-    return formatter
-  }()
+  @EnvironmentObject private var appState: AppState
+  @State private var showPlanFocus = false
 
   var body: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 12) {
-      Image(systemName: "house")
-        .font(SerenityType.scaledSystem(size: 22, weight: .semibold))
-        .foregroundStyle(SerenityPalette.accent)
-        .accessibilityHidden(true)
+    let now = Date()
+    let plan = TodayBriefing.planItems(tasks: appState.tasks, focusBlocks: appState.focusBlocks(on: now), day: now)
+    let reports = appState.goalReports(now: now)
+    let behind = reports.first { report in
+      if case .behind = report.pace, report.goal.status == .active { return true }
+      return false
+    }
+    let sentence = TodayBriefing.sentence(
+      meetings: plan.timed.filter { $0.kind == .calendar }.count,
+      focusMinutes: appState.focusBlocks(on: now).filter { $0.status != .done }.reduce(0) { $0 + $1.plannedMinutes },
+      behindGoal: behind,
+      inboxCount: appState.inboxTasks.count
+    )
 
-      VStack(alignment: .leading, spacing: 2) {
-        Text("Home")
-          .font(SerenityType.pageTitle)
-        Text("Focus on what matters most right now")
-          .font(SerenityType.body)
-          .foregroundStyle(SerenityPalette.textSecondary)
-        Text(Self.dateFormatter.string(from: Date()))
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary.opacity(0.8))
+    ViewThatFits(in: .horizontal) {
+      HStack(alignment: .firstTextBaseline, spacing: 12) {
+        titleBlock(now: now, sentence: sentence)
+        Spacer(minLength: 16)
+        focusButtons
       }
+      VStack(alignment: .leading, spacing: 12) {
+        titleBlock(now: now, sentence: sentence)
+        focusButtons
+      }
+    }
+    .sheet(isPresented: $showPlanFocus) {
+      FocusPlanSheet(goals: appState.goals.filter { $0.status == .active }) { title, start, minutes, goalID in
+        Task { await appState.planFocusBlock(title: title, start: start, minutes: minutes, goalId: goalID) }
+      }
+    }
+  }
 
-      Spacer()
+  private func titleBlock(now: Date, sentence: String) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text(now.formatted(.dateTime.weekday(.wide).day().month(.wide)).uppercased())
+        .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
+        .tracking(0.9)
+        .foregroundStyle(SerenityPalette.textSecondary)
+      Text("\(TodayBriefing.greeting(now: now)).")
+        .font(SerenityType.pageTitle)
+      Text(sentence)
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  private var focusButtons: some View {
+    HStack(spacing: 8) {
+      Button {
+        showPlanFocus = true
+      } label: {
+        Label("Plan focus", systemImage: "calendar.badge.plus")
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+
+      Button {
+        Task { await appState.startFocusNow() }
+      } label: {
+        if let running = appState.runningFocusBlock {
+          TimelineView(.periodic(from: .now, by: 30)) { context in
+            Text("Finish focus · \(FocusBlockTiming.remainingText(for: running, now: context.date))")
+          }
+        } else {
+          Text("Start focus")
+        }
+      }
+      .buttonStyle(SerenityPrimaryButtonStyle())
+      .hoverCursor(.pointingHand)
     }
   }
 }
@@ -1560,8 +1609,21 @@ private struct HomeSectionView: View {
       if let preview = appState.pendingAIQuickCapturePreview {
         aiQuickCapturePreview(preview)
       }
-      if standupPending > 0 {
-        standupStrip
+      TodayNeedsYouPanel(standupPending: standupPending)
+      if density == .regular || density == .compact {
+        HStack(alignment: .top, spacing: 18) {
+          TodayPlanPanel()
+            .frame(maxWidth: .infinity)
+          VStack(alignment: .leading, spacing: 18) {
+            TodayGoalsCard()
+            TodayRoutinesCard()
+          }
+          .frame(width: 340)
+        }
+      } else {
+        TodayPlanPanel()
+        TodayGoalsCard()
+        TodayRoutinesCard()
       }
       TodayOverviewView(onEditTask: onEditTask)
     }
@@ -1578,54 +1640,6 @@ private struct HomeSectionView: View {
       commandMenuSelection = 0
       commandMenuDismissed = false
     }
-  }
-
-  /// Only appears when there is something to report, so it is not dead
-  /// furniture on a quiet morning.
-  private var standupStrip: some View {
-    Button {
-      appState.setSection(.standup)
-    } label: {
-      HStack(spacing: 14) {
-        ZStack {
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(SerenityPalette.headerIconBackground)
-            .frame(width: 38, height: 38)
-          Image(systemName: "mic")
-            .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
-            .foregroundStyle(SerenityPalette.accent)
-        }
-
-        VStack(alignment: .leading, spacing: 3) {
-          Text("Ready for stand-up?")
-            .font(SerenityType.bodyLarge.weight(.semibold))
-            .foregroundStyle(SerenityPalette.textPrimary)
-          Text("\(standupPending) thing\(standupPending == 1 ? "" : "s") to go through.")
-            .font(SerenityType.body)
-            .foregroundStyle(SerenityPalette.textSecondary)
-        }
-
-        Spacer(minLength: 8)
-
-        Text("Build it")
-          .font(SerenityType.bodyMedium)
-          .foregroundStyle(SerenityPalette.primaryActionForeground)
-          .padding(.horizontal, 16)
-          .padding(.vertical, 8)
-          .background(SerenityPalette.primaryActionBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-      }
-      .padding(16)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(SerenityPalette.accent.opacity(0.3), lineWidth: 1)
-      )
-      .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-    .buttonStyle(.plain)
-    .hoverCursor(.pointingHand)
-    .accessibilityLabel("Build today's stand-up from \(standupPending) items")
   }
 
   private var commandPreview: CaptureCommandPreview? {
@@ -6003,6 +6017,12 @@ private struct GoalsSectionView: View {
         if !finished.isEmpty {
           goalGroup(title: "Finished", reports: finished)
         }
+      }
+    }
+    .onAppear {
+      if let id = appState.focusedGoalID {
+        expandedGoalID = id
+        appState.focusedGoalID = nil
       }
     }
     .sheet(item: $editorTarget) { target in
@@ -15722,5 +15742,600 @@ extension RoutineSchedule {
 
   static func shortWeekdaySymbol(_ weekday: Int) -> String {
     Calendar.current.shortStandaloneWeekdaySymbols[(weekday - 1) % 7]
+  }
+}
+
+// MARK: - Today
+
+enum FocusBlockTiming {
+  static func remainingText(for block: FocusBlockEntity, now: Date) -> String {
+    let started = block.startedAt ?? block.start
+    let planned = block.plannedMinutes
+    let elapsed = max(now.timeIntervalSince(started) / 60, 0)
+    let remaining = planned - elapsed
+    if remaining >= 1 {
+      return "\(Int(remaining.rounded())) min left"
+    }
+    return "\(Int((-remaining).rounded())) min over"
+  }
+}
+
+private struct TodayNeedsYouPanel: View {
+  @EnvironmentObject private var appState: AppState
+  let standupPending: Int
+
+  var body: some View {
+    let items = TodayBriefing.attentionItems(
+      inboxCount: appState.inboxTasks.count,
+      overdueCount: appState.overdueTasks.count,
+      goalReports: appState.goalReports(),
+      routineSummaries: appState.routineSummaries(),
+      pendingProposals: appState.slackProposals.filter { $0.status == .pending }.count,
+      standupPending: standupPending
+    )
+
+    VStack(alignment: .leading, spacing: 14) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("Needs you")
+          .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
+        Spacer(minLength: 8)
+        Text(items.isEmpty ? "Nothing is waiting on you" : "Why each one is here, not how late it is")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      if !items.isEmpty {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 10)], alignment: .leading, spacing: 10) {
+          ForEach(items) { item in
+            attentionCard(item)
+          }
+        }
+      }
+    }
+    .padding(18)
+    .routinePanel()
+  }
+
+  private func attentionCard(_ item: AttentionItem) -> some View {
+    HStack(alignment: .top, spacing: 12) {
+      Image(systemName: icon(for: item.destination))
+        .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
+        .foregroundStyle(item.isUrgent ? SerenityPalette.attention : SerenityPalette.textSecondary)
+        .frame(width: 20)
+        .padding(.top, 1)
+        .accessibilityHidden(true)
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text(item.title)
+          .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.textPrimary)
+        Text(item.reason)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      Spacer(minLength: 8)
+
+      Button(item.actionTitle) {
+        open(item.destination)
+      }
+      .buttonStyle(.plain)
+      .font(SerenityType.bodyMedium)
+      .foregroundStyle(item.isUrgent ? SerenityPalette.attention : SerenityPalette.accent)
+      .hoverCursor(.pointingHand)
+    }
+    .padding(14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .fill(item.isUrgent ? SerenityPalette.attention.opacity(0.08) : SerenityPalette.innerCardBackground)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(item.isUrgent ? SerenityPalette.attention.opacity(0.18) : SerenityPalette.thinBorder, lineWidth: 1)
+    )
+  }
+
+  private func icon(for destination: AttentionItem.Destination) -> String {
+    switch destination {
+    case .inbox:
+      return "tray"
+    case .overdue:
+      return "calendar.badge.exclamationmark"
+    case .goal:
+      return "target"
+    case .routines:
+      return "repeat"
+    case .slackProposals:
+      return "bubble.left.and.bubble.right"
+    case .standup:
+      return "mic"
+    }
+  }
+
+  private func open(_ destination: AttentionItem.Destination) {
+    switch destination {
+    case .inbox, .overdue, .slackProposals:
+      appState.setSection(.actionHub)
+    case .goal(let id):
+      appState.focusedGoalID = id
+      appState.setSection(.goals)
+    case .routines:
+      appState.setSection(.routines)
+    case .standup:
+      appState.setSection(.standup)
+    }
+  }
+}
+
+private struct TodayPlanPanel: View {
+  @EnvironmentObject private var appState: AppState
+
+  private let hourHeight: CGFloat = 52
+  private let labelWidth: CGFloat = 52
+
+  var body: some View {
+    TimelineView(.periodic(from: .now, by: 60)) { context in
+      content(now: context.date)
+    }
+  }
+
+  private func content(now: Date) -> some View {
+    let plan = TodayBriefing.planItems(tasks: appState.tasks, focusBlocks: appState.focusBlocks(on: now), day: now)
+    let hours = hourRange(for: plan.timed, now: now)
+
+    return VStack(alignment: .leading, spacing: 14) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("Plan")
+          .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
+        Spacer(minLength: 8)
+        legend
+      }
+
+      if plan.timed.isEmpty {
+        Text("Nothing has a time yet. Calendar events, timed tasks and focus blocks show up here.")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .padding(.vertical, 8)
+      } else {
+        grid(plan.timed, hours: hours, now: now)
+      }
+
+      if !plan.untimed.isEmpty {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Due today, no time")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+          ForEach(plan.untimed) { task in
+            HStack(spacing: 10) {
+              Button {
+                Task { await appState.toggleTaskCompletion(id: task.id) }
+              } label: {
+                SerenityCheckbox(isOn: task.completed, size: 16)
+              }
+              .buttonStyle(.plain)
+              .hoverCursor(.pointingHand)
+              .accessibilityLabel(task.completed ? "Mark \(task.title) incomplete" : "Mark \(task.title) complete")
+              Text(task.title)
+                .font(SerenityType.body)
+                .strikethrough(task.completed, color: SerenityPalette.textSecondary)
+                .foregroundStyle(task.completed ? SerenityPalette.textSecondary : SerenityPalette.textPrimary)
+                .lineLimit(1)
+            }
+          }
+        }
+      }
+    }
+    .padding(18)
+    .routinePanel()
+  }
+
+  private var legend: some View {
+    HStack(spacing: 12) {
+      legendSwatch("Focus", fill: SerenityPalette.panelBackgroundRaised, stroke: SerenityPalette.accent)
+      legendSwatch("Calendar", fill: SerenityPalette.innerCardBackground, stroke: .clear)
+      legendSwatch("Task", fill: .clear, stroke: SerenityPalette.border)
+    }
+    .font(SerenityType.caption)
+    .foregroundStyle(SerenityPalette.textSecondary)
+  }
+
+  private func legendSwatch(_ title: String, fill: Color, stroke: Color) -> some View {
+    HStack(spacing: 5) {
+      RoundedRectangle(cornerRadius: 3, style: .continuous)
+        .fill(fill)
+        .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).strokeBorder(stroke, lineWidth: 1))
+        .frame(width: 10, height: 10)
+      Text(title)
+    }
+  }
+
+  private func hourRange(for items: [PlanItem], now: Date) -> ClosedRange<Int> {
+    let calendar = Calendar.current
+    let startHours = items.map { calendar.component(.hour, from: $0.start) }
+    let endHours = items.map { item -> Int in
+      let parts = calendar.dateComponents([.hour, .minute], from: item.end)
+      let hour = parts.hour ?? 0
+      return calendar.isDate(item.end, inSameDayAs: item.start) ? hour + ((parts.minute ?? 0) > 0 ? 1 : 0) : 24
+    }
+    let lower = min(startHours.min() ?? 9, 9)
+    let upper = max(endHours.max() ?? 18, 18)
+    return max(lower, 0)...min(upper, 24)
+  }
+
+  private func offset(for date: Date, hours: ClosedRange<Int>) -> CGFloat {
+    let calendar = Calendar.current
+    let parts = calendar.dateComponents([.hour, .minute], from: date)
+    let value = Double(parts.hour ?? 0) + Double(parts.minute ?? 0) / 60 - Double(hours.lowerBound)
+    return CGFloat(value) * hourHeight
+  }
+
+  private func grid(_ items: [PlanItem], hours: ClosedRange<Int>, now: Date) -> some View {
+    let height = CGFloat(hours.upperBound - hours.lowerBound) * hourHeight
+
+    return GeometryReader { proxy in
+      let lane = max(proxy.size.width - labelWidth, 80)
+      ZStack(alignment: .topLeading) {
+        ForEach(Array(hours), id: \.self) { hour in
+          HStack(spacing: 6) {
+            Text(hourLabel(hour))
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+              .frame(width: labelWidth - 6, alignment: .leading)
+            Rectangle()
+              .fill(SerenityPalette.thinBorder)
+              .frame(height: 1)
+          }
+          .offset(y: CGFloat(hour - hours.lowerBound) * hourHeight - 7)
+        }
+
+        ForEach(items) { item in
+          let width = lane / CGFloat(item.columns)
+          PlanBlock(item: item, block: focusBlock(for: item), now: now)
+            .frame(
+              width: max(width - 4, 40),
+              height: max(offset(for: item.end, hours: hours) - offset(for: item.start, hours: hours) - 2, 24)
+            )
+            .offset(x: labelWidth + width * CGFloat(item.column), y: offset(for: item.start, hours: hours) + 1)
+        }
+
+        if Calendar.current.isDateInToday(now), offset(for: now, hours: hours) >= 0, offset(for: now, hours: hours) <= height {
+          HStack(spacing: 0) {
+            Circle()
+              .fill(SerenityPalette.attention)
+              .frame(width: 8, height: 8)
+            Rectangle()
+              .fill(SerenityPalette.attention)
+              .frame(height: 1.5)
+          }
+          .offset(x: labelWidth - 8, y: offset(for: now, hours: hours) - 4)
+          .accessibilityLabel("Now, \(now.formatted(date: .omitted, time: .shortened))")
+        }
+      }
+    }
+    .frame(height: height + 8)
+  }
+
+  private func hourLabel(_ hour: Int) -> String {
+    let date = Calendar.current.date(bySettingHour: hour % 24, minute: 0, second: 0, of: Date()) ?? Date()
+    return date.formatted(.dateTime.hour())
+  }
+
+  private func focusBlock(for item: PlanItem) -> FocusBlockEntity? {
+    guard item.kind == .focus else { return nil }
+    return appState.focusBlocks.first { "focus-\($0.id)" == item.id }
+  }
+}
+
+private struct PlanBlock: View {
+  @EnvironmentObject private var appState: AppState
+
+  let item: PlanItem
+  let block: FocusBlockEntity?
+  let now: Date
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(alignment: .firstTextBaseline, spacing: 6) {
+        if item.kind == .focus {
+          Text("Focus")
+            .font(SerenityType.bodyMedium)
+            .foregroundStyle(SerenityPalette.accent)
+        }
+        Text(item.title == "Focus" && item.kind == .focus ? "" : item.title)
+          .font(SerenityType.bodyMedium)
+          .strikethrough(item.isDone && item.kind != .focus, color: SerenityPalette.textSecondary)
+          .foregroundStyle(item.isDone ? SerenityPalette.textSecondary : SerenityPalette.textPrimary)
+          .lineLimit(1)
+        Spacer(minLength: 4)
+        Text(timeText)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .lineLimit(1)
+      }
+      if let block {
+        focusControls(block)
+      }
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 6)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(fill))
+    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(stroke, lineWidth: item.kind == .focus ? 1.5 : 1))
+    .clipped()
+  }
+
+  private var timeText: String {
+    "\(item.start.formatted(date: .omitted, time: .shortened))–\(item.end.formatted(date: .omitted, time: .shortened))"
+  }
+
+  private var fill: Color {
+    switch item.kind {
+    case .focus:
+      return SerenityPalette.panelBackgroundRaised
+    case .calendar:
+      return SerenityPalette.innerCardBackground
+    case .task:
+      return .clear
+    }
+  }
+
+  private var stroke: Color {
+    switch item.kind {
+    case .focus:
+      return item.isDone ? SerenityPalette.border : SerenityPalette.accent
+    case .calendar:
+      return .clear
+    case .task:
+      return SerenityPalette.border
+    }
+  }
+
+  @ViewBuilder
+  private func focusControls(_ block: FocusBlockEntity) -> some View {
+    HStack(spacing: 10) {
+      switch block.status {
+      case .planned:
+        Button("Start") {
+          Task { await appState.startFocusBlock(id: block.id) }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(SerenityPalette.accent)
+        .hoverCursor(.pointingHand)
+      case .running:
+        Text(FocusBlockTiming.remainingText(for: block, now: now))
+          .foregroundStyle(SerenityPalette.textSecondary)
+        Button("Finish") {
+          Task { await appState.finishFocusBlock(id: block.id) }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(SerenityPalette.accent)
+        .hoverCursor(.pointingHand)
+      case .done:
+        Text("Logged \(TodayBriefing.durationText(minutes: block.loggedMinutes))")
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+      Spacer(minLength: 0)
+      if block.status != .running {
+        Button {
+          Task { await appState.deleteFocusBlock(id: block.id) }
+        } label: {
+          Image(systemName: "xmark")
+            .font(SerenityType.scaledSystem(size: 10, weight: .semibold))
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .hoverCursor(.pointingHand)
+        .accessibilityLabel("Remove focus block")
+      }
+    }
+    .font(SerenityType.caption)
+  }
+}
+
+private struct TodayGoalsCard: View {
+  @EnvironmentObject private var appState: AppState
+
+  var body: some View {
+    let reports = appState.goalReports()
+      .filter { $0.kind != .area && $0.goal.status == .active }
+      .sorted { lhs, rhs in
+        if lhs.needsAttention != rhs.needsAttention { return lhs.needsAttention }
+        return lhs.fraction > rhs.fraction
+      }
+      .prefix(3)
+
+    VStack(alignment: .leading, spacing: 14) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("Goals on pace")
+          .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
+        Spacer()
+        Button("All goals") { appState.setSection(.goals) }
+          .buttonStyle(.plain)
+          .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.accent)
+          .hoverCursor(.pointingHand)
+      }
+
+      if reports.isEmpty {
+        Text("Set a goal and its pace shows up here.")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      } else {
+        ForEach(Array(reports)) { report in
+          Button {
+            appState.focusedGoalID = report.id
+            appState.setSection(.goals)
+          } label: {
+            VStack(alignment: .leading, spacing: 6) {
+              HStack(alignment: .firstTextBaseline) {
+                Text(report.goal.title)
+                  .font(SerenityType.bodyMedium)
+                  .foregroundStyle(SerenityPalette.textPrimary)
+                  .lineLimit(1)
+                Spacer(minLength: 6)
+                Text(report.statusLabel)
+                  .font(SerenityType.caption)
+                  .foregroundStyle(report.statusTint)
+              }
+              GoalPaceBar(fraction: report.fraction, expected: report.expectedFraction, tint: report.statusTint)
+              Text(report.progressLabel)
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
+            }
+            .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .hoverCursor(.pointingHand)
+        }
+        Text("The tick is where you should be today.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+    }
+    .padding(18)
+    .routinePanel()
+  }
+}
+
+private struct TodayRoutinesCard: View {
+  @EnvironmentObject private var appState: AppState
+
+  var body: some View {
+    let summaries = appState.routineSummaries().filter(\.isScheduledToday)
+
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("Routines")
+          .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
+        Spacer()
+        Text("Open until 3 AM")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      }
+
+      if summaries.isEmpty {
+        Button("Add a routine") { appState.setSection(.routines) }
+          .buttonStyle(.plain)
+          .font(SerenityType.bodyMedium)
+          .foregroundStyle(SerenityPalette.accent)
+          .hoverCursor(.pointingHand)
+      } else {
+        ForEach(summaries) { summary in
+          HStack(spacing: 10) {
+            Button {
+              Task { await appState.toggleRoutineDone(id: summary.routine.id) }
+            } label: {
+              SerenityCheckbox(isOn: summary.today == .done, size: 20, style: .routine)
+            }
+            .buttonStyle(.plain)
+            .hoverCursor(.pointingHand)
+            .accessibilityLabel(summary.today == .done ? "Mark \(summary.routine.title) not done today" : "Mark \(summary.routine.title) done today")
+
+            Text(summary.routine.title)
+              .font(SerenityType.body)
+              .lineLimit(1)
+            Spacer(minLength: 6)
+            Text(summary.streakLabel)
+              .font(SerenityType.caption)
+              .monospacedDigit()
+              .foregroundStyle(summary.streak == 0 && summary.wasReset ? SerenityPalette.attention : SerenityPalette.textSecondary)
+          }
+          .frame(minHeight: 32)
+        }
+      }
+    }
+    .padding(18)
+    .routinePanel()
+  }
+}
+
+private struct FocusPlanSheet: View {
+  @Environment(\.dismiss) private var dismiss
+
+  let goals: [GoalEntity]
+  let onSave: (String, Date, Int, String?) -> Void
+
+  @State private var title = ""
+  @State private var start: Date = {
+    let calendar = Calendar.current
+    let now = Date()
+    let minute = calendar.component(.minute, from: now)
+    let rounded = calendar.date(byAdding: .minute, value: minute < 30 ? 30 - minute : 60 - minute, to: now) ?? now
+    return calendar.date(bySetting: .second, value: 0, of: rounded) ?? rounded
+  }()
+  @State private var minutes = 50
+  @State private var goalID: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      Text("Plan a focus block")
+        .font(SerenityType.sectionTitle)
+
+      field("What it's for") {
+        TextField("Sync fixes", text: $title)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+      }
+
+      HStack(alignment: .top, spacing: 16) {
+        field("Starts") {
+          DatePicker("Starts", selection: $start, displayedComponents: [.date, .hourAndMinute])
+            .labelsHidden()
+        }
+        field("Length") {
+          Picker("Length", selection: $minutes) {
+            Text("25 min").tag(25)
+            Text("50 min").tag(50)
+            Text("90 min").tag(90)
+            Text("2 h").tag(120)
+          }
+          .labelsHidden()
+          .pickerStyle(.segmented)
+        }
+      }
+
+      if !goals.isEmpty {
+        field("Counts toward (optional)") {
+          Picker("Goal", selection: $goalID) {
+            Text("No goal").tag(String?.none)
+            ForEach(goals) { goal in
+              Text(goal.title).tag(Optional(goal.id))
+            }
+          }
+          .labelsHidden()
+        }
+      }
+
+      Text("Finished focus blocks log their minutes, which count toward any goal measured in focus time.")
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+
+      HStack {
+        Spacer()
+        Button("Cancel") { dismiss() }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        Button("Plan it") {
+          onSave(title, start, minutes, goalID)
+          dismiss()
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .hoverCursor(.pointingHand)
+        .keyboardShortcut(.defaultAction)
+      }
+    }
+    .padding(20)
+    .frame(minWidth: 440)
+  }
+
+  private func field<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text(label)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+      content()
+    }
   }
 }

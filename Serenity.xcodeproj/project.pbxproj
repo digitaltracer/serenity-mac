@@ -107,6 +107,8 @@
 		A00000000000000000000135 /* CaptureCommandParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000115 /* CaptureCommandParser.swift */; };
 		A00000000000000000000136 /* CaptureCommandDrafter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000116 /* CaptureCommandDrafter.swift */; };
 		A00000000000000000000127 /* StandupPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000117 /* StandupPlanner.swift */; };
+		A00000000000000000000140 /* TodayBriefing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000013F /* TodayBriefing.swift */; };
+		A00000000000000000000141 /* TodayBriefing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000013F /* TodayBriefing.swift */; };
 		A0000000000000000000013D /* GoalPace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000013C /* GoalPace.swift */; };
 		A0000000000000000000013E /* GoalPace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000013C /* GoalPace.swift */; };
 		A0000000000000000000013A /* RoutineStreaks.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000139 /* RoutineStreaks.swift */; };
@@ -173,6 +175,7 @@
 		A00000000000000000000115 /* CaptureCommandParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureCommandParser.swift; sourceTree = "<group>"; };
 		A00000000000000000000116 /* CaptureCommandDrafter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureCommandDrafter.swift; sourceTree = "<group>"; };
 		A00000000000000000000117 /* StandupPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandupPlanner.swift; sourceTree = "<group>"; };
+		A0000000000000000000013F /* TodayBriefing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayBriefing.swift; sourceTree = "<group>"; };
 		A0000000000000000000013C /* GoalPace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalPace.swift; sourceTree = "<group>"; };
 		A00000000000000000000139 /* RoutineStreaks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineStreaks.swift; sourceTree = "<group>"; };
 		A00000000000000000000118 /* StandupWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandupWriter.swift; sourceTree = "<group>"; };
@@ -261,6 +264,7 @@
 				A000000000000000000000FF /* RecurrenceEngine.swift */,
 				A00000000000000000000139 /* RoutineStreaks.swift */,
 				A0000000000000000000013C /* GoalPace.swift */,
+				A0000000000000000000013F /* TodayBriefing.swift */,
 				A00000000000000000000024 /* SerenityAppScene.swift */,
 				A000000000000000000000D0 /* SettingsSyncCoordinator.swift */,
 			);
@@ -541,6 +545,7 @@
 				A00000000000000000000127 /* StandupPlanner.swift in Sources */,
 				A0000000000000000000013A /* RoutineStreaks.swift in Sources */,
 				A0000000000000000000013D /* GoalPace.swift in Sources */,
+				A00000000000000000000140 /* TodayBriefing.swift in Sources */,
 				A00000000000000000000128 /* StandupWriter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -597,6 +602,7 @@
 				A00000000000000000000137 /* StandupPlanner.swift in Sources */,
 				A0000000000000000000013B /* RoutineStreaks.swift in Sources */,
 				A0000000000000000000013E /* GoalPace.swift in Sources */,
+				A00000000000000000000141 /* TodayBriefing.swift in Sources */,
 				A00000000000000000000138 /* StandupWriter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
