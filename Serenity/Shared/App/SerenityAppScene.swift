@@ -1517,9 +1517,10 @@ private struct QuickCaptureEditor: View {
 }
 #endif
 
+/// Text only: on the Mac this row sits in the window's toolbar strip, under the Search, Help and
+/// Theme buttons, so anything placed at its trailing end is covered by them.
 private struct HomeSectionHeader: View {
   @EnvironmentObject private var appState: AppState
-  @State private var showPlanFocus = false
 
   var body: some View {
     let now = Date()
@@ -1536,21 +1537,9 @@ private struct HomeSectionHeader: View {
       inboxCount: appState.inboxTasks.count
     )
 
-    ViewThatFits(in: .horizontal) {
-      HStack(alignment: .firstTextBaseline, spacing: 12) {
-        titleBlock(now: now, sentence: sentence)
-        Spacer(minLength: 16)
-        focusButtons
-      }
-      VStack(alignment: .leading, spacing: 12) {
-        titleBlock(now: now, sentence: sentence)
-        focusButtons
-      }
-    }
-    .sheet(isPresented: $showPlanFocus) {
-      FocusPlanSheet(goals: appState.goals.filter { $0.status == .active }) { title, start, minutes, goalID in
-        Task { await appState.planFocusBlock(title: title, start: start, minutes: minutes, goalId: goalID) }
-      }
+    HStack(alignment: .firstTextBaseline, spacing: 12) {
+      titleBlock(now: now, sentence: sentence)
+      Spacer(minLength: 0)
     }
   }
 
@@ -1569,31 +1558,6 @@ private struct HomeSectionHeader: View {
     }
   }
 
-  private var focusButtons: some View {
-    HStack(spacing: 8) {
-      Button {
-        showPlanFocus = true
-      } label: {
-        Label("Plan focus", systemImage: "calendar.badge.plus")
-      }
-      .buttonStyle(SerenitySecondaryButtonStyle())
-      .hoverCursor(.pointingHand)
-
-      Button {
-        Task { await appState.startFocusNow() }
-      } label: {
-        if let running = appState.runningFocusBlock {
-          TimelineView(.periodic(from: .now, by: 30)) { context in
-            Text("Finish focus · \(FocusBlockTiming.remainingText(for: running, now: context.date))")
-          }
-        } else {
-          Text("Start focus")
-        }
-      }
-      .buttonStyle(SerenityPrimaryButtonStyle())
-      .hoverCursor(.pointingHand)
-    }
-  }
 }
 
 private struct HomeSectionView: View {
@@ -15968,6 +15932,7 @@ private struct TodayNeedsYouPanel: View {
 
 private struct TodayPlanPanel: View {
   @EnvironmentObject private var appState: AppState
+  @State private var showPlanFocus = false
 
   private let hourHeight: CGFloat = 52
   private let labelWidth: CGFloat = 52
@@ -15976,6 +15941,37 @@ private struct TodayPlanPanel: View {
     TimelineView(.periodic(from: .now, by: 60)) { context in
       content(now: context.date)
     }
+    .sheet(isPresented: $showPlanFocus) {
+      FocusPlanSheet(goals: appState.goals.filter { $0.status == .active }) { title, start, minutes, goalID in
+        Task { await appState.planFocusBlock(title: title, start: start, minutes: minutes, goalId: goalID) }
+      }
+    }
+  }
+
+  private var focusButtons: some View {
+    HStack(spacing: 8) {
+      Button {
+        showPlanFocus = true
+      } label: {
+        Label("Plan focus", systemImage: "calendar.badge.plus")
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+
+      Button {
+        Task { await appState.startFocusNow() }
+      } label: {
+        if let running = appState.runningFocusBlock {
+          TimelineView(.periodic(from: .now, by: 30)) { context in
+            Text("Finish focus · \(FocusBlockTiming.remainingText(for: running, now: context.date))")
+          }
+        } else {
+          Text("Start focus")
+        }
+      }
+      .buttonStyle(SerenityPrimaryButtonStyle())
+      .hoverCursor(.pointingHand)
+    }
   }
 
   private func content(now: Date) -> some View {
@@ -15983,11 +15979,18 @@ private struct TodayPlanPanel: View {
     let hours = hourRange(for: plan.timed, now: now)
 
     return VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .firstTextBaseline) {
-        Text("Plan")
-          .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
-        Spacer(minLength: 8)
-        legend
+      ViewThatFits(in: .horizontal) {
+        HStack(alignment: .center) {
+          Text("Plan")
+            .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
+          Spacer(minLength: 8)
+          focusButtons
+        }
+        VStack(alignment: .leading, spacing: 10) {
+          Text("Plan")
+            .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
+          focusButtons
+        }
       }
 
       if plan.timed.isEmpty {
@@ -15997,6 +16000,7 @@ private struct TodayPlanPanel: View {
           .padding(.vertical, 8)
       } else {
         grid(plan.timed, hours: hours, now: now)
+        legend
       }
 
       if !plan.untimed.isEmpty {
