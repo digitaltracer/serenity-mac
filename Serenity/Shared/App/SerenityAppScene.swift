@@ -6007,10 +6007,10 @@ private struct GoalsSectionView: View {
 
     VStack(alignment: .leading, spacing: 18) {
       HStack(alignment: .center, spacing: 12) {
-        Text("Each bar is your progress. The short line across it is where an even pace puts you today: past it, you're ahead; short of it, you're behind.")
+        Text("What you're working toward")
           .font(SerenityType.body)
           .foregroundStyle(SerenityPalette.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
+          .lineLimit(1)
         Spacer(minLength: 8)
         Button("Weekly review") {
           appState.isWeeklyReviewPresented = true
@@ -6033,17 +6033,30 @@ private struct GoalsSectionView: View {
             .foregroundStyle(SerenityPalette.textSecondary.opacity(0.65))
           Text("No goals yet")
             .font(SerenityType.bodyLarge.weight(.medium))
-          Text("Finish something by a date, do something every week or month, or keep an area of life from going quiet.")
+          Text("A finish line, a weekly or monthly habit, or an area to keep alive.")
             .font(SerenityType.body)
             .foregroundStyle(SerenityPalette.textSecondary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: 440)
+          Button("Create your first goal") {
+            editorTarget = GoalEditorTarget(goal: nil)
+          }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          .padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
         .routinePanel()
       } else {
-        GoalSummaryPills(reports: active)
+        VStack(alignment: .leading, spacing: 8) {
+          GoalSummaryPills(reports: active)
+          if active.contains(where: { $0.kind != .area && !$0.needsSetup }) {
+            Label("The short line on each bar is where an even pace puts you today.", systemImage: "info.circle")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+          }
+        }
         ForEach(GoalKind.allCases, id: \.self) { kind in
           let group = active.filter { $0.kind == kind }
           if !group.isEmpty {
