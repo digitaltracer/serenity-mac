@@ -85,9 +85,14 @@ public enum SettingsTab: String, CaseIterable, Identifiable, Equatable {
   case appLock
   case database
   case diagnostics
+  case claude
 
   public static var allCases: [SettingsTab] {
+    #if os(macOS)
+    [.appearance, .aiProvider, .claude, .costCenter, .appLock, .database]
+    #else
     [.appearance, .aiProvider, .costCenter, .appLock, .database]
+    #endif
   }
 
   public var id: String { rawValue }
@@ -110,6 +115,8 @@ public enum SettingsTab: String, CaseIterable, Identifiable, Equatable {
       return "Database"
     case .diagnostics:
       return "Diagnostics"
+    case .claude:
+      return "Claude"
     }
   }
 
@@ -131,6 +138,8 @@ public enum SettingsTab: String, CaseIterable, Identifiable, Equatable {
       return "internaldrive"
     case .diagnostics:
       return "stethoscope"
+    case .claude:
+      return "sparkles"
     }
   }
 }

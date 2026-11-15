@@ -84,6 +84,11 @@
 		A000000000000000000000F7 /* SyncAwareAIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F6 /* SyncAwareAIRepositories.swift */; };
 		A000000000000000000000F8 /* SyncAwareAIRepositories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F6 /* SyncAwareAIRepositories.swift */; };
 		A00000000000000000000146 /* VoiceCapturePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000145 /* VoiceCapturePanel.swift */; };
+		A00000000000000000000148 /* ClaudeBridgeProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000147 /* ClaudeBridgeProtocol.swift */; };
+		A00000000000000000000149 /* ClaudeBridgeProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000147 /* ClaudeBridgeProtocol.swift */; };
+		A0000000000000000000014B /* ClaudeBridgeRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000014A /* ClaudeBridgeRouter.swift */; };
+		A0000000000000000000014C /* ClaudeBridgeRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000014A /* ClaudeBridgeRouter.swift */; };
+		A0000000000000000000014E /* ClaudeBridgeServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000014D /* ClaudeBridgeServer.swift */; };
 		A00000000000000000000103 /* MenuBarCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* MenuBarCaptureView.swift */; };
 		A00000000000000000000100 /* RecurrenceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000FF /* RecurrenceEngine.swift */; };
 		A00000000000000000000101 /* RecurrenceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000FF /* RecurrenceEngine.swift */; };
@@ -165,6 +170,9 @@
 		A000000000000000000000F3 /* CloudSyncInitialExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncInitialExporter.swift; sourceTree = "<group>"; };
 		A000000000000000000000F6 /* SyncAwareAIRepositories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncAwareAIRepositories.swift; sourceTree = "<group>"; };
 		A00000000000000000000145 /* VoiceCapturePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCapturePanel.swift; sourceTree = "<group>"; };
+		A00000000000000000000147 /* ClaudeBridgeProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeBridgeProtocol.swift; sourceTree = "<group>"; };
+		A0000000000000000000014A /* ClaudeBridgeRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeBridgeRouter.swift; sourceTree = "<group>"; };
+		A0000000000000000000014D /* ClaudeBridgeServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeBridgeServer.swift; sourceTree = "<group>"; };
 		A00000000000000000000102 /* MenuBarCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarCaptureView.swift; sourceTree = "<group>"; };
 		A000000000000000000000FF /* RecurrenceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurrenceEngine.swift; sourceTree = "<group>"; };
 		A000000000000000000000FC /* NotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScheduler.swift; sourceTree = "<group>"; };
@@ -329,6 +337,8 @@
 				A00000000000000000000110 /* SlackIntegrationService.swift */,
 				A00000000000000000000111 /* SlackMessageReader.swift */,
 				A00000000000000000000112 /* SlackRelevanceFilter.swift */,
+				A00000000000000000000147 /* ClaudeBridgeProtocol.swift */,
+				A0000000000000000000014A /* ClaudeBridgeRouter.swift */,
 			);
 			path = Integrations;
 			sourceTree = "<group>";
@@ -358,6 +368,7 @@
 			children = (
 				A00000000000000000000102 /* MenuBarCaptureView.swift */,
 				A00000000000000000000145 /* VoiceCapturePanel.swift */,
+				A0000000000000000000014D /* ClaudeBridgeServer.swift */,
 				A0000000000000000000003A /* SerenityMacApp.swift */,
 			);
 			path = macOS;
@@ -554,6 +565,9 @@
 				A0000000000000000000013A /* RoutineStreaks.swift in Sources */,
 				A0000000000000000000013D /* GoalPace.swift in Sources */,
 				A00000000000000000000140 /* TodayBriefing.swift in Sources */,
+				A00000000000000000000148 /* ClaudeBridgeProtocol.swift in Sources */,
+				A0000000000000000000014B /* ClaudeBridgeRouter.swift in Sources */,
+				A0000000000000000000014E /* ClaudeBridgeServer.swift in Sources */,
 				A00000000000000000000128 /* StandupWriter.swift in Sources */,
 				A00000000000000000000143 /* VoiceCapture.swift in Sources */,
 			);
@@ -612,6 +626,8 @@
 				A0000000000000000000013B /* RoutineStreaks.swift in Sources */,
 				A0000000000000000000013E /* GoalPace.swift in Sources */,
 				A00000000000000000000141 /* TodayBriefing.swift in Sources */,
+				A00000000000000000000149 /* ClaudeBridgeProtocol.swift in Sources */,
+				A0000000000000000000014C /* ClaudeBridgeRouter.swift in Sources */,
 				A00000000000000000000138 /* StandupWriter.swift in Sources */,
 				A00000000000000000000144 /* VoiceCapture.swift in Sources */,
 			);

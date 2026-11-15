@@ -3171,7 +3171,8 @@ final class AppState: ObservableObject {
     tags: [String],
     subtaskTitles: [String],
     description: String = "",
-    projectID: String? = nil
+    projectID: String? = nil,
+    id: String = UUID().uuidString
   ) async -> Bool {
     let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedTitle.isEmpty else {
@@ -3189,7 +3190,7 @@ final class AppState: ObservableObject {
     }()
     let now = Date()
     let task = TaskEntity(
-      id: UUID().uuidString,
+      id: id,
       title: trimmedTitle,
       description: trimmedDescription.isEmpty ? nil : trimmedDescription,
       completed: false,
@@ -3558,7 +3559,8 @@ final class AppState: ObservableObject {
     title: String,
     content: String,
     mood: JournalMood?,
-    tags: [String]
+    tags: [String],
+    id: String = UUID().uuidString
   ) async -> Bool {
     let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedContent.isEmpty else {
@@ -3569,7 +3571,7 @@ final class AppState: ObservableObject {
     let now = Date()
     let resolvedTitle = await journalTitle(title, content: trimmedContent, date: now)
     let entry = JournalEntryEntity(
-      id: UUID().uuidString,
+      id: id,
       title: resolvedTitle,
       content: trimmedContent,
       date: now,

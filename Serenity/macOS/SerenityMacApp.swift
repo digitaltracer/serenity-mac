@@ -21,6 +21,7 @@ struct SerenityMacApp: App {
         .onAppear {
           appDelegate.appState = appState
           VoiceCapturePanelController.shared.install(appState: appState)
+          ClaudeBridgeController.shared.install(appState: appState)
           NSApplication.shared.registerForRemoteNotifications()
         }
     }

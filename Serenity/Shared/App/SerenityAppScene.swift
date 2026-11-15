@@ -10373,6 +10373,9 @@ private struct SettingsSectionView: View {
   @AppStorage(VoiceTranscriptionSettings.vocabularyKey) private var voiceVocabulary = ""
   @EnvironmentObject private var appState: AppState
   @Environment(\.serenityCompactLayout) private var compactLayout
+  #if os(macOS)
+  @ObservedObject private var claudeBridge = ClaudeBridgeController.shared
+  #endif
   @State private var authorizationCode = ""
   @State private var oauthBaseURL = ""
   @State private var oauthClientID = ""
@@ -10518,8 +10521,40 @@ private struct SettingsSectionView: View {
       DatabaseSectionView()
     case .diagnostics:
       diagnosticsPanel
+    case .claude:
+      #if os(macOS)
+      claudePanel
+      #else
+      EmptyView()
+      #endif
     }
   }
+
+  #if os(macOS)
+  private var claudePanel: some View {
+    let subtitle: String
+    let tint: Color
+    switch claudeBridge.status {
+    case .off:
+      subtitle = "Not connected"
+      tint = SerenityPalette.textSecondary
+    case .listening:
+      subtitle = "Ready for Claude on this Mac"
+      tint = .green
+    case .failed:
+      subtitle = "Couldn't start"
+      tint = .orange
+    }
+    return settingsPanel(title: "Claude", subtitle: subtitle, systemImage: "sparkles", tint: tint) {
+      VStack(alignment: .leading, spacing: 18) {
+        if case let .failed(message) = claudeBridge.status {
+          statusBanner(message, systemImage: "exclamationmark.triangle.fill", tint: .orange)
+        }
+        ClaudeBridgeSettingsContent(settings: claudeBridge.settings, socketPath: claudeBridge.socketPath)
+      }
+    }
+  }
+  #endif
 
   private var backendProfileDropdownOptions: [SerenityDropdownOption<BackendProfile>] {
     BackendProfile.allCases.map { profile in
@@ -18148,3 +18183,72 @@ private struct UndoToastBanner: View {
     }
   }
 }
+
+#if os(macOS)
+private struct ClaudeBridgeSettingsContent: View {
+  @ObservedObject var settings: ClaudeBridgeSettings
+  let socketPath: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      VStack(alignment: .leading, spacing: 7) {
+        Toggle("Connect to Claude", isOn: $settings.isEnabled)
+          .toggleStyle(.switch)
+        Text("Lets Claude Desktop and Claude Code read your day and make changes through Serenity. Only apps running as you on this Mac can connect.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      VStack(alignment: .leading, spacing: 7) {
+        Toggle("Let Claude read and write journal entries", isOn: $settings.journalAccess)
+          .toggleStyle(.switch)
+          .disabled(!settings.isEnabled)
+        Text("Off by default. Tasks, goals, routines and focus sessions are shared either way.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .firstTextBaseline) {
+          Text("Changes made by Claude")
+            .font(SerenityType.sectionTitle)
+            .foregroundStyle(SerenityPalette.textPrimary)
+          Spacer()
+          if !settings.activity.isEmpty {
+            Button("Clear") { settings.clearActivity() }
+              .buttonStyle(.plain)
+              .font(SerenityType.bodyMedium)
+              .foregroundStyle(SerenityPalette.accent)
+          }
+        }
+        if settings.activity.isEmpty {
+          Text("Nothing yet.")
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        } else {
+          ForEach(settings.activity.prefix(12)) { entry in
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+              Text(entry.summary)
+                .font(SerenityType.body)
+                .foregroundStyle(SerenityPalette.textPrimary)
+              Spacer(minLength: 8)
+              Text(entry.date, style: .relative)
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
+            }
+          }
+        }
+      }
+
+      if let socketPath {
+        Text(socketPath)
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .textSelection(.enabled)
+      }
+    }
+  }
+}
+#endif
