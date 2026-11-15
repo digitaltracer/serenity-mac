@@ -6007,9 +6007,10 @@ private struct GoalsSectionView: View {
 
     VStack(alignment: .leading, spacing: 18) {
       HStack(alignment: .center, spacing: 12) {
-        Text("Progress fills itself in from tasks, routines, focus time and check-ins.")
+        Text("Each bar is your progress. The short line across it is where an even pace puts you today: past it, you're ahead; short of it, you're behind.")
           .font(SerenityType.body)
           .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
         Spacer(minLength: 8)
         Button("Weekly review") {
           appState.isWeeklyReviewPresented = true
@@ -6032,7 +6033,7 @@ private struct GoalsSectionView: View {
             .foregroundStyle(SerenityPalette.textSecondary.opacity(0.65))
           Text("No goals yet")
             .font(SerenityType.bodyLarge.weight(.medium))
-          Text("Finish something by a date, hit a number every week or month, or keep an area of life from going quiet.")
+          Text("Finish something by a date, do something every week or month, or keep an area of life from going quiet.")
             .font(SerenityType.body)
             .foregroundStyle(SerenityPalette.textSecondary)
             .multilineTextAlignment(.center)
@@ -6042,14 +6043,15 @@ private struct GoalsSectionView: View {
         .padding(.vertical, 32)
         .routinePanel()
       } else {
+        GoalSummaryPills(reports: active)
         ForEach(GoalKind.allCases, id: \.self) { kind in
           let group = active.filter { $0.kind == kind }
           if !group.isEmpty {
-            goalGroup(title: kind.groupTitle, reports: group)
+            goalGroup(title: kind.groupTitle, note: kind.groupNote, reports: group)
           }
         }
         if !finished.isEmpty {
-          goalGroup(title: "Finished", reports: finished)
+          goalGroup(title: "Finished", note: nil, reports: finished)
         }
       }
     }
@@ -6072,15 +6074,22 @@ private struct GoalsSectionView: View {
     }
   }
 
-  private func goalGroup(title: String, reports: [GoalReport]) -> some View {
+  private func goalGroup(title: String, note: String?, reports: [GoalReport]) -> some View {
     VStack(alignment: .leading, spacing: 0) {
-      Text(title.uppercased())
-        .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
-        .tracking(0.9)
-        .foregroundStyle(SerenityPalette.textSecondary)
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 6)
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
+        Text(title.uppercased())
+          .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
+          .tracking(0.9)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        if let note {
+          Text(note)
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+        }
+      }
+      .padding(.horizontal, 16)
+      .padding(.top, 14)
+      .padding(.bottom, 4)
 
       ForEach(Array(reports.enumerated()), id: \.element.id) { index, report in
         if index > 0 {
@@ -6106,57 +6115,229 @@ private struct GoalsSectionView: View {
   }
 }
 
+/// How the goals stand at a glance; only counts that aren't zero.
+private struct GoalSummaryPills: View {
+  let reports: [GoalReport]
+
+  var body: some View {
+    let timed = reports.filter { $0.kind != .area && !$0.isPaused && !$0.needsSetup && $0.goal.status == .active }
+    let onPace = timed.filter { !$0.needsAttention }.count
+    let behind = timed.filter(\.needsAttention).count
+    let quiet = reports.filter(\.isQuiet).count
+    let paused = reports.filter(\.isPaused).count
+    let setup = reports.filter(\.needsSetup).count
+    let pills: [(String, Color)] = [
+      onPace > 0 ? ("\(onPace) on pace or ahead", SerenityPalette.accent) : nil,
+      behind > 0 ? ("\(behind) behind", SerenityPalette.attention) : nil,
+      quiet > 0 ? (quiet == 1 ? "1 quiet area" : "\(quiet) quiet areas", SerenityPalette.attention) : nil,
+      paused > 0 ? ("\(paused) paused this week", SerenityPalette.textSecondary) : nil,
+      setup > 0 ? ("\(setup) need\(setup == 1 ? "s" : "") setup", SerenityPalette.textSecondary) : nil,
+    ].compactMap { $0 }
+
+    if !pills.isEmpty {
+      HStack(spacing: 8) {
+        ForEach(pills, id: \.0) { pill in
+          GoalStatusPill(text: pill.0, tint: pill.1)
+        }
+      }
+      .accessibilityElement(children: .combine)
+    }
+  }
+}
+
+private struct GoalStatusPill: View {
+  let text: String
+  let tint: Color
+
+  var body: some View {
+    Text(text)
+      .font(SerenityType.caption.weight(.semibold))
+      .foregroundStyle(tint)
+      .lineLimit(1)
+      .padding(.horizontal, 10)
+      .frame(height: 24)
+      .background(tint.opacity(0.14), in: Capsule())
+  }
+}
+
+/// Four weeks of an area's activity, one square a day, today last.
+private struct GoalActivityStrip: View {
+  let days: [Int]
+
+  var body: some View {
+    HStack(spacing: 3) {
+      ForEach(Array(days.enumerated()), id: \.offset) { _, count in
+        RoundedRectangle(cornerRadius: 3, style: .continuous)
+          .fill(count == 0 ? SerenityPalette.border : SerenityPalette.routineAccent.opacity(count > 1 ? 1 : 0.5))
+          .frame(width: 10, height: 10)
+      }
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Active on \(days.filter { $0 > 0 }.count) of the last \(days.count) days")
+  }
+}
+
 private struct GoalRow: View {
   @EnvironmentObject private var appState: AppState
+  @Environment(\.serenityCompactLayout) private var compactLayout
 
   let report: GoalReport
   let expanded: Bool
   let onToggle: () -> Void
   let onEdit: () -> Void
 
-  @State private var amountText = ""
-  @State private var note = ""
+  @State private var logOpen = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Button(action: onToggle) {
-        VStack(alignment: .leading, spacing: 8) {
-          HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(report.goal.title)
-              .font(SerenityType.bodyLarge.weight(.medium))
-              .foregroundStyle(SerenityPalette.textPrimary)
-              .lineLimit(2)
-            if report.goal.status == .paused {
-              Text("Paused")
-                .font(SerenityType.caption)
-                .foregroundStyle(SerenityPalette.textSecondary)
-            }
-            Spacer(minLength: 8)
-            Text(report.statusLabel)
-              .font(SerenityType.bodyMedium)
-              .foregroundStyle(report.statusTint)
-          }
-
-          if report.kind != .area {
-            GoalPaceBar(fraction: report.fraction, expected: report.expectedFraction, tint: report.statusTint)
-          }
-
-          Text(report.metaLine)
-            .font(SerenityType.caption)
-            .foregroundStyle(SerenityPalette.textSecondary)
+      if compactLayout {
+        VStack(alignment: .leading, spacing: 10) {
+          titleColumn
+          progressColumn
+          actionColumn
         }
-        .contentShape(Rectangle())
+      } else {
+        HStack(alignment: .center, spacing: 20) {
+          titleColumn
+            .frame(maxWidth: .infinity, alignment: .leading)
+          progressColumn
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
+          actionColumn
+            .frame(minWidth: 150, alignment: .trailing)
+        }
       }
-      .buttonStyle(.plain)
-      .hoverCursor(.pointingHand)
-      .accessibilityHint(expanded ? "Collapse details" : "Show details")
+
+      if logOpen {
+        GoalLogPanel(report: report) { logOpen = false }
+      }
 
       if expanded {
         detail
       }
     }
     .padding(.horizontal, 16)
-    .padding(.vertical, 12)
+    .padding(.vertical, 14)
+  }
+
+  private var titleColumn: some View {
+    Button(action: onToggle) {
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Text(report.goal.title)
+            .font(SerenityType.bodyLarge.weight(.medium))
+            .foregroundStyle(SerenityPalette.textPrimary)
+            .lineLimit(2)
+          Image(systemName: expanded ? "chevron.down" : "chevron.right")
+            .font(SerenityType.scaledSystem(size: 10, weight: .semibold))
+            .foregroundStyle(SerenityPalette.textSecondary)
+          if report.goal.status == .paused {
+            Text("Paused")
+              .font(SerenityType.caption)
+              .foregroundStyle(SerenityPalette.textSecondary)
+          }
+        }
+        Text(sourceText)
+          .font(SerenityType.caption)
+          .foregroundStyle(report.needsSetup ? SerenityPalette.attention : SerenityPalette.textSecondary)
+          .lineLimit(2)
+      }
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+    .accessibilityHint(expanded ? "Hide details" : "Show details")
+  }
+
+  private var sourceText: String {
+    let config = report.goal.config
+    let project = config.projectId.flatMap { id in appState.projects.first { $0.id == id }?.name }
+    let routine = config.routineId.flatMap { id in appState.routines.first { $0.id == id }?.title }
+    var line = report.sourceLine(projectName: project, routineName: routine)
+    if report.isManual, !report.needsSetup, let last = report.lastCheckIn {
+      line += " · last: \(report.amountPhrase(last.amount)) \(GoalRow.when(last.date))"
+    }
+    return line
+  }
+
+  static func when(_ date: Date) -> String {
+    let calendar = Calendar.current
+    if calendar.isDateInToday(date) { return "today" }
+    if calendar.isDateInYesterday(date) { return "yesterday" }
+    return date.formatted(.dateTime.day().month(.abbreviated))
+  }
+
+  @ViewBuilder
+  private var progressColumn: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if report.needsSetup {
+        Capsule()
+          .strokeBorder(SerenityPalette.textSecondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+          .frame(height: 8)
+        Text("Pick what moves it: an amount you log, a routine you tick, or tasks in a project.")
+      } else if report.kind == .area {
+        GoalActivityStrip(days: report.activityDays)
+        Text(report.paceLine())
+      } else {
+        GoalPaceBar(fraction: report.fraction, expected: report.isPaused ? nil : report.expectedFraction, tint: report.statusTint)
+        Text(report.paceLine())
+      }
+    }
+    .font(SerenityType.caption)
+    .foregroundStyle(SerenityPalette.textSecondary)
+  }
+
+  private var actionColumn: some View {
+    VStack(alignment: compactLayout ? .leading : .trailing, spacing: 6) {
+      GoalStatusPill(text: report.statusLabel, tint: report.statusTint)
+      HStack(spacing: 8) {
+        primaryAction
+      }
+      if report.kind == .target, report.goal.status == .active, !report.needsSetup {
+        Button(report.isPaused ? "Resume" : "Pause this week") {
+          Task {
+            if report.isPaused {
+              await appState.resumeGoal(id: report.goal.id)
+            } else {
+              await appState.pauseGoalForWeek(id: report.goal.id)
+            }
+          }
+        }
+        .buttonStyle(.plain)
+        .font(SerenityType.caption.weight(.medium))
+        .foregroundStyle(SerenityPalette.accent)
+        .hoverCursor(.pointingHand)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var primaryAction: some View {
+    if report.goal.status == .completed {
+      EmptyView()
+    } else if report.needsSetup {
+      Button("Choose what counts", action: onEdit)
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+    } else if report.kind == .area {
+      Button("Log something") { logOpen.toggle() }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+    } else if report.logsByOne {
+      Button("+1 \(report.unit.isEmpty ? "" : GoalReport.singular(report.unit))".trimmingCharacters(in: .whitespaces)) {
+        Task { await appState.checkInGoal(id: report.goal.id, amount: 1, note: nil) }
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+    } else if report.isManual {
+      Button {
+        logOpen.toggle()
+      } label: {
+        Label("Log \(report.unit)", systemImage: "plus")
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+    }
   }
 
   @ViewBuilder
@@ -6178,12 +6359,10 @@ private struct GoalRow: View {
         }
       }
 
-      checkInForm
-
       let checkIns = (report.goal.config.checkIns ?? []).sorted { $0.date > $1.date }.prefix(5)
       if !checkIns.isEmpty {
         VStack(alignment: .leading, spacing: 6) {
-          Text("Check-ins")
+          Text(report.kind == .area ? "Logged" : "Check-ins")
             .font(SerenityType.caption)
             .foregroundStyle(SerenityPalette.textSecondary)
           ForEach(Array(checkIns)) { checkIn in
@@ -6214,7 +6393,7 @@ private struct GoalRow: View {
         Button("Edit", action: onEdit)
           .buttonStyle(SerenitySecondaryButtonStyle())
           .hoverCursor(.pointingHand)
-        Button(report.goal.status == .paused ? "Resume" : "Pause") {
+        Button(report.goal.status == .paused ? "Resume goal" : "Pause goal") {
           Task { await appState.setGoalStatus(id: report.goal.id, status: report.goal.status == .paused ? .active : .paused) }
         }
         .buttonStyle(SerenitySecondaryButtonStyle())
@@ -6236,33 +6415,75 @@ private struct GoalRow: View {
     }
   }
 
-  private var checkInForm: some View {
-    HStack(spacing: 8) {
-      if report.kind != .area {
-        TextField(report.unit.isEmpty ? "Amount" : "Amount (\(report.unit))", text: $amountText)
-          .textFieldStyle(.plain)
-          .serenityInputField()
-          .frame(width: 140)
-      }
-      TextField(report.kind == .area ? "What you did" : "Note (optional)", text: $note)
-        .textFieldStyle(.plain)
-        .serenityInputField()
-      Button(report.kind == .area ? "Log it" : "Check in") {
-        let amount = report.kind == .area ? 1 : (Double(amountText.replacingOccurrences(of: ",", with: ".")) ?? 0)
-        let noteText = note
-        Task { await appState.checkInGoal(id: report.goal.id, amount: amount, note: noteText) }
-        amountText = ""
-        note = ""
-      }
-      .buttonStyle(SerenityPrimaryButtonStyle())
-      .hoverCursor(.pointingHand)
-      .disabled(report.kind == .area ? note.trimmingCharacters(in: .whitespaces).isEmpty : Double(amountText.replacingOccurrences(of: ",", with: ".")) == nil)
-    }
+  private func checkInText(_ checkIn: GoalCheckIn) -> String {
+    let amount = report.kind == .area ? nil : "+\(report.amountPhrase(checkIn.amount))"
+    return [amount, checkIn.note.map { "“\($0)”" }].compactMap { $0 }.joined(separator: "  ")
+  }
+}
+
+/// Logging right where the goal is: one-tap amounts, any other amount, and an optional note.
+/// Areas take a note only, since touching the area is what counts.
+private struct GoalLogPanel: View {
+  @EnvironmentObject private var appState: AppState
+
+  let report: GoalReport
+  let onDone: () -> Void
+
+  @State private var amountText = ""
+  @State private var note = ""
+
+  private var amount: Double? {
+    Double(amountText.replacingOccurrences(of: ",", with: ".")).flatMap { $0 > 0 ? $0 : nil }
   }
 
-  private func checkInText(_ checkIn: GoalCheckIn) -> String {
-    let amount = report.kind == .area ? nil : "+\(GoalReport.format(checkIn.amount))\(report.unit.isEmpty ? "" : " \(report.unit)")"
-    return [amount, checkIn.note.map { "“\($0)”" }].compactMap { $0 }.joined(separator: "  ")
+  var body: some View {
+    HStack(spacing: 8) {
+      if report.kind == .area {
+        TextField("What did you do?", text: $note)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+          .onSubmit(logArea)
+        Button("Log", action: logArea)
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .disabled(note.trimmingCharacters(in: .whitespaces).isEmpty)
+      } else {
+        Text("Add")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+        ForEach(report.logPresets, id: \.self) { preset in
+          Button("+\(report.amountPhrase(preset))") { log(preset) }
+            .buttonStyle(SerenitySecondaryButtonStyle())
+            .hoverCursor(.pointingHand)
+        }
+        TextField(report.unit.isEmpty ? "Other" : "Other (\(report.unit))", text: $amountText)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+          .frame(width: 120)
+          .onSubmit { if let amount { log(amount) } }
+        TextField("Note (optional)", text: $note)
+          .textFieldStyle(.plain)
+          .serenityInputField()
+        Button("Add") { if let amount { log(amount) } }
+          .buttonStyle(SerenityPrimaryButtonStyle())
+          .disabled(amount == nil)
+      }
+    }
+    .padding(10)
+    .background(SerenityPalette.panelBackground.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(SerenityPalette.thinBorder, lineWidth: 1))
+  }
+
+  private func log(_ value: Double) {
+    let noteText = note
+    Task { await appState.checkInGoal(id: report.goal.id, amount: value, note: noteText) }
+    onDone()
+  }
+
+  private func logArea() {
+    let noteText = note.trimmingCharacters(in: .whitespaces)
+    guard !noteText.isEmpty else { return }
+    Task { await appState.checkInGoal(id: report.goal.id, amount: 1, note: noteText) }
+    onDone()
   }
 }
 
@@ -6337,6 +6558,7 @@ private struct GoalPaceChart: View {
 private extension GoalReport {
   var statusTint: Color {
     if goal.status == .completed { return SerenityPalette.routineAccent }
+    if isPaused || needsSetup { return SerenityPalette.textSecondary }
     if needsAttention { return SerenityPalette.attention }
     if case .done = pace { return SerenityPalette.routineAccent }
     return SerenityPalette.accent
@@ -6373,11 +6595,22 @@ extension GoalKind {
   var groupTitle: String {
     switch self {
     case .outcome:
-      return "Outcomes · have a finish line"
+      return "Finish by a date"
     case .target:
-      return "Targets · reset each period"
+      return "Every week or month"
     case .area:
-      return "Areas · no finish line"
+      return "Keep alive"
+    }
+  }
+
+  var groupNote: String {
+    switch self {
+    case .outcome:
+      return "One finish line. Behind means the date is at risk."
+    case .target:
+      return "Starts fresh each period. Pause a week and it won't count against you."
+    case .area:
+      return "No number. Serenity flags an area when nothing has touched it for a while."
     }
   }
 
@@ -6412,6 +6645,8 @@ extension GoalSource {
   }
 }
 
+/// New goals start from what you're aiming for, then what moves it; the source is suggested from the
+/// name, hand-logged goals need a unit, and a preview says how the goal will read once saved.
 private struct GoalEditorSheet: View {
   @Environment(\.dismiss) private var dismiss
 
@@ -6422,20 +6657,38 @@ private struct GoalEditorSheet: View {
 
   @State private var draft: GoalDraft
   @State private var targetText: String
+  @State private var step: Int
+  /// Until the person picks a source, it follows the name as they type.
+  @State private var sourceChosen: Bool
 
   init(goal: GoalEntity?, projects: [ProjectEntity], routines: [RoutineEntity], onSave: @escaping (GoalDraft) -> Void) {
     self.goal = goal
     self.projects = projects
     self.routines = routines
     self.onSave = onSave
-    let draft = goal.map(GoalDraft.init(goal:)) ?? GoalDraft()
+    var draft = goal.map(GoalDraft.init(goal:)) ?? GoalDraft()
+    if goal == nil { draft.target = 0 }
     _draft = State(initialValue: draft)
     let usesProjectCount = goal != nil && draft.source == .projectTasks && goal?.config.targetCount == nil
-    _targetText = State(initialValue: usesProjectCount ? "" : GoalReport.format(draft.target))
+    _targetText = State(initialValue: goal == nil || usesProjectCount ? "" : GoalReport.format(draft.target))
+    _step = State(initialValue: goal == nil ? 1 : 2)
+    _sourceChosen = State(initialValue: goal != nil)
   }
 
   private var targetValue: Double? {
     Double(targetText.replacingOccurrences(of: ",", with: "."))
+  }
+
+  private var projectName: String? {
+    draft.projectId.flatMap { id in projects.first { $0.id == id }?.name }
+  }
+
+  private var routineName: String? {
+    draft.routineId.flatMap { id in routines.first { $0.id == id }?.title }
+  }
+
+  private var suggested: GoalSource {
+    draft.suggestedSource(routines: routines, projects: projects)
   }
 
   private var canSave: Bool {
@@ -6444,6 +6697,7 @@ private struct GoalEditorSheet: View {
     case .area:
       return draft.projectId != nil || !draft.areaTag.trimmingCharacters(in: .whitespaces).isEmpty
     case .outcome, .target:
+      if draft.needsUnit { return false }
       if draft.source == .projectTasks && draft.projectId == nil { return false }
       if draft.source == .routine && draft.routineId == nil { return false }
       if draft.kind == .outcome && draft.source == .projectTasks && targetText.isEmpty { return true }
@@ -6452,128 +6706,276 @@ private struct GoalEditorSheet: View {
   }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 16) {
-        Text(goal == nil ? "New goal" : "Edit goal")
-          .font(SerenityType.sectionTitle)
-
-        Picker("Kind", selection: $draft.kind) {
-          ForEach(GoalKind.allCases, id: \.self) { kind in
-            Text(kind.choiceTitle).tag(kind)
-          }
-        }
-        .labelsHidden()
-        .pickerStyle(.segmented)
-
-        field("Name") {
-          TextField(placeholder, text: $draft.title)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-        }
-
-        field("Why it matters (optional)") {
-          TextField("A daily driver I would pay for", text: $draft.why)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-        }
-
-        switch draft.kind {
-        case .outcome:
-          field("Finish by") {
-            DatePicker("Finish by", selection: $draft.dueDate, displayedComponents: .date)
-              .labelsHidden()
-          }
-          sourceFields
-          targetFields(hint: draft.source == .projectTasks ? "Leave blank to finish when every task in the project is done." : nil)
-        case .target:
-          field("Resets every") {
-            Picker("Resets every", selection: $draft.timeframe) {
-              Text("Week").tag(GoalTimeframe.weekly)
-              Text("Month").tag(GoalTimeframe.monthly)
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-          }
-          sourceFields
-          targetFields(hint: nil)
-        case .area:
-          field("Project to watch (optional)") {
-            projectPicker
-          }
-          field("Tag to watch (optional)") {
-            TextField("health", text: $draft.areaTag)
-              .textFieldStyle(.plain)
-              .serenityInputField()
-          }
-          Stepper("Flag it after \(draft.quietDays) quiet days", value: $draft.quietDays, in: 2...60)
-            .font(SerenityType.body)
-          Text("Finished tasks in the project or with the tag, journal entries with the tag, and anything you log here all count as touching the area.")
-            .font(SerenityType.caption)
+    VStack(spacing: 0) {
+      HStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(goal == nil ? "New goal · step \(step) of 2" : "Edit goal")
+            .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
+            .tracking(0.9)
+            .textCase(.uppercase)
             .foregroundStyle(SerenityPalette.textSecondary)
+          Text(step == 1 ? "What are you aiming for?" : (draft.kind == .area ? "What keeps it alive?" : "What counts toward it?"))
+            .font(SerenityType.sectionTitle)
         }
+        Spacer()
+      }
+      .padding(20)
 
-        HStack {
-          Spacer()
-          Button("Cancel") {
-            dismiss()
+      Divider().overlay(SerenityPalette.thinBorder)
+
+      ScrollView {
+        VStack(alignment: .leading, spacing: 18) {
+          if step == 1 {
+            shapeChoices
+          } else {
+            details
           }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+
+      Divider().overlay(SerenityPalette.thinBorder)
+
+      HStack(spacing: 10) {
+        if step == 2 {
+          Button(goal == nil ? "Back" : "Change kind") { step = 1 }
+            .buttonStyle(SerenitySecondaryButtonStyle())
+        }
+        Spacer()
+        Button("Cancel") { dismiss() }
           .buttonStyle(SerenitySecondaryButtonStyle())
-          .hoverCursor(.pointingHand)
-          Button("Save") {
+          .keyboardShortcut(.cancelAction)
+        if step == 2 {
+          Button(goal == nil ? "Create goal" : "Save") {
             var saved = draft
             saved.target = targetValue ?? 0
             onSave(saved)
             dismiss()
           }
           .buttonStyle(SerenityPrimaryButtonStyle())
-          .hoverCursor(.pointingHand)
           .disabled(!canSave)
           .keyboardShortcut(.defaultAction)
         }
       }
-      .padding(20)
+      .padding(16)
     }
-    .frame(minWidth: 460, minHeight: 480)
+    .frame(minWidth: 560, idealWidth: 620, minHeight: 600, idealHeight: 680)
+    .onChange(of: draft.title) { _, _ in
+      guard !sourceChosen, draft.kind != .area else { return }
+      choose(suggested, byHand: false)
+    }
+  }
+
+  private var shapeChoices: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Pick the one that sounds like your goal. You can change it later.")
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textSecondary)
+      shapeButton(.outcome, icon: "flag", title: "Finish something by a date", example: "Ship the app by 15 Dec · Move into the new flat by January")
+      shapeButton(.target, icon: "arrow.triangle.2.circlepath", title: "Do something regularly", example: "Run 60 km a month · Journal 5 days a week · 15 h of deep work a week")
+      shapeButton(.area, icon: "heart", title: "Keep an area of life alive", example: "Health · Friends · Home. No number; Serenity tells you when it goes quiet.")
+    }
+  }
+
+  private func shapeButton(_ kind: GoalKind, icon: String, title: String, example: String) -> some View {
+    Button {
+      draft.kind = kind
+      if !sourceChosen || (kind != .area && draft.source == .manual && draft.unit.isEmpty) {
+        choose(draft.suggestedSource(routines: routines, projects: projects), byHand: false)
+      }
+      step = 2
+    } label: {
+      HStack(alignment: .top, spacing: 14) {
+        Image(systemName: icon)
+          .font(SerenityType.scaledSystem(size: 15, weight: .semibold))
+          .foregroundStyle(SerenityPalette.accent)
+          .frame(width: 36, height: 36)
+          .background(SerenityPalette.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        VStack(alignment: .leading, spacing: 3) {
+          Text(title)
+            .font(SerenityType.bodyLarge.weight(.semibold))
+            .foregroundStyle(SerenityPalette.textPrimary)
+          Text(example)
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .multilineTextAlignment(.leading)
+        }
+        Spacer(minLength: 0)
+        if goal != nil && draft.kind == kind {
+          Image(systemName: "checkmark")
+            .foregroundStyle(SerenityPalette.accent)
+        }
+      }
+      .padding(16)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(SerenityPalette.border, lineWidth: 1))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .hoverCursor(.pointingHand)
+  }
+
+  @ViewBuilder
+  private var details: some View {
+    field("Name") {
+      TextField(placeholder, text: $draft.title)
+        .textFieldStyle(.plain)
+        .serenityInputField()
+    }
+
+    switch draft.kind {
+    case .target:
+      field("How often") {
+        Picker("How often", selection: $draft.timeframe) {
+          Text("Every week").tag(GoalTimeframe.weekly)
+          Text("Every month").tag(GoalTimeframe.monthly)
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 280)
+      }
+      sourceOptions
+      targetFields
+    case .outcome:
+      field("Finish by") {
+        DatePicker("Finish by", selection: $draft.dueDate, displayedComponents: .date)
+          .labelsHidden()
+          .frame(maxWidth: 200, alignment: .leading)
+      }
+      sourceOptions
+      targetFields
+    case .area:
+      HStack(alignment: .top, spacing: 12) {
+        field("Tag that touches it") {
+          TextField("health", text: $draft.areaTag)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+        }
+        field("Or a project (optional)") {
+          projectPicker
+        }
+      }
+      Stepper("Flag it after \(draft.quietDays) quiet days", value: $draft.quietDays, in: 2...60)
+        .font(SerenityType.body)
+    }
+
+    field("Why it matters (optional)") {
+      TextField("A daily driver I would pay for", text: $draft.why)
+        .textFieldStyle(.plain)
+        .serenityInputField()
+    }
+
+    preview
   }
 
   private var placeholder: String {
     switch draft.kind {
-    case .outcome:
-      return "Ship Serenity 1.0"
-    case .target:
-      return "Run 60 km a month"
-    case .area:
-      return "Health"
+    case .outcome: return "Ship Serenity 1.0"
+    case .target: return "Run 60 km a month"
+    case .area: return "Health"
     }
   }
 
-  @ViewBuilder
-  private var sourceFields: some View {
-    field("Progress comes from") {
-      Picker("Progress comes from", selection: $draft.source) {
-        Text("Check-ins").tag(GoalSource.manual)
-        Text("Tasks in a project").tag(GoalSource.projectTasks)
-        Text("Any finished task").tag(GoalSource.completedTasks)
-        Text("Routine days").tag(GoalSource.routine)
-        Text("Journal entries").tag(GoalSource.journalEntries)
-        Text("Focus time").tag(GoalSource.focusTime)
-      }
-      .labelsHidden()
-    }
-    if draft.source == .projectTasks {
-      field("Project") {
-        projectPicker
-      }
-    }
-    if draft.source == .routine {
-      field("Routine") {
-        Picker("Routine", selection: $draft.routineId) {
-          Text("Choose a routine").tag(String?.none)
-          ForEach(routines) { routine in
-            Text(routine.title).tag(Optional(routine.id))
+  private var sourceChoices: [(GoalSource, String, String)] {
+    let log = (GoalSource.manual, draft.kind == .outcome ? "A number you log yourself" : "Something you log yourself", "Kilometres, pages, money. A Log button sits on the goal and the Today card.")
+    let project = (GoalSource.projectTasks, "Tasks in a project", draft.kind == .outcome ? "Each finished task counts. Leave the target blank to finish when the project does." : "Each task you finish in one project counts.")
+    let any = (GoalSource.completedTasks, "Any task you finish", "Every completed task counts.")
+    let routine = (GoalSource.routine, "Days you tick a routine", "Counts the days you tick it. Nothing extra to log.")
+    let focus = (GoalSource.focusTime, "Focus time", "Hours from finished focus sessions.")
+    let journal = (GoalSource.journalEntries, "Journal entries", "Each entry counts once.")
+    return draft.kind == .outcome
+      ? [project, log, any, focus, journal, routine]
+      : [log, routine, project, any, focus, journal]
+  }
+
+  private var sourceOptions: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("What moves it forward?")
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+      ForEach(sourceChoices, id: \.0) { option in
+        let selected = draft.source == option.0
+        Button {
+          choose(option.0, byHand: true)
+        } label: {
+          HStack(alignment: .top, spacing: 12) {
+            Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+              .foregroundStyle(selected ? SerenityPalette.accent : SerenityPalette.textSecondary)
+              .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+              HStack(spacing: 8) {
+                Text(option.1)
+                  .font(SerenityType.bodyMedium)
+                  .foregroundStyle(SerenityPalette.textPrimary)
+                if option.0 == suggested {
+                  GoalStatusPill(text: "Suggested", tint: SerenityPalette.accent)
+                }
+              }
+              Text(option.2)
+                .font(SerenityType.caption)
+                .foregroundStyle(SerenityPalette.textSecondary)
+                .multilineTextAlignment(.leading)
+            }
+            Spacer(minLength: 0)
           }
+          .padding(12)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(selected ? SerenityPalette.accent.opacity(0.10) : SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(selected ? SerenityPalette.accent.opacity(0.45) : SerenityPalette.border, lineWidth: 1))
+          .contentShape(Rectangle())
         }
-        .labelsHidden()
+        .buttonStyle(.plain)
+        .hoverCursor(.pointingHand)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+      }
+
+      if draft.source == .projectTasks {
+        field("Project") { projectPicker }
+      }
+      if draft.source == .routine {
+        field("Routine") {
+          Picker("Routine", selection: $draft.routineId) {
+            Text("Choose a routine").tag(String?.none)
+            ForEach(routines) { routine in
+              Text(routine.title).tag(Optional(routine.id))
+            }
+          }
+          .labelsHidden()
+          .frame(maxWidth: 320, alignment: .leading)
+        }
+      }
+    }
+  }
+
+  private var targetFields: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(alignment: .bottom, spacing: 12) {
+        field(draft.kind == .target ? "How much each \(draft.timeframe == .monthly ? "month" : "week")" : "Target") {
+          TextField(draft.source == .projectTasks && draft.kind == .outcome ? "All tasks" : "60", text: $targetText)
+            .textFieldStyle(.plain)
+            .serenityInputField()
+            .frame(width: 140)
+        }
+        if draft.source == .manual {
+          field("Unit") {
+            TextField("km, pages, $", text: $draft.unit)
+              .textFieldStyle(.plain)
+              .serenityInputField()
+              .frame(width: 180)
+          }
+        } else {
+          Text(draft.effectiveUnit)
+            .font(SerenityType.body)
+            .foregroundStyle(SerenityPalette.textSecondary)
+            .padding(.bottom, 9)
+        }
+      }
+      if draft.needsUnit {
+        Text("Add a unit so the number means something, like km or pages.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.attention)
       }
     }
   }
@@ -6586,31 +6988,51 @@ private struct GoalEditorSheet: View {
       }
     }
     .labelsHidden()
+    .frame(maxWidth: 320, alignment: .leading)
   }
 
-  private func targetFields(hint: String?) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack(spacing: 12) {
-        field("Target") {
-          TextField("10", text: $targetText)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-            .frame(width: 120)
-        }
-        if draft.source == .manual {
-          field("Unit (optional)") {
-            TextField("km", text: $draft.unit)
-              .textFieldStyle(.plain)
-              .serenityInputField()
-              .frame(width: 140)
-          }
-        }
-      }
-      if let hint {
-        Text(hint)
+  private var preview: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("How it will read")
+        .font(SerenityType.scaledSystem(size: 11, weight: .semibold))
+        .tracking(0.9)
+        .textCase(.uppercase)
+        .foregroundStyle(SerenityPalette.textSecondary)
+      Text(draft.previewSentence(projectName: projectName, routineName: routineName, targetText: targetText))
+        .font(SerenityType.body)
+        .foregroundStyle(SerenityPalette.textPrimary)
+        .fixedSize(horizontal: false, vertical: true)
+      if draft.kind == .target, !draft.needsUnit, let target = targetValue, target > 0 {
+        let elapsed = periodElapsed
+        GoalPaceBar(fraction: 0, expected: elapsed, tint: SerenityPalette.accent)
+        Text("Today an even pace puts you at about \(GoalReport.format((target * elapsed).rounded())) \(draft.effectiveUnit). That's the short line on the bar.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+      } else if draft.kind == .outcome, !draft.needsUnit {
+        Text("Serenity spreads it evenly to \(draft.dueDate.formatted(.dateTime.day().month(.abbreviated))) and shows how far ahead or behind you are.")
           .font(SerenityType.caption)
           .foregroundStyle(SerenityPalette.textSecondary)
       }
+    }
+    .padding(14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(SerenityPalette.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(SerenityPalette.thinBorder, lineWidth: 1))
+  }
+
+  /// How far through this week or month today is, for the preview's pace line.
+  private var periodElapsed: Double {
+    let now = Date()
+    let component: Calendar.Component = draft.timeframe == .monthly ? .month : .weekOfYear
+    guard let period = Calendar.current.dateInterval(of: component, for: now), period.duration > 0 else { return 0 }
+    return min(max(now.timeIntervalSince(period.start) / period.duration, 0), 1)
+  }
+
+  private func choose(_ source: GoalSource, byHand: Bool) {
+    draft.source = source
+    if byHand { sourceChosen = true }
+    if source == .routine, draft.routineId == nil {
+      draft.routineId = draft.matchingRoutine(in: routines)?.id
     }
   }
 
@@ -16361,38 +16783,94 @@ private struct TodayGoalsCard: View {
           .foregroundStyle(SerenityPalette.textSecondary)
       } else {
         ForEach(Array(reports)) { report in
-          Button {
-            appState.focusedGoalID = report.id
-            appState.setSection(.goals)
-          } label: {
-            VStack(alignment: .leading, spacing: 6) {
-              HStack(alignment: .firstTextBaseline) {
-                Text(report.goal.title)
-                  .font(SerenityType.bodyMedium)
-                  .foregroundStyle(SerenityPalette.textPrimary)
-                  .lineLimit(1)
-                Spacer(minLength: 6)
-                Text(report.statusLabel)
+          HStack(alignment: .top, spacing: 10) {
+            Button {
+              appState.focusedGoalID = report.id
+              appState.setSection(.goals)
+            } label: {
+              VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                  Text(report.goal.title)
+                    .font(SerenityType.bodyMedium)
+                    .foregroundStyle(SerenityPalette.textPrimary)
+                    .lineLimit(1)
+                  Spacer(minLength: 6)
+                  Text(report.statusLabel)
+                    .font(SerenityType.caption)
+                    .foregroundStyle(report.statusTint)
+                }
+                GoalPaceBar(fraction: report.fraction, expected: report.isPaused ? nil : report.expectedFraction, tint: report.statusTint)
+                Text(report.paceLine())
                   .font(SerenityType.caption)
-                  .foregroundStyle(report.statusTint)
+                  .foregroundStyle(SerenityPalette.textSecondary)
+                  .lineLimit(2)
               }
-              GoalPaceBar(fraction: report.fraction, expected: report.expectedFraction, tint: report.statusTint)
-              Text(report.progressLabel)
-                .font(SerenityType.caption)
-                .foregroundStyle(SerenityPalette.textSecondary)
+              .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .hoverCursor(.pointingHand)
+
+            if report.isManual, !report.needsSetup {
+              TodayGoalQuickLog(report: report)
+            }
           }
-          .buttonStyle(.plain)
-          .hoverCursor(.pointingHand)
         }
-        Text("The tick is where you should be today.")
-          .font(SerenityType.caption)
-          .foregroundStyle(SerenityPalette.textSecondary)
       }
     }
     .padding(18)
     .routinePanel()
+  }
+}
+
+/// Logging a hand-tracked goal from Today: one tap for small counts, otherwise a few amounts.
+private struct TodayGoalQuickLog: View {
+  @EnvironmentObject private var appState: AppState
+  let report: GoalReport
+  @State private var open = false
+
+  var body: some View {
+    if report.logsByOne {
+      Button("+1") {
+        Task { await appState.checkInGoal(id: report.goal.id, amount: 1, note: nil) }
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+      .accessibilityLabel("Log one \(GoalReport.singular(report.unit)) for \(report.goal.title)")
+    } else {
+      Button {
+        open = true
+      } label: {
+        Image(systemName: "plus")
+          .font(SerenityType.scaledSystem(size: 12, weight: .semibold))
+      }
+      .buttonStyle(SerenitySecondaryButtonStyle())
+      .hoverCursor(.pointingHand)
+      .accessibilityLabel("Log progress for \(report.goal.title)")
+      .popover(isPresented: $open, arrowEdge: .bottom) {
+        VStack(alignment: .leading, spacing: 10) {
+          Text("Log \(report.unit)")
+            .font(SerenityType.bodyMedium)
+          HStack(spacing: 8) {
+            ForEach(report.logPresets, id: \.self) { preset in
+              Button("+\(report.amountPhrase(preset))") {
+                Task { await appState.checkInGoal(id: report.goal.id, amount: preset, note: nil) }
+                open = false
+              }
+              .buttonStyle(SerenitySecondaryButtonStyle())
+            }
+          }
+          Button("Other amount…") {
+            open = false
+            appState.focusedGoalID = report.id
+            appState.setSection(.goals)
+          }
+          .buttonStyle(.plain)
+          .font(SerenityType.caption.weight(.medium))
+          .foregroundStyle(SerenityPalette.accent)
+        }
+        .padding(14)
+      }
+    }
   }
 }
 
