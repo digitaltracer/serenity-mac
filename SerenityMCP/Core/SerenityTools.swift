@@ -10,11 +10,25 @@ public struct SerenityTool {
   public let required: [String]
   public let readOnly: Bool
   public let idempotent: Bool
+  /// The card Claude shows with this tool's result.
+  public var uiResource: String?
+  /// Who may call it: the model, the card, or both (the default).
+  public var visibility: [String]?
+
+  /// Handled by the connector itself rather than the app.
+  public static let openAppMethod = "connector.openApp"
 
   var definition: [String: Any] {
     var schema: [String: Any] = ["type": "object", "properties": properties, "additionalProperties": false]
     if !required.isEmpty { schema["required"] = required }
-    return [
+    var ui: [String: Any] = [:]
+    if let uiResource { ui["resourceUri"] = uiResource }
+    if let visibility { ui["visibility"] = visibility }
+    var meta: [String: Any] = [:]
+    if !ui.isEmpty { meta["ui"] = ui }
+    // Older hosts read the flat key.
+    if let uiResource { meta["ui/resourceUri"] = uiResource }
+    var definition: [String: Any] = [
       "name": name,
       "title": title,
       "description": description,
@@ -28,6 +42,8 @@ public struct SerenityTool {
         "openWorldHint": false,
       ] as [String: Any],
     ]
+    if !meta.isEmpty { definition["_meta"] = meta }
+    return definition
   }
 }
 
@@ -47,7 +63,8 @@ public enum SerenityTools {
       name: "get_today",
       title: "Today in Serenity",
       description: "The user's day: the focus session under way, today's top three, other tasks due today, overdue tasks, the timed plan (calendar, tasks, focus), routines with streaks, goals with pace, and how many captures wait in the inbox. Start here for anything about today.",
-      method: "today", properties: [:], required: [], readOnly: true, idempotent: true
+      method: "today", properties: [:], required: [], readOnly: true, idempotent: true,
+      uiResource: TodayCard.uri
     ),
     SerenityTool(
       name: "get_week_review",
@@ -194,6 +211,13 @@ public enum SerenityTools {
       method: "journal.add",
       properties: ["content": string("The entry, in the user's words where possible."), "title": string("A short title.")],
       required: ["content"], readOnly: false, idempotent: false
+    ),
+    SerenityTool(
+      name: "open_serenity",
+      title: "Open Serenity",
+      description: "Brings the Serenity app to the front on this Mac.",
+      method: SerenityTool.openAppMethod, properties: [:], required: [], readOnly: true, idempotent: true,
+      visibility: ["app"]
     ),
   ]
 

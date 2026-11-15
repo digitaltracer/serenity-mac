@@ -62,7 +62,7 @@ final class SerenityMCPServerTests: XCTestCase {
     let server = SerenityMCPServer(bridge: FakeBridge())
     let garbage = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(XCTUnwrap(server.handle("{nope")).utf8)) as? [String: Any])
     XCTAssertEqual((garbage["error"] as? [String: Any])?["code"] as? Int, -32700)
-    XCTAssertEqual((try send(server, request(1, "resources/list"))["error"] as? [String: Any])?["code"] as? Int, -32601)
+    XCTAssertEqual((try send(server, request(1, "prompts/list"))["error"] as? [String: Any])?["code"] as? Int, -32601)
     XCTAssertEqual((try send(server, request(2, "tools/call", ["name": "delete_everything"]))["error"] as? [String: Any])?["code"] as? Int, -32602)
   }
 
@@ -79,9 +79,44 @@ final class SerenityMCPServerTests: XCTestCase {
       XCTAssertEqual(annotations["openWorldHint"] as? Bool, false)
     }
     let bridgeMethods = Set(ClaudeBridgeRouter.methods)
-    for tool in SerenityTools.all {
+    for tool in SerenityTools.all where tool.method != SerenityTool.openAppMethod {
       XCTAssertTrue(bridgeMethods.contains(tool.method), "\(tool.name) calls \(tool.method), which the app doesn't answer")
     }
+  }
+
+  func testTodayCarriesItsCardAndTheCardIsServed() throws {
+    let server = SerenityMCPServer(bridge: FakeBridge())
+    let tools = try XCTUnwrap((try send(server, request(1, "tools/list"))["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+    let today = try XCTUnwrap(tools.first { $0["name"] as? String == "get_today" })
+    let meta = try XCTUnwrap(today["_meta"] as? [String: Any])
+    XCTAssertEqual((meta["ui"] as? [String: Any])?["resourceUri"] as? String, TodayCard.uri)
+    XCTAssertEqual(meta["ui/resourceUri"] as? String, TodayCard.uri)
+    let open = try XCTUnwrap(tools.first { $0["name"] as? String == "open_serenity" })
+    XCTAssertEqual(((open["_meta"] as? [String: Any])?["ui"] as? [String: Any])?["visibility"] as? [String], ["app"])
+
+    let listed = try XCTUnwrap((try send(server, request(2, "resources/list"))["result"] as? [String: Any])?["resources"] as? [[String: Any]])
+    XCTAssertEqual(listed.first?["mimeType"] as? String, "text/html;profile=mcp-app")
+
+    let read = try XCTUnwrap((try send(server, request(3, "resources/read", ["uri": TodayCard.uri]))["result"] as? [String: Any])?["contents"] as? [[String: Any]])
+    XCTAssertEqual(read.first?["mimeType"] as? String, TodayCard.mimeType)
+    let html = try XCTUnwrap(read.first?["text"] as? String)
+    XCTAssertTrue(html.hasPrefix("<!doctype html>"))
+    XCTAssertTrue(html.contains("ui/initialize"))
+    XCTAssertFalse(html.contains("<script src"), "The sandbox only runs inline script")
+
+    XCTAssertEqual((try send(server, request(4, "resources/read", ["uri": "ui://serenity/nope"]))["error"] as? [String: Any])?["code"] as? Int, -32602)
+  }
+
+  func testTheCardCanOpenTheAppWithoutTouchingTheBridge() throws {
+    let bridge = FakeBridge()
+    var opened = 0
+    let server = SerenityMCPServer(bridge: bridge, openApp: { opened += 1 })
+
+    let result = try XCTUnwrap(try send(server, request(1, "tools/call", ["name": "open_serenity"]))["result"] as? [String: Any])
+
+    XCTAssertNil(result["isError"])
+    XCTAssertEqual(opened, 1)
+    XCTAssertTrue(bridge.calls.isEmpty)
   }
 
   func testToolCallsPassArgumentsAndReturnStructuredResults() throws {

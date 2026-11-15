@@ -129,6 +129,7 @@
 		A00000000000000000000157 /* SerenityMCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000156 /* SerenityMCPServer.swift */; };
 		A00000000000000000000159 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000158 /* main.swift */; };
 		A00000000000000000000163 /* serenity-mcp in Embed Helpers */ = {isa = PBXBuildFile; fileRef = A0000000000000000000015A /* serenity-mcp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A00000000000000000000165 /* TodayCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000164 /* TodayCard.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -226,6 +227,7 @@
 		A00000000000000000000156 /* SerenityMCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityMCPServer.swift; sourceTree = "<group>"; };
 		A00000000000000000000158 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A0000000000000000000015A /* serenity-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "serenity-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000164 /* TodayCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayCard.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -460,6 +462,7 @@
 				A00000000000000000000152 /* SerenityBridgeClient.swift */,
 				A00000000000000000000154 /* SerenityTools.swift */,
 				A00000000000000000000156 /* SerenityMCPServer.swift */,
+				A00000000000000000000164 /* TodayCard.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -721,6 +724,7 @@
 				A00000000000000000000153 /* SerenityBridgeClient.swift in Sources */,
 				A00000000000000000000155 /* SerenityTools.swift in Sources */,
 				A00000000000000000000157 /* SerenityMCPServer.swift in Sources */,
+				A00000000000000000000165 /* TodayCard.swift in Sources */,
 				A00000000000000000000159 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

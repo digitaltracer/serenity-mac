@@ -126,6 +126,9 @@ struct ClaudeFocusSnapshot: Codable, Equatable {
   /// Nil for a session with no set length.
   let lengthMinutes: Int?
   let remainingMinutes: Int?
+  /// Second-level counts, so a card can run its own clock between refreshes.
+  let focusedSeconds: Int
+  let remainingSeconds: Int?
   let taskId: String?
   let taskTitle: String?
   let journalEntryId: String?
@@ -156,8 +159,12 @@ struct ClaudeGoalSnapshot: Codable, Equatable {
   let kind: String
   let progress: String
   let pace: String
+  /// done, ahead, onPace, behind or untimed.
+  let paceState: String
   let current: Double
   let target: Double
+  /// Where the goal should be by now; nil without a deadline.
+  let expected: Double?
   let unit: String
   let due: String?
 }

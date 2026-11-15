@@ -20,10 +20,12 @@ public final class SerenityMCPServer {
 
   private let bridge: BridgeTransport
   private let version: String
+  private let openApp: () -> Void
 
-  public init(bridge: BridgeTransport, version: String = "1.0") {
+  public init(bridge: BridgeTransport, version: String = "1.0", openApp: @escaping () -> Void = {}) {
     self.bridge = bridge
     self.version = version
+    self.openApp = openApp
   }
 
   /// The reply line for one incoming line, or nil when there is nothing to send back.
@@ -64,6 +66,32 @@ public final class SerenityMCPServer {
         "ttlMs": 3_600_000,
         "cacheScope": "private",
       ], id: id)
+    case "resources/list":
+      return encode(result: [
+        "resources": [[
+          "uri": TodayCard.uri,
+          "name": "Today card",
+          "description": "Today's focus session, tasks, plan, routines and goals, with controls.",
+          "mimeType": TodayCard.mimeType,
+        ]],
+        "resultType": "complete",
+        "ttlMs": 3_600_000,
+        "cacheScope": "private",
+      ], id: id)
+    case "resources/read":
+      guard params["uri"] as? String == TodayCard.uri else {
+        return encode(error: -32602, message: "Unknown resource: \(params["uri"] as? String ?? "(none)")", id: id)
+      }
+      return encode(result: [
+        "contents": [[
+          "uri": TodayCard.uri,
+          "mimeType": TodayCard.mimeType,
+          "text": TodayCard.html,
+          // The card draws its own surface.
+          "_meta": ["ui": ["prefersBorder": false]],
+        ]],
+        "resultType": "complete",
+      ], id: id)
     case "tools/call":
       guard let name = params["name"] as? String, let tool = SerenityTools.byName[name] else {
         return encode(error: -32602, message: "Unknown tool: \(params["name"] as? String ?? "(none)")", id: id)
@@ -80,7 +108,7 @@ public final class SerenityMCPServer {
   }
 
   private var capabilities: [String: Any] {
-    ["tools": ["listChanged": false]]
+    ["tools": ["listChanged": false], "resources": ["listChanged": false]]
   }
 
   private func initialize(_ params: [String: Any]) -> [String: Any] {
@@ -107,6 +135,10 @@ public final class SerenityMCPServer {
   }
 
   private func call(_ tool: SerenityTool, arguments: [String: Any]?) -> [String: Any] {
+    if tool.method == SerenityTool.openAppMethod {
+      openApp()
+      return ["resultType": "complete", "content": [["type": "text", "text": "Opened Serenity."]]]
+    }
     let params = arguments.flatMap { $0.isEmpty ? nil : $0 }
     do {
       switch try bridge.call(method: tool.method, params: params) {

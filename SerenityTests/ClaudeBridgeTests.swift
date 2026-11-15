@@ -156,6 +156,7 @@ final class ClaudeBridgeRouterTests: XCTestCase {
     XCTAssertEqual(started["title"] as? String, "Sync fixes", "Untitled sessions take the linked task's name")
     XCTAssertEqual(started["status"] as? String, "running")
     XCTAssertEqual(started["lengthMinutes"] as? Int, 25)
+    XCTAssertEqual(started["remainingSeconds"] as? Int ?? 0, 25 * 60, accuracy: 2)
     XCTAssertEqual(started["taskTitle"] as? String, "Sync fixes")
 
     let paused = try await field(router, "focus.pause", key: "focus", as: [String: Any].self)
@@ -232,6 +233,7 @@ final class ClaudeBridgeRouterTests: XCTestCase {
     try await expectError(router, "goals.checkIn", ["id": goalID, "amount": 0], code: "invalid_params")
     let goal = try await ok(router, "goals.checkIn", ["id": goalID, "amount": 5.5])
     XCTAssertEqual(goal["current"] as? Double, 5.5)
+    XCTAssertNotNil(goal["paceState"] as? String)
     XCTAssertEqual(settings.activity.first?.summary, "Checked in on “Run 60 km”: 5.5 km")
 
     let today = try await ok(router, "today")

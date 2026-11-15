@@ -8,10 +8,11 @@ let executable = Bundle.main.executablePath ?? CommandLine.arguments[0]
 let app = SerenityBridgeClient.enclosingApp(executablePath: executable)
 let version = app.flatMap { Bundle(url: $0)?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String } ?? "dev"
 
-let bridge = SerenityBridgeClient(socketPath: SerenityBridgeClient.defaultSocketPath()) {
+func openSerenity(inBackground: Bool) {
   let open = Process()
   open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-  open.arguments = app.map { ["-g", $0.path] } ?? ["-g", "-b", "com.digitaltracer.serenity"]
+  let target = app.map { [$0.path] } ?? ["-b", "com.digitaltracer.serenity"]
+  open.arguments = (inBackground ? ["-g"] : []) + target
   do {
     try open.run()
     open.waitUntilExit()
@@ -19,7 +20,9 @@ let bridge = SerenityBridgeClient(socketPath: SerenityBridgeClient.defaultSocket
     FileHandle.standardError.write(Data("serenity-mcp: couldn't open Serenity: \(error.localizedDescription)\n".utf8))
   }
 }
-let server = SerenityMCPServer(bridge: bridge, version: version)
+
+let bridge = SerenityBridgeClient(socketPath: SerenityBridgeClient.defaultSocketPath()) { openSerenity(inBackground: true) }
+let server = SerenityMCPServer(bridge: bridge, version: version) { openSerenity(inBackground: false) }
 
 while let line = readLine(strippingNewline: true) {
   guard !line.trimmingCharacters(in: .whitespaces).isEmpty, let reply = server.handle(line) else { continue }

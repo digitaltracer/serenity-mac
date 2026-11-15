@@ -461,14 +461,17 @@ final class ClaudeBridgeRouter {
   private func focusSnapshot(_ block: FocusBlockEntity) -> ClaudeFocusSnapshot {
     let focused = block.activeSeconds(at: now())
     let length = block.isOpenEnded ? nil : block.plannedMinutes - block.pausedSeconds / 60
+    let focusedSeconds = block.status == .done ? block.loggedMinutes * 60 : focused
     return ClaudeFocusSnapshot(
       id: block.id,
       title: block.title,
       status: block.status.rawValue,
       startedAt: block.startedAt.map { ClaudeBridgeDates.moment($0) },
-      focusedMinutes: Int((block.status == .done ? block.loggedMinutes * 60 : focused) / 60),
+      focusedMinutes: Int(focusedSeconds / 60),
       lengthMinutes: length.map { Int($0.rounded()) },
       remainingMinutes: block.isActive ? length.map { max(Int((($0 * 60) - focused) / 60), 0) } : nil,
+      focusedSeconds: Int(focusedSeconds),
+      remainingSeconds: block.isActive ? length.map { max(Int(($0 * 60) - focused), 0) } : nil,
       taskId: block.taskId,
       taskTitle: block.taskId.flatMap { id in appState.tasks.first { $0.id == id }?.title },
       journalEntryId: settings.journalAccess ? block.journalEntryId : nil
@@ -509,11 +512,23 @@ final class ClaudeBridgeRouter {
       kind: report.kind.rawValue,
       progress: report.progressLabel,
       pace: report.statusLabel,
+      paceState: Self.paceState(report.pace),
       current: report.current,
       target: report.target,
+      expected: report.expected,
       unit: report.unit,
       due: report.windowEnd.map { ClaudeBridgeDates.day($0) }
     )
+  }
+
+  private static func paceState(_ pace: GoalPace) -> String {
+    switch pace {
+    case .done: return "done"
+    case .ahead: return "ahead"
+    case .onPace: return "onPace"
+    case .behind: return "behind"
+    case .untimed: return "untimed"
+    }
   }
 
   private func journalSnapshot(_ entry: JournalEntryEntity) -> ClaudeJournalSnapshot {
