@@ -42,8 +42,130 @@ struct GoalReport: Identifiable {
   let lastActivity: Date?
   let daysQuiet: Int?
   let quietThreshold: Int
+  /// The goal was paused for the current week, so falling behind doesn't count.
+  var isPaused = false
+  /// Things that touched an area per day, oldest first, ending today.
+  var activityDays: [Int] = []
 
   var id: String { goal.id }
+
+  /// A hand-logged goal with no unit and nothing logged measures nothing yet, like the old "0 / 10".
+  var needsSetup: Bool {
+    kind != .area && source == .manual && unit.isEmpty
+      && (goal.config.checkIns ?? []).isEmpty && goal.progress.current == 0
+  }
+
+  var isManual: Bool {
+    kind != .area && source == .manual
+  }
+
+  var lastCheckIn: GoalCheckIn? {
+    (goal.config.checkIns ?? []).max { $0.date < $1.date }
+  }
+
+  /// One-tap amounts for logging: the ones used most recently, or a spread scaled to the target.
+  var logPresets: [Double] {
+    let recent = (goal.config.checkIns ?? []).sorted { $0.date > $1.date }.map(\.amount).filter { $0 > 0 }
+    var presets: [Double] = []
+    for amount in recent where !presets.contains(amount) {
+      presets.append(amount)
+      if presets.count == 3 { break }
+    }
+    if presets.count >= 2 { return presets.sorted() }
+    if target <= 10 { return [1] }
+    let step = GoalReport.niceStep(target / 12)
+    return [step, step * 2, step * 4]
+  }
+
+  /// Logging by one: a small count like books or sessions needs no amount picker.
+  var logsByOne: Bool {
+    isManual && target <= 10
+  }
+
+  static func singular(_ unit: String) -> String {
+    unit.hasSuffix("s") && unit.count > 1 ? String(unit.dropLast()) : unit
+  }
+
+  static func niceStep(_ value: Double) -> Double {
+    guard value > 1 else { return 1 }
+    let magnitude = pow(10, floor(log10(value)))
+    let leading = value / magnitude
+    let nice: Double = leading < 1.5 ? 1 : (leading < 3.5 ? 2 : (leading < 7.5 ? 5 : 10))
+    return nice * magnitude
+  }
+
+  /// "4 km", "1 book", "3": the unit agrees with the amount and drops away when there is none.
+  func amountPhrase(_ amount: Double) -> String {
+    [GoalReport.format(amount), unitWord(for: amount)].filter { !$0.isEmpty }.joined(separator: " ")
+  }
+
+  /// The pace in words, so nobody has to decode the tick: where you are, where an even pace puts you,
+  /// and, when behind on a deadline, where the current rate lands.
+  func paceLine(now: Date = Date(), calendar: Calendar = .current) -> String {
+    if kind == .area {
+      let quiet = "flags after \(quietThreshold) quiet days"
+      guard let daysQuiet else { return "Nothing yet · \(quiet)" }
+      switch daysQuiet {
+      case 0: return "Touched today · \(quiet)"
+      case 1: return "Last touched yesterday · \(quiet)"
+      default: return "Last touched \(daysQuiet) days ago · \(quiet)"
+      }
+    }
+    if isPaused {
+      return "Paused until \(pausedUntilLabel(calendar: calendar)). Missed days won't count as behind."
+    }
+    var parts = ["\(GoalReport.format(current)) of \(amountPhrase(target))" + periodSuffix]
+    if case .done = pace {
+      parts.append("done")
+    } else if let expected {
+      let shown = target >= 10 ? expected.rounded() : (expected * 10).rounded() / 10
+      parts.append("should be at \(GoalReport.format(shown)) today")
+      if case .behind = pace, kind == .outcome, let projected, projected < target, let due = windowEnd {
+        parts.append("at this rate ~\(GoalReport.format(projected.rounded())) by \(due.formatted(.dateTime.day().month(.abbreviated)))")
+      }
+    }
+    return parts.joined(separator: " · ")
+  }
+
+  private var periodSuffix: String {
+    guard kind == .target else { return "" }
+    switch goal.config.timeframe {
+    case .monthly: return " this month"
+    case .daily: return " today"
+    default: return " this week"
+    }
+  }
+
+  private func pausedUntilLabel(calendar: Calendar) -> String {
+    guard let until = goal.config.pausedUntil else { return "next week" }
+    return until.formatted(.dateTime.weekday(.wide))
+  }
+
+  /// What feeds the goal, so it's clear whether to log anything. Names come from the caller.
+  func sourceLine(projectName: String?, routineName: String?) -> String {
+    if kind == .area {
+      var watched: [String] = []
+      if let tag = goal.config.areaTag { watched.append("#\(tag)") }
+      if let projectName { watched.append(projectName) }
+      let what = watched.isEmpty ? "anything you log here" : "tasks and entries in \(watched.joined(separator: " or ")), and anything you log here"
+      return "Counts \(what)"
+    }
+    switch source {
+    case .manual:
+      guard !unit.isEmpty else { return "Not counting anything yet" }
+      return "You log it · \(unit)"
+    case .projectTasks:
+      return "Automatic · counts finished tasks in \(projectName ?? "its project")"
+    case .completedTasks:
+      return "Automatic · counts every task you finish"
+    case .routine:
+      return "Automatic · counts days you tick \(routineName ?? "its routine")"
+    case .journalEntries:
+      return "Automatic · counts journal entries"
+    case .focusTime:
+      return "Automatic · counts finished focus sessions"
+    }
+  }
 
   var fraction: Double {
     guard target > 0 else { return 0 }
@@ -61,7 +183,7 @@ struct GoalReport: Identifiable {
   }
 
   var needsAttention: Bool {
-    guard goal.status == .active else { return false }
+    guard goal.status == .active, !isPaused, !needsSetup else { return false }
     if kind == .area { return isQuiet }
     if case .behind = pace { return true }
     return false
@@ -80,6 +202,8 @@ struct GoalReport: Identifiable {
         return "Touched \(daysQuiet) days ago"
       }
     }
+    if needsSetup { return "Needs setup" }
+    if isPaused { return "Paused this week" }
     switch pace {
     case .done:
       return "Done"
@@ -126,7 +250,36 @@ enum GoalReports {
     let source = config.source ?? .manual
     let events = events(for: goal, source: source, inputs: inputs, calendar: calendar)
     let quietThreshold = config.quietDays ?? defaultQuietDays
+    var report = rawReport(goal: goal, kind: kind, source: source, events: events, inputs: inputs, quietThreshold: quietThreshold, now: now, calendar: calendar)
+    report.isPaused = config.pausedUntil.map { $0 > now } ?? false
+    if kind == .area {
+      report.activityDays = activityDays(events: events, days: 28, now: now, calendar: calendar)
+    }
+    return report
+  }
 
+  /// Counts per day for the last `days` days, oldest first, ending today.
+  static func activityDays(events: [(date: Date, amount: Double)], days: Int, now: Date, calendar: Calendar) -> [Int] {
+    let today = calendar.startOfDay(for: now)
+    var counts = Array(repeating: 0, count: days)
+    for event in events {
+      let offset = calendar.dateComponents([.day], from: calendar.startOfDay(for: event.date), to: today).day ?? -1
+      if offset >= 0, offset < days { counts[days - 1 - offset] += 1 }
+    }
+    return counts
+  }
+
+  private static func rawReport(
+    goal: GoalEntity,
+    kind: GoalKind,
+    source: GoalSource,
+    events: [(date: Date, amount: Double)],
+    inputs: GoalProgressInputs,
+    quietThreshold: Int,
+    now: Date,
+    calendar: Calendar
+  ) -> GoalReport {
+    let config = goal.config
     switch kind {
     case .area:
       let lastActivity = events.map(\.date).filter { $0 <= now }.max()
@@ -395,3 +548,71 @@ struct GoalDraft: Equatable {
     return config
   }
 }
+
+extension GoalDraft {
+  /// What most likely counts toward a goal with this name: a routine it names, focus or journal
+  /// words, or a project when finishing something. Anything else is logged by hand.
+  func suggestedSource(routines: [RoutineEntity], projects: [ProjectEntity]) -> GoalSource {
+    let name = title.lowercased()
+    if kind == .outcome, !projects.isEmpty { return .projectTasks }
+    if let routine = routines.first(where: { !$0.title.isEmpty && name.contains($0.title.lowercased()) }), !routine.archived {
+      return .routine
+    }
+    if ["focus", "deep work", "hours of"].contains(where: name.contains) { return .focusTime }
+    if ["journal", "write daily", "diary"].contains(where: name.contains) { return .journalEntries }
+    return .manual
+  }
+
+  /// The routine a name points at, so choosing "Days you tick a routine" can preselect it.
+  func matchingRoutine(in routines: [RoutineEntity]) -> RoutineEntity? {
+    let name = title.lowercased()
+    return routines.first { !$0.archived && !$0.title.isEmpty && name.contains($0.title.lowercased()) }
+  }
+
+  /// The unit a source implies; only hand-logged goals name their own.
+  var effectiveUnit: String {
+    switch source {
+    case .manual: return unit.trimmingCharacters(in: .whitespaces)
+    case .projectTasks, .completedTasks: return "tasks"
+    case .routine: return "days"
+    case .journalEntries: return "entries"
+    case .focusTime: return "hours"
+    }
+  }
+
+  var needsUnit: Bool {
+    kind != .area && source == .manual && unit.trimmingCharacters(in: .whitespaces).isEmpty
+  }
+
+  /// The goal in one sentence, as it will behave once saved.
+  func previewSentence(projectName: String?, routineName: String?, targetText: String) -> String {
+    let name = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "This goal" : title.trimmingCharacters(in: .whitespacesAndNewlines)
+    if kind == .area {
+      let watched = [areaTag.trimmingCharacters(in: .whitespaces).isEmpty ? nil : "#\(areaTag.trimmingCharacters(in: .whitespaces))", projectName]
+        .compactMap { $0 }
+      let what = watched.isEmpty ? "you log here" : "in \(watched.joined(separator: " or ")) is finished, written or logged"
+      return "\(name) stays on your list with no number. If nothing \(what) for \(quietDays) days, Serenity flags it on Today."
+    }
+    if needsUnit { return "\(name) needs a unit before it can track anything, like km or pages." }
+    let amount = targetText.trimmingCharacters(in: .whitespaces)
+    let how: String
+    switch source {
+    case .manual: how = "You log it yourself from the goal or the Today card."
+    case .projectTasks: how = "Finishing tasks in \(projectName ?? "the project") moves it."
+    case .completedTasks: how = "Every task you finish counts."
+    case .routine: how = "Ticking \(routineName ?? "the routine") counts. Nothing else to log."
+    case .journalEntries: how = "Each journal entry counts."
+    case .focusTime: how = "Finished focus sessions count."
+    }
+    if kind == .target {
+      let period = timeframe == .monthly ? "month" : "week"
+      return "\(amount.isEmpty ? "?" : amount) \(effectiveUnit) every \(period). \(how)"
+    }
+    let due = dueDate.formatted(.dateTime.day().month(.wide))
+    if source == .projectTasks && amount.isEmpty {
+      return "Finish by \(due), when every task in \(projectName ?? "the project") is done. \(how)"
+    }
+    return "Reach \(amount.isEmpty ? "?" : amount) \(effectiveUnit) by \(due). \(how)"
+  }
+}
+

@@ -3812,6 +3812,22 @@ final class AppState: ObservableObject {
     await persistGoal(goal, failureTitle: "Failed to update goal")
   }
 
+  /// Takes the goal off the hook until next week starts: it shows as paused, not behind.
+  func pauseGoalForWeek(id: String, now: Date = Date()) async {
+    guard var goal = goals.first(where: { $0.id == id }) else { return }
+    let week = Calendar.current.dateInterval(of: .weekOfYear, for: now)
+    goal.config.pausedUntil = week?.end ?? now.addingTimeInterval(7 * 86_400)
+    goal.updatedAt = now
+    await persistGoal(goal, failureTitle: "Failed to pause goal")
+  }
+
+  func resumeGoal(id: String) async {
+    guard var goal = goals.first(where: { $0.id == id }), goal.config.pausedUntil != nil else { return }
+    goal.config.pausedUntil = nil
+    goal.updatedAt = Date()
+    await persistGoal(goal, failureTitle: "Failed to resume goal")
+  }
+
   /// Logs progress by hand, such as kilometres run. Works on any goal; automatic sources add to it.
   func checkInGoal(id: String, amount: Double, note: String?, date: Date = Date()) async {
     guard var goal = goals.first(where: { $0.id == id }), amount != 0 || note?.isEmpty == false else { return }

@@ -157,4 +157,152 @@ final class GoalReportTests: XCTestCase {
     XCTAssertEqual(restored.timeframe, .monthly)
     XCTAssertNil(config.dueDate)
   }
+
+  func testAHandLoggedGoalWithoutAUnitNeedsSetup() {
+    var bare = config(.target, .manual, target: 10)
+    let report = GoalReports.report(for: goal(bare), inputs: GoalProgressInputs(), now: date(11, 11), calendar: calendar)
+    XCTAssertTrue(report.needsSetup)
+    XCTAssertEqual(report.statusLabel, "Needs setup")
+    XCTAssertFalse(report.needsAttention, "an unset goal isn't behind, it's unset")
+
+    bare.unit = "km"
+    XCTAssertFalse(GoalReports.report(for: goal(bare), inputs: GoalProgressInputs(), now: date(11, 11), calendar: calendar).needsSetup)
+
+    var routine = config(.target, .routine, target: 5)
+    routine.routineId = "r1"
+    XCTAssertFalse(GoalReports.report(for: goal(routine), inputs: GoalProgressInputs(), now: date(11, 11), calendar: calendar).needsSetup)
+  }
+
+  func testAPausedWeekIsNotBehind() {
+    var weekly = config(.target, .manual, target: 10)
+    weekly.unit = "km"
+    weekly.pausedUntil = date(11, 16, hour: 0)
+
+    let paused = GoalReports.report(for: goal(weekly), inputs: GoalProgressInputs(), now: date(11, 13), calendar: calendar)
+    XCTAssertTrue(paused.isPaused)
+    XCTAssertEqual(paused.statusLabel, "Paused this week")
+    XCTAssertFalse(paused.needsAttention)
+    XCTAssertTrue(paused.paceLine(now: date(11, 13), calendar: calendar).hasPrefix("Paused until"))
+
+    let after = GoalReports.report(for: goal(weekly), inputs: GoalProgressInputs(), now: date(11, 17), calendar: calendar)
+    XCTAssertFalse(after.isPaused, "the pause ends on its own when the week does")
+  }
+
+  func testThePaceLineSaysWhereYouShouldBe() {
+    var outcome = config(.outcome, .manual, target: 20)
+    outcome.unit = "km"
+    outcome.startDate = date(11, 1)
+    outcome.dueDate = date(11, 21)
+    outcome.checkIns = [GoalCheckIn(date: date(11, 3), amount: 5, note: nil)]
+    let behind = GoalReports.report(for: goal(outcome), inputs: GoalProgressInputs(), now: date(11, 11), calendar: calendar)
+    let line = behind.paceLine(now: date(11, 11), calendar: calendar)
+    XCTAssertTrue(line.hasPrefix("5 of 20 km · should be at 10 today · at this rate ~10 by "), line)
+
+    var monthly = config(.target, .manual, target: 2)
+    monthly.timeframe = .monthly
+    monthly.unit = "books"
+    monthly.checkIns = [GoalCheckIn(date: date(11, 3), amount: 1, note: nil)]
+    let books = GoalReports.report(for: goal(monthly), inputs: GoalProgressInputs(), now: date(11, 16), calendar: calendar)
+    XCTAssertEqual(books.paceLine(now: date(11, 16), calendar: calendar), "1 of 2 books this month · should be at 1 today")
+    XCTAssertEqual(books.amountPhrase(1), "1 book")
+  }
+
+  func testAnAreaKeepsFourWeeksOfActivity() {
+    var area = config(.area, .manual)
+    area.areaTag = "health"
+    area.checkIns = [GoalCheckIn(date: date(11, 11), amount: 1, note: "Walk"), GoalCheckIn(date: date(11, 9), amount: 1, note: "Gym")]
+    let tasks = [task("gym", project: nil, completedOn: date(11, 9), tags: ["Health"]), task("old", project: nil, completedOn: date(9, 1), tags: ["health"])]
+
+    let report = GoalReports.report(for: goal(area), inputs: GoalProgressInputs(tasks: tasks), now: date(11, 11), calendar: calendar)
+
+    XCTAssertEqual(report.activityDays.count, 28)
+    XCTAssertEqual(report.activityDays.last, 1, "today")
+    XCTAssertEqual(report.activityDays[25], 2, "two days ago had two things")
+    XCTAssertEqual(report.activityDays.reduce(0, +), 3, "September is outside the four weeks")
+  }
+
+  func testLogPresetsFollowRecentAmountsOrTheTarget() {
+    var monthly = config(.target, .manual, target: 60)
+    monthly.unit = "km"
+    let fresh = GoalReports.report(for: goal(monthly), inputs: GoalProgressInputs(), now: date(11, 11), calendar: calendar)
+    XCTAssertEqual(fresh.logPresets, [5, 10, 20])
+    XCTAssertFalse(fresh.logsByOne)
+
+    monthly.checkIns = [3, 8, 3, 12].enumerated().map { GoalCheckIn(date: date(11, 2 + $0.offset), amount: Double($0.element), note: nil) }
+    let used = GoalReports.report(for: goal(monthly), inputs: GoalProgressInputs(), now: date(11, 11), calendar: calendar)
+    XCTAssertEqual(used.logPresets, [3, 8, 12])
+
+    var books = config(.target, .manual, target: 2)
+    books.unit = "books"
+    XCTAssertTrue(GoalReports.report(for: goal(books), inputs: GoalProgressInputs(), now: date(11, 11), calendar: calendar).logsByOne)
+  }
+
+  func testTheEditorSuggestsWhatCountsFromTheName() {
+    let pages = RoutineEntity(id: "r1", title: "Morning pages", schedule: .daily, timeOfDay: .morning, archived: false, createdAt: date(11, 1), updatedAt: date(11, 1))
+    var draft = GoalDraft()
+    draft.kind = .target
+
+    draft.title = "Morning pages 5 days a week"
+    XCTAssertEqual(draft.suggestedSource(routines: [pages], projects: []), .routine)
+    XCTAssertEqual(draft.matchingRoutine(in: [pages])?.id, "r1")
+
+    draft.title = "15 h of deep work a week"
+    XCTAssertEqual(draft.suggestedSource(routines: [pages], projects: []), .focusTime)
+
+    draft.title = "Run 60 km a month"
+    XCTAssertEqual(draft.suggestedSource(routines: [pages], projects: []), .manual)
+    draft.source = .manual
+    XCTAssertTrue(draft.needsUnit)
+    XCTAssertTrue(draft.previewSentence(projectName: nil, routineName: nil, targetText: "60").contains("needs a unit"))
+    draft.unit = "km"
+    draft.timeframe = .monthly
+    XCTAssertEqual(draft.previewSentence(projectName: nil, routineName: nil, targetText: "60"), "60 km every month. You log it yourself from the goal or the Today card.")
+  }
+
 }
+
+@MainActor
+final class GoalPauseAppStateTests: XCTestCase {
+  func testPausingLastsUntilTheWeekEndsAndResumeClearsIt() async throws {
+    let baseURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+      .appendingPathComponent("serenity-goal-pause-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
+    let suiteName = "serenity.goal-pause.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer {
+      defaults.removePersistentDomain(forName: suiteName)
+      try? FileManager.default.removeItem(at: baseURL)
+    }
+    let state = AppState(
+      backendProfileManager: BackendProfileManager(
+        defaults: defaults,
+        defaultsKey: "goal-pause.backend",
+        registry: BackendProfileRegistry(
+          descriptors: BackendProfileRegistry.live.descriptors,
+          validators: [.sqliteLocal: { .available(message: "ok") }]
+        )
+      ),
+      sqliteBackendAdapter: SQLiteBackendAdapter(databaseURL: baseURL.appendingPathComponent("serenity.sqlite")),
+      serenityCloudAdapter: nil,
+      externalPostgresAdapter: nil
+    )
+    var draft = GoalDraft()
+    draft.title = "Run 20 km a week"
+    draft.kind = .target
+    draft.source = .manual
+    draft.unit = "km"
+    draft.target = 20
+    await state.createGoal(draft)
+    let id = try XCTUnwrap(state.goals.first?.id)
+
+    let now = Date()
+    await state.pauseGoalForWeek(id: id, now: now)
+    let until = try XCTUnwrap(state.goals.first?.config.pausedUntil)
+    XCTAssertEqual(until, Calendar.current.dateInterval(of: .weekOfYear, for: now)?.end)
+    XCTAssertEqual(state.goalReports(now: now).first?.statusLabel, "Paused this week")
+
+    await state.resumeGoal(id: id)
+    XCTAssertNil(state.goals.first?.config.pausedUntil)
+  }
+}
+

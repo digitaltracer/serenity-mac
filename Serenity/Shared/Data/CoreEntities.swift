@@ -305,6 +305,8 @@ public struct GoalConfig: Codable, Equatable, Sendable {
   public var areaTag: String?
   public var quietDays: Int?
   public var checkIns: [GoalCheckIn]?
+  /// A paused week: the goal doesn't count as behind until this date.
+  public var pausedUntil: Date?
 
   public init(
     targetCount: Double?,
@@ -321,7 +323,8 @@ public struct GoalConfig: Codable, Equatable, Sendable {
     routineId: String? = nil,
     areaTag: String? = nil,
     quietDays: Int? = nil,
-    checkIns: [GoalCheckIn]? = nil
+    checkIns: [GoalCheckIn]? = nil,
+    pausedUntil: Date? = nil
   ) {
     self.targetCount = targetCount
     self.projectId = projectId
@@ -338,6 +341,7 @@ public struct GoalConfig: Codable, Equatable, Sendable {
     self.areaTag = areaTag
     self.quietDays = quietDays
     self.checkIns = checkIns
+    self.pausedUntil = pausedUntil
   }
 }
 
