@@ -4,7 +4,7 @@ import Foundation
 /// path: it syncs to iCloud, shows on screen and can be undone like one made by hand.
 @MainActor
 final class ClaudeBridgeRouter {
-  static let methods = [
+  nonisolated static let methods = [
     "status", "today", "review.week",
     "tasks.list", "tasks.add", "tasks.setDone", "tasks.reschedule",
     "focus.status", "focus.start", "focus.pause", "focus.resume", "focus.finish", "focus.extend", "focus.link",
@@ -13,7 +13,7 @@ final class ClaudeBridgeRouter {
     "journal.search", "journal.add",
   ]
 
-  static let taskScopes = ["today", "overdue", "upcoming", "inbox", "open", "completed"]
+  nonisolated static let taskScopes = ["today", "overdue", "upcoming", "inbox", "open", "completed"]
   static let journalExcerptLimit = 4000
 
   private let appState: AppState
@@ -512,7 +512,7 @@ final class ClaudeBridgeRouter {
       kind: report.kind.rawValue,
       progress: report.progressLabel,
       pace: report.statusLabel,
-      paceState: Self.paceState(report.pace),
+      paceState: report.needsSetup ? "needsSetup" : (report.isPaused ? "paused" : Self.paceState(report.pace)),
       current: report.current,
       target: report.target,
       expected: report.expected,

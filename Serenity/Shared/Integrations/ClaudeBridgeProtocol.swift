@@ -159,7 +159,7 @@ struct ClaudeGoalSnapshot: Codable, Equatable {
   let kind: String
   let progress: String
   let pace: String
-  /// done, ahead, onPace, behind or untimed.
+  /// done, ahead, onPace, behind, untimed, paused or needsSetup.
   let paceState: String
   let current: Double
   let target: Double
