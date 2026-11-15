@@ -18210,6 +18210,8 @@ private struct ClaudeBridgeSettingsContent: View {
           .fixedSize(horizontal: false, vertical: true)
       }
 
+      ClaudeConnectorSetup(settings: settings)
+
       VStack(alignment: .leading, spacing: 10) {
         HStack(alignment: .firstTextBaseline) {
           Text("Changes made by Claude")
@@ -18249,6 +18251,146 @@ private struct ClaudeBridgeSettingsContent: View {
           .textSelection(.enabled)
       }
     }
+  }
+}
+private struct ClaudeConnectorSetup: View {
+  @ObservedObject var settings: ClaudeBridgeSettings
+  @State private var state: ClaudeDesktopInstaller.State = .notAdded
+  @State private var confirmingAdd = false
+  @State private var confirmingRemove = false
+  @State private var justChanged = false
+  @State private var errorMessage: String?
+  @State private var copied = false
+  @State private var restarting = false
+  private let installer = ClaudeDesktopInstaller.live
+
+  private var configPath: String {
+    (installer.configURL.path as NSString).abbreviatingWithTildeInPath
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      VStack(alignment: .leading, spacing: 10) {
+        Text("Claude Desktop")
+          .font(SerenityType.sectionTitle)
+          .foregroundStyle(SerenityPalette.textPrimary)
+        Text(statusText)
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 10) {
+          actionButtons
+        }
+        if let errorMessage {
+          Text(errorMessage)
+            .font(SerenityType.caption)
+            .foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+
+      if state != .helperMissing {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Claude Code")
+            .font(SerenityType.sectionTitle)
+            .foregroundStyle(SerenityPalette.textPrimary)
+          Text("Run this once in Terminal. Claude Code shows answers as text, without the card.")
+            .font(SerenityType.caption)
+            .foregroundStyle(SerenityPalette.textSecondary)
+          HStack(spacing: 10) {
+            Text(installer.claudeCodeCommand)
+              .font(.system(.caption, design: .monospaced))
+              .foregroundStyle(SerenityPalette.textPrimary)
+              .lineLimit(1)
+              .truncationMode(.middle)
+              .textSelection(.enabled)
+            Button(copied ? "Copied" : "Copy") {
+              NSPasteboard.general.clearContents()
+              NSPasteboard.general.setString(installer.claudeCodeCommand, forType: .string)
+              copied = true
+            }
+          }
+        }
+      }
+    }
+    .onAppear(perform: refresh)
+    .alert("Add Serenity to Claude Desktop?", isPresented: $confirmingAdd) {
+      Button("Add") { change(installer.install) }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("This goes into Claude Desktop's settings file, \(configPath):\n\n\(installer.entrySnippet)\n\nYour other settings stay as they are, and a copy of the file is saved beside it first.\(settings.isEnabled ? "" : " Connect to Claude will be turned on.")")
+    }
+    .alert("Remove Serenity from Claude Desktop?", isPresented: $confirmingRemove) {
+      Button("Remove", role: .destructive) { change(installer.remove) }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("Claude Desktop will stop seeing Serenity after it restarts. Nothing in Serenity is deleted.")
+    }
+  }
+
+  private var statusText: String {
+    switch state {
+    case .helperMissing:
+      return "This build doesn't include the connector. Use Serenity built from Xcode or the installed app."
+    case .claudeNotFound:
+      return "Claude Desktop isn't installed on this Mac."
+    case .notAdded:
+      return "Adds Serenity to Claude Desktop, so you can ask about your day and see the Today card in the chat."
+    case .added:
+      return justChanged
+        ? "Added. Restart Claude Desktop to load it, then ask “What's on today in Serenity?”"
+        : "Added. Ask Claude “What's on today in Serenity?”"
+    case let .pointsElsewhere(path):
+      return "Claude Desktop is using another copy of Serenity (\((path as NSString).abbreviatingWithTildeInPath)). Switch it to this one."
+    }
+  }
+
+  @ViewBuilder
+  private var actionButtons: some View {
+    switch state {
+    case .helperMissing:
+      EmptyView()
+    case .claudeNotFound:
+      Button("Get Claude Desktop") {
+        if let url = URL(string: "https://claude.ai/download") { NSWorkspace.shared.open(url) }
+      }
+    case .notAdded:
+      Button("Add to Claude Desktop") { confirmingAdd = true }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+    case .pointsElsewhere:
+      Button("Use this copy") { confirmingAdd = true }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+    case .added:
+      if justChanged || !ClaudeDesktopInstaller.isClaudeRunning {
+        Button(ClaudeDesktopInstaller.isClaudeRunning ? "Restart Claude Desktop" : "Open Claude Desktop") {
+          restarting = true
+          Task {
+            await ClaudeDesktopInstaller.restartClaude()
+            restarting = false
+            justChanged = false
+          }
+        }
+        .buttonStyle(SerenityPrimaryButtonStyle())
+        .disabled(restarting)
+      }
+      Button("Remove from Claude Desktop") { confirmingRemove = true }
+    }
+  }
+
+  private func refresh() {
+    state = installer.state()
+  }
+
+  private func change(_ action: () throws -> Void) {
+    do {
+      try action()
+      errorMessage = nil
+      justChanged = true
+      if !settings.isEnabled, installer.state() == .added { settings.isEnabled = true }
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+    refresh()
   }
 }
 #endif
