@@ -7,6 +7,7 @@ let package = Package(
   platforms: [.macOS(.v14)],
   products: [
     .executable(name: "SerenityMac", targets: ["SerenityMac"]),
+    .executable(name: "serenity-mcp", targets: ["SerenityMCP"]),
   ],
   dependencies: [
     .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.0.0"),
@@ -34,10 +35,20 @@ let package = Package(
         .process("Assets.xcassets"),
       ]
     ),
+    .target(
+      name: "SerenityMCPCore",
+      path: "SerenityMCP/Core"
+    ),
+    .executableTarget(
+      name: "SerenityMCP",
+      dependencies: ["SerenityMCPCore"],
+      path: "SerenityMCP/Main"
+    ),
     .testTarget(
       name: "SerenityMacTests",
       dependencies: [
         "SerenityMac",
+        "SerenityMCPCore",
         .product(name: "GRDB", package: "GRDB.swift"),
       ],
       path: "SerenityTests"

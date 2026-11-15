@@ -124,7 +124,36 @@
 		A00000000000000000000128 /* StandupWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000118 /* StandupWriter.swift */; };
 		A00000000000000000000137 /* StandupPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000117 /* StandupPlanner.swift */; };
 		A00000000000000000000138 /* StandupWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000118 /* StandupWriter.swift */; };
+		A00000000000000000000153 /* SerenityBridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000152 /* SerenityBridgeClient.swift */; };
+		A00000000000000000000155 /* SerenityTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000154 /* SerenityTools.swift */; };
+		A00000000000000000000157 /* SerenityMCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000156 /* SerenityMCPServer.swift */; };
+		A00000000000000000000159 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000158 /* main.swift */; };
+		A00000000000000000000163 /* serenity-mcp in Embed Helpers */ = {isa = PBXBuildFile; fileRef = A0000000000000000000015A /* serenity-mcp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A00000000000000000000160 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A0000000000000000000015B;
+			remoteInfo = SerenityMCP;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A00000000000000000000162 /* Embed Helpers */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				A00000000000000000000163 /* serenity-mcp in Embed Helpers */,
+			);
+			name = "Embed Helpers";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A00000000000000000000020 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
@@ -192,6 +221,11 @@
 		A00000000000000000000139 /* RoutineStreaks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineStreaks.swift; sourceTree = "<group>"; };
 		A00000000000000000000142 /* VoiceCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCapture.swift; sourceTree = "<group>"; };
 		A00000000000000000000118 /* StandupWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandupWriter.swift; sourceTree = "<group>"; };
+		A00000000000000000000152 /* SerenityBridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityBridgeClient.swift; sourceTree = "<group>"; };
+		A00000000000000000000154 /* SerenityTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityTools.swift; sourceTree = "<group>"; };
+		A00000000000000000000156 /* SerenityMCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityMCPServer.swift; sourceTree = "<group>"; };
+		A00000000000000000000158 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		A0000000000000000000015A /* serenity-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "serenity-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -222,6 +256,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000004 /* Serenity */,
+				A0000000000000000000014F /* SerenityMCP */,
 				A00000000000000000000003 /* Products */,
 				C73A2CAF2FAA2C2200AB200C /* GoogleAuth.local.xcconfig */,
 			);
@@ -232,6 +267,7 @@
 			children = (
 				A0000000000000000000003E /* Serenity.app */,
 				A0000000000000000000003F /* Serenity.app */,
+				A0000000000000000000015A /* serenity-mcp */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -409,6 +445,33 @@
 			path = iOS;
 			sourceTree = "<group>";
 		};
+		A0000000000000000000014F /* SerenityMCP */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000150 /* Core */,
+				A00000000000000000000151 /* Main */,
+			);
+			path = SerenityMCP;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000150 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000152 /* SerenityBridgeClient.swift */,
+				A00000000000000000000154 /* SerenityTools.swift */,
+				A00000000000000000000156 /* SerenityMCPServer.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000151 /* Main */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000158 /* main.swift */,
+			);
+			path = Main;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -419,10 +482,12 @@
 				A00000000000000000000052 /* Sources */,
 				A00000000000000000000054 /* Frameworks */,
 				A00000000000000000000056 /* Resources */,
+				A00000000000000000000162 /* Embed Helpers */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A00000000000000000000161 /* PBXTargetDependency */,
 			);
 			name = SerenityMac;
 			packageProductDependencies = (
@@ -456,6 +521,21 @@
 			productReference = A0000000000000000000003F /* Serenity.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A0000000000000000000015B /* SerenityMCP */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A0000000000000000000015D /* Build configuration list for PBXNativeTarget "SerenityMCP" */;
+			buildPhases = (
+				A0000000000000000000015C /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SerenityMCP;
+			productName = "serenity-mcp";
+			productReference = A0000000000000000000015A /* serenity-mcp */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -486,6 +566,7 @@
 			targets = (
 				A00000000000000000000050 /* SerenityMac */,
 				A00000000000000000000051 /* SerenityIOS */,
+				A0000000000000000000015B /* SerenityMCP */,
 			);
 		};
 /* End PBXProject section */
@@ -633,7 +714,26 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A0000000000000000000015C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000153 /* SerenityBridgeClient.swift in Sources */,
+				A00000000000000000000155 /* SerenityTools.swift in Sources */,
+				A00000000000000000000157 /* SerenityMCPServer.swift in Sources */,
+				A00000000000000000000159 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A00000000000000000000161 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A0000000000000000000015B /* SerenityMCP */;
+			targetProxy = A00000000000000000000160 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A0000000000000000000005B /* Debug */ = {
@@ -829,6 +929,39 @@
 			};
 			name = Release;
 		};
+		A0000000000000000000015E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = N3B962X7RX;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				PRODUCT_BUNDLE_IDENTIFIER = com.digitaltracer.serenity.mcp;
+				PRODUCT_NAME = "serenity-mcp";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.10;
+			};
+			name = Debug;
+		};
+		A0000000000000000000015F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = N3B962X7RX;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				PRODUCT_BUNDLE_IDENTIFIER = com.digitaltracer.serenity.mcp;
+				PRODUCT_NAME = "serenity-mcp";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.10;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -855,6 +988,15 @@
 			buildConfigurations = (
 				A0000000000000000000005B /* Debug */,
 				A0000000000000000000005C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A0000000000000000000015D /* Build configuration list for PBXNativeTarget "SerenityMCP" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A0000000000000000000015E /* Debug */,
+				A0000000000000000000015F /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
