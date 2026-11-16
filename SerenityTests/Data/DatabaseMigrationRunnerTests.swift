@@ -10,7 +10,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
 
     let summary = try await runner.bootstrapDatabase(at: databaseURL)
 
-    XCTAssertEqual(summary.appliedMigrations.count, 18)
+    XCTAssertEqual(summary.appliedMigrations.count, 19)
     XCTAssertTrue(summary.skippedMigrations.isEmpty)
 
     let dbQueue = try DatabaseQueue(path: databaseURL.path)
@@ -28,6 +28,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     XCTAssertTrue(tables.contains("goals"))
     XCTAssertTrue(tables.contains("app_metadata"))
     XCTAssertTrue(tables.contains("secure_settings"))
+    XCTAssertTrue(tables.contains("weekly_reviews"))
     XCTAssertTrue(tables.contains("ai_insights"))
     XCTAssertTrue(tables.contains("ai_recaps"))
     XCTAssertTrue(tables.contains("ai_usage"))
@@ -73,7 +74,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
     let secondRun = try await runner.bootstrapDatabase(at: databaseURL)
 
     XCTAssertTrue(secondRun.appliedMigrations.isEmpty)
-    XCTAssertEqual(secondRun.skippedMigrations.count, 18)
+    XCTAssertEqual(secondRun.skippedMigrations.count, 19)
   }
 
   func testNvidiaIsAcceptedByEveryProviderConstrainedTable() async throws {
@@ -191,6 +192,7 @@ final class DatabaseMigrationRunnerTests: XCTestCase {
         "20261111_017_focus_blocks",
         "20261111_018_focus_block_pauses",
         "20261112_019_focus_block_links",
+        "20261116_020_weekly_reviews",
       ]
     )
 

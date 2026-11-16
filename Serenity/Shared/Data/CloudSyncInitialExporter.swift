@@ -42,6 +42,9 @@ struct CloudSyncInitialExporter {
     for block in try coreRepositories.focusBlocks.fetchAll() {
       try pendingStore.enqueue(entityType: SyncEntityType.focusBlock, entityId: block.id, operation: .upsert)
     }
+    for review in try coreRepositories.weeklyReviews.fetchAll() {
+      try pendingStore.enqueue(entityType: SyncEntityType.weeklyReview, entityId: review.id, operation: .upsert)
+    }
     for insight in try aiRepositories.insights.fetchAll(limit: Int.max) {
       try pendingStore.enqueue(entityType: SyncEntityType.aiInsight, entityId: insight.id, operation: .upsert)
     }

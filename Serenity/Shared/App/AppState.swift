@@ -161,6 +161,8 @@ final class AppState: ObservableObject {
   @Published var routines: [RoutineEntity] = []
   @Published var routineChecks: [RoutineCheckEntity] = []
   @Published var focusBlocks: [FocusBlockEntity] = []
+  /// Newest week first.
+  @Published var weeklyReviews: [WeeklyReviewEntity] = []
   /// Set when another screen opens Goals on one goal; Goals expands it and clears this.
   @Published var focusedGoalID: String?
   /// Shows the voice capture sheet. The Mac also opens it as a floating panel from the global shortcut.
@@ -2896,6 +2898,7 @@ final class AppState: ObservableObject {
       routines = loadedRoutines.routines
       routineChecks = loadedRoutines.checks
       focusBlocks = loadedRoutines.focusBlocks
+      weeklyReviews = try await fetchWeeklyReviews()
 
       selectedTaskIDs = selectedTaskIDs.filter { id in tasks.contains(where: { $0.id == id }) }
       rebuildGlobalSearchIndex()
@@ -4371,6 +4374,34 @@ final class AppState: ObservableObject {
   }
 
   /// Routines and focus blocks only live in the local database; other backends get none.
+  private func fetchWeeklyReviews() async throws -> [WeeklyReviewEntity] {
+    guard settings.backendProfile == .sqliteLocal else { return [] }
+    return try await requireSQLiteCoreRepositories().weeklyReviews.fetchAll()
+  }
+
+  func weeklyReview(forWeek weekKey: String) -> WeeklyReviewEntity? {
+    weeklyReviews.first { $0.weekKey == weekKey }
+  }
+
+  /// Saves a review, keeping the newest-first order, and sends it to iCloud.
+  @discardableResult
+  func saveWeeklyReview(_ review: WeeklyReviewEntity, now: Date = Date()) async -> Bool {
+    var review = review
+    review.updatedAt = now
+    do {
+      let repositories = try await requireSQLiteCoreRepositories()
+      try repositories.weeklyReviews.save(review)
+      weeklyReviews.removeAll { $0.id == review.id }
+      weeklyReviews.append(review)
+      weeklyReviews.sort { $0.weekStart > $1.weekStart }
+      triggerICloudSync()
+      return true
+    } catch {
+      showError(title: "Couldn't save the weekly review", message: error.localizedDescription)
+      return false
+    }
+  }
+
   private func fetchRoutineData() async throws -> (routines: [RoutineEntity], checks: [RoutineCheckEntity], focusBlocks: [FocusBlockEntity]) {
     guard settings.backendProfile == .sqliteLocal else { return ([], [], []) }
     let repositories = try await requireSQLiteCoreRepositories()
@@ -4746,6 +4777,7 @@ final class AppState: ObservableObject {
         RoutineSyncRecordKind(repository: repositories.routines),
         RoutineCheckSyncRecordKind(repository: repositories.routineChecks),
         FocusBlockSyncRecordKind(repository: repositories.focusBlocks),
+        WeeklyReviewSyncRecordKind(repository: repositories.weeklyReviews),
         AIInsightSyncRecordKind(repository: insightRepository),
         AIRecapSyncRecordKind(repository: recapRepository),
         SummarySyncRecordKind(repository: summaryRepository),
@@ -4787,6 +4819,7 @@ final class AppState: ObservableObject {
       SyncEntityType.routine,
       SyncEntityType.routineCheck,
       SyncEntityType.focusBlock,
+      SyncEntityType.weeklyReview,
     ]
     if !entityTypes.isDisjoint(with: core) {
       await refreshCoreWorkflowData()

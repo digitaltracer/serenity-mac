@@ -498,6 +498,51 @@ struct FocusBlockSyncRecordKind: SyncRecordKind {
   }
 }
 
+// MARK: - Weekly reviews
+
+struct WeeklyReviewSyncRecordKind: SyncRecordKind {
+  let repository: SyncAwareWeeklyReviewRepository
+
+  let entityType = SyncEntityType.weeklyReview
+  let tableName = "weekly_reviews"
+
+  func encodeLocal(id: String, into record: CKRecord) throws -> Bool {
+    guard let review = try repository.fetchByID(id) else { return false }
+    try Self.encode(review, into: record)
+    return true
+  }
+
+  func applyPulled(_ record: CKRecord, in db: Database) throws {
+    try repository.applyRemoteUpsert(try Self.decode(record), in: db)
+  }
+
+  func applyPulledDelete(recordName: String, in db: Database) throws {
+    try repository.applyRemoteDelete(id: recordName, in: db)
+  }
+
+  static func encode(_ review: WeeklyReviewEntity, into record: CKRecord) throws {
+    record["weekKey"] = review.weekKey as CKRecordValue
+    record["weekStart"] = review.weekStart as CKRecordValue
+    record["completedAt"] = review.completedAt as CKRecordValue?
+    record["payloadJSON"] = try WeeklyReviewCodec.encode(review.payload) as CKRecordValue
+    record["createdAt"] = review.createdAt as CKRecordValue
+    record["updatedAt"] = review.updatedAt as CKRecordValue
+  }
+
+  static func decode(_ record: CKRecord) throws -> WeeklyReviewEntity {
+    var review = WeeklyReviewEntity(
+      weekKey: try requireField(record, "weekKey"),
+      weekStart: try requireField(record, "weekStart"),
+      completedAt: record["completedAt"] as? Date,
+      payload: WeeklyReviewCodec.decode(record["payloadJSON"] as? String),
+      createdAt: try requireField(record, "createdAt"),
+      updatedAt: try requireField(record, "updatedAt")
+    )
+    review.id = record.recordID.recordName
+    return review
+  }
+}
+
 // MARK: - AI insights
 
 struct AIInsightSyncRecordKind: SyncRecordKind {

@@ -16,6 +16,7 @@ enum SyncEntityType {
   static let routine = "Routine"
   static let routineCheck = "RoutineCheck"
   static let focusBlock = "FocusBlock"
+  static let weeklyReview = "WeeklyReview"
 }
 
 /// Wraps a `CoreTaskRepository` so every successful save/delete pushes a

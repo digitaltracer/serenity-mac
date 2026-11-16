@@ -1066,5 +1066,23 @@ actor DatabaseMigrationRunner {
         "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '17');",
       ]
     ),
+    DatabaseMigration(
+      identifier: "20261116_020_weekly_reviews",
+      statements: [
+        """
+        CREATE TABLE IF NOT EXISTS weekly_reviews (
+          id TEXT PRIMARY KEY,
+          week_key TEXT NOT NULL,
+          week_start TEXT NOT NULL,
+          completed_at TEXT,
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_weekly_reviews_week_start ON weekly_reviews(week_start);",
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('schema_version', '18');",
+      ]
+    ),
   ]
 }

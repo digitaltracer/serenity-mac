@@ -942,6 +942,7 @@ struct GRDBCoreRepositorySet {
   let routines: SyncAwareRoutineRepository
   let routineChecks: SyncAwareRoutineCheckRepository
   let focusBlocks: SyncAwareFocusBlockRepository
+  let weeklyReviews: SyncAwareWeeklyReviewRepository
   let pendingSyncChanges: PendingSyncChangeStore
   let cloudSyncState: CloudSyncStateStore
   let cloudSyncRecords: GRDBCloudSyncRecordStore
@@ -980,6 +981,10 @@ struct GRDBCoreRepositorySet {
       ),
       focusBlocks: SyncAwareFocusBlockRepository(
         underlying: GRDBFocusBlockRepository(dbQueue: dbQueue),
+        pendingStore: pendingStore
+      ),
+      weeklyReviews: SyncAwareWeeklyReviewRepository(
+        underlying: GRDBWeeklyReviewRepository(dbQueue: dbQueue),
         pendingStore: pendingStore
       ),
       pendingSyncChanges: pendingStore,
