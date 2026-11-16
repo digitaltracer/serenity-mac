@@ -2,11 +2,11 @@ import XCTest
 @testable import SerenityMac
 
 final class AIWorkflowServiceTests: XCTestCase {
-  func testGenerateInsightsFailsWithoutCredentials() async throws {
+  func testModelCallsFailWithoutCredentials() async throws {
     let (service, _, _) = try makeService()
 
     do {
-      _ = try await service.generateInsights(tasks: [], journalEntries: [], projects: [], goals: [])
+      _ = try await service.suggestJournalTitle(content: "A long walk")
       XCTFail("Expected missing credential error")
     } catch let error as AIWorkflowError {
       XCTAssertEqual(error, .noCredentialConfigured)
@@ -14,7 +14,11 @@ final class AIWorkflowServiceTests: XCTestCase {
   }
 
   func testCredentialFailoverSkipsMissingKeychainSecret() async throws {
-    let (service, backend, secretServiceName) = try makeService()
+    let usedModel = ModelBox()
+    let (service, backend, secretServiceName) = try makeService { _, _, model, _, _, _ in
+      usedModel.value = model
+      return AIProviderTextGenerationResponse(text: #"{"title":"A long walk"}"#, promptTokens: 5, completionTokens: 3)
+    }
 
     let first = try await service.addCredential(
       provider: .openai,
@@ -31,42 +35,12 @@ final class AIWorkflowServiceTests: XCTestCase {
 
     try backend.delete(service: secretServiceName, key: "ai.credentials.\(first.id).apiKey")
 
-    let task = TaskEntity(
-      id: UUID().uuidString,
-      title: "Task",
-      description: nil,
-      completed: true,
-      completedAt: Date(),
-      priority: .medium,
-      dueDate: Date(),
-      projectId: nil,
-      tags: [],
-      createdAt: Date(),
-      updatedAt: Date(),
-      subtasks: [],
-      recurring: nil,
-      userId: nil
-    )
-
-    let summary = try await service.generateSummary(type: .tasks, tasks: [task], journalEntries: [])
-    XCTAssertEqual(summary.provider, .gemini)
+    let title = try await service.suggestJournalTitle(content: "Walked to the river")
+    XCTAssertEqual(title, "A long walk")
+    XCTAssertEqual(usedModel.value, "gemini-3-flash-preview")
 
     let snapshot = try await service.fetchSnapshot(limit: 20)
-    XCTAssertEqual(snapshot.summaries.count, 1)
-    // A template summary makes no model call, so it logs no made-up usage.
-    XCTAssertTrue(snapshot.usage.isEmpty)
-    XCTAssertEqual(summary.totalTokens, 0)
-  }
-
-  func testTemplateInsightsAndRecapsLogNoUsage() async throws {
-    let (service, _, _) = try makeService()
-    _ = try await service.addCredential(provider: .openai, name: "OpenAI", apiKey: "sk", modelPreference: "gpt-5.5")
-
-    _ = try await service.generateInsights(tasks: [], journalEntries: [], projects: [], goals: [])
-    _ = try await service.generateRecap(type: .weekly, tasks: [], journalEntries: [], projects: [])
-
-    let snapshot = try await service.fetchSnapshot(limit: 20)
-    XCTAssertTrue(snapshot.usage.isEmpty)
+    XCTAssertEqual(snapshot.usage.first?.provider, .gemini)
   }
 
   func testClassifyQuickCaptureSplitsMultipleTasksAndKeepsNewProject() async throws {
@@ -439,6 +413,10 @@ final class AIWorkflowServiceTests: XCTestCase {
 
     return (service, backend, secretServiceName)
   }
+}
+
+private final class ModelBox {
+  var value: String?
 }
 
 private final class InMemorySecretStorageBackend: SecretStorageBackend {

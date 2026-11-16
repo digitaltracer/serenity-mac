@@ -9,8 +9,6 @@ public enum AppSection: String, CaseIterable, Identifiable {
   case routines
   case projects
   case integrations
-  case insights
-  case aiSummaries
   case settings
 
   public var id: String { rawValue }
@@ -18,7 +16,7 @@ public enum AppSection: String, CaseIterable, Identifiable {
   /// Sidebar order. The first nine take ⌘1–⌘9; Settings, last, takes ⌘, instead. `allCases` is
   /// the declaration order and is not guaranteed to match what the user sees.
   static let navigationOrder: [AppSection] = [
-    .home, .actionHub, .standup, .journal, .goals, .routines, .insights, .aiSummaries, .integrations, .settings,
+    .home, .actionHub, .standup, .journal, .goals, .routines, .integrations, .settings,
   ]
 
   var title: String {
@@ -39,10 +37,6 @@ public enum AppSection: String, CaseIterable, Identifiable {
       return "Projects"
     case .integrations:
       return "Integrations"
-    case .insights:
-      return "Insights"
-    case .aiSummaries:
-      return "AI Summaries"
     case .settings:
       return "Settings"
     }
@@ -66,10 +60,6 @@ public enum AppSection: String, CaseIterable, Identifiable {
       return "folder"
     case .integrations:
       return "globe"
-    case .insights:
-      return "chart.bar.xaxis"
-    case .aiSummaries:
-      return "sparkles"
     case .settings:
       return "gearshape"
     }

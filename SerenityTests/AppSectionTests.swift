@@ -5,7 +5,17 @@ final class AppSectionTests: XCTestCase {
   func testAllSectionsArePresentInNavigationOrder() {
     XCTAssertEqual(
       AppSection.allCases,
-      [.home, .actionHub, .standup, .journal, .goals, .routines, .projects, .integrations, .insights, .aiSummaries, .settings],
+      [.home, .actionHub, .standup, .journal, .goals, .routines, .projects, .integrations, .settings],
+    )
+  }
+
+  func testRetiredInsightsAndSummariesScreensAreGone() {
+    for rawValue in ["insights", "aiSummaries"] {
+      XCTAssertNil(AppSection(rawValue: rawValue))
+    }
+    XCTAssertEqual(
+      AppSection.navigationOrder,
+      [.home, .actionHub, .standup, .journal, .goals, .routines, .integrations, .settings]
     )
   }
 

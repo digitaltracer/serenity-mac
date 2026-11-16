@@ -182,6 +182,17 @@ public enum AIUsageOperation: String, Codable, CaseIterable, Sendable {
   case quickadd
   case summary
   case slack
+
+  /// What Cost Center calls each kind of call; the raw values are fixed by the `ai_usage` CHECK constraint.
+  var label: String {
+    switch self {
+    case .analyze: return "Insights (retired)"
+    case .recap: return "Weekly review"
+    case .quickadd: return "Capture"
+    case .summary: return "Stand-up"
+    case .slack: return "Slack"
+    }
+  }
 }
 
 public struct AIUsageEntity: Identifiable, Equatable, Sendable {

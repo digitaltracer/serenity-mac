@@ -4,7 +4,6 @@ enum AIWorkflowError: Error, LocalizedError, Equatable {
   case noCredentialConfigured
   case missingCredentialSecret(String)
   case credentialNotFound(String)
-  case summaryNotFound(String)
   case invalidQuickCaptureResponse(String)
   case invalidSlackResponse(String)
   case invalidCaptureDraftResponse(String)
@@ -13,13 +12,11 @@ enum AIWorkflowError: Error, LocalizedError, Equatable {
   var errorDescription: String? {
     switch self {
     case .noCredentialConfigured:
-      return "No enabled AI credential is configured. Add a provider key in Insights."
+      return "No enabled AI credential is configured. Add a provider key in Settings › AI Provider."
     case .missingCredentialSecret(let id):
       return "Credential \(id) is missing its keychain secret."
     case .credentialNotFound(let id):
       return "Credential \(id) was not found."
-    case .summaryNotFound(let id):
-      return "Summary \(id) was not found."
     case .invalidQuickCaptureResponse(let reason):
       return "AI quick capture response was invalid: \(reason)"
     case .invalidSlackResponse(let reason):
@@ -107,9 +104,6 @@ struct AICredentialSelectionResult {
 struct AIWorkflowSnapshot {
   let credentials: [AICredentialEntity]
   let settings: AISettingsEntity
-  let insights: [AIInsightEntity]
-  let recaps: [AIRecapEntity]
-  let summaries: [SummaryEntity]
   let usage: [AIUsageEntity]
   let modelRates: [AIModelRateEntity]
   let standups: [StandupEntity]
@@ -703,9 +697,6 @@ actor AIWorkflowService {
     return AIWorkflowSnapshot(
       credentials: try repositories.credentials.fetchAll(enabledOnly: false),
       settings: settings,
-      insights: try repositories.insights.fetchAll(limit: limit),
-      recaps: try repositories.recaps.fetchAll(limit: limit),
-      summaries: try repositories.summaries.fetchAll(),
       usage: try repositories.usage.fetchAll(limit: limit),
       modelRates: try repositories.modelRates.fetchAll(),
       standups: try repositories.standups.fetchAll(limit: limit)
@@ -892,180 +883,6 @@ actor AIWorkflowService {
     try repositories.settings.save(settings)
   }
 
-  func generateInsights(
-    tasks: [TaskEntity],
-    journalEntries: [JournalEntryEntity],
-    projects: [ProjectEntity],
-    goals: [GoalEntity]
-  ) async throws -> [AIInsightEntity] {
-    let repositories = try await requireRepositories()
-    let settings = try repositories.settings.fetch() ?? .defaultValue
-    let selection = try chooseCredential(settings: settings)
-    let now = Date()
-
-    let completedTasks = tasks.filter(\.completed).count
-    let totalTasks = max(1, tasks.count)
-    let completionRate = Double(completedTasks) / Double(totalTasks)
-    let overdueTasks = tasks.filter { !$0.completed && ($0.dueDate ?? now) < now }.count
-    let pinnedEntries = journalEntries.filter(\.pinned).count
-    let activeGoals = goals.filter { $0.status == .active }.count
-
-    var created: [AIInsightEntity] = []
-
-    created.append(
-      AIInsightEntity(
-        id: UUID().uuidString,
-        provider: providerForCredential(selection.credential.provider),
-        type: completionRate >= 0.7 ? .productivity : .warning,
-        title: completionRate >= 0.7 ? "Strong completion trend" : "Completion trend needs attention",
-        description: "You completed \(completedTasks) of \(tasks.count) tasks (\(Int(completionRate * 100))%).",
-        confidence: 0.72,
-        category: .tasks,
-        actionable: true,
-        metadataJSON: #"{"metric":"completion_rate"}"#,
-        createdAt: now,
-        updatedAt: now,
-        userRating: nil,
-        dismissed: false,
-        markedHelpful: false,
-        userNotes: nil,
-        visualizationDataJSON: nil,
-        actionabilitySuggestions: completionRate >= 0.7
-          ? ["Keep your daily planning cadence"]
-          : ["Reduce scope on daily task list", "Prioritize high-impact tasks first"],
-        themeID: "tasks-completion",
-        isRecurring: true,
-        occurrenceNumber: 1
-      )
-    )
-
-    created.append(
-      AIInsightEntity(
-        id: UUID().uuidString,
-        provider: providerForCredential(selection.credential.provider),
-        type: overdueTasks > 0 ? .warning : .behavior,
-        title: overdueTasks > 0 ? "Overdue tasks detected" : "Due-date hygiene is healthy",
-        description: overdueTasks > 0
-          ? "You currently have \(overdueTasks) overdue task(s)."
-          : "You currently have no overdue tasks.",
-        confidence: 0.69,
-        category: .tasks,
-        actionable: overdueTasks > 0,
-        metadataJSON: #"{"metric":"overdue_tasks"}"#,
-        createdAt: now,
-        updatedAt: now,
-        userRating: nil,
-        dismissed: false,
-        markedHelpful: false,
-        userNotes: nil,
-        visualizationDataJSON: nil,
-        actionabilitySuggestions: overdueTasks > 0
-          ? ["Schedule a recovery block for overdue items"]
-          : ["Maintain current due-date management approach"],
-        themeID: "tasks-overdue",
-        isRecurring: true,
-        occurrenceNumber: 1
-      )
-    )
-
-    created.append(
-      AIInsightEntity(
-        id: UUID().uuidString,
-        provider: providerForCredential(selection.credential.provider),
-        type: .recommendation,
-        title: "Cross-surface focus recommendation",
-        description: "You have \(activeGoals) active goal(s), \(projects.count) project(s), and \(pinnedEntries) pinned journal entr\(pinnedEntries == 1 ? "y" : "ies").",
-        confidence: 0.64,
-        category: .goals,
-        actionable: true,
-        metadataJSON: #"{"metric":"cross_surface_focus"}"#,
-        createdAt: now,
-        updatedAt: now,
-        userRating: nil,
-        dismissed: false,
-        markedHelpful: false,
-        userNotes: nil,
-        visualizationDataJSON: nil,
-        actionabilitySuggestions: [
-          "Link at least one task to each active goal",
-          "Write a short daily journal checkpoint for your top project",
-        ],
-        themeID: "cross-surface",
-        isRecurring: false,
-        occurrenceNumber: 1
-      )
-    )
-
-    // Written from templates, not by a model, so there is no usage to log.
-    for insight in created {
-      try repositories.insights.save(insight)
-    }
-
-    return created
-  }
-
-  func updateInsightFeedback(
-    id: String,
-    userRating: Int?,
-    dismissed: Bool?,
-    markedHelpful: Bool?,
-    userNotes: String?
-  ) async throws {
-    let repositories = try await requireRepositories()
-    try repositories.insights.updateFeedback(
-      id: id,
-      userRating: userRating,
-      dismissed: dismissed,
-      markedHelpful: markedHelpful,
-      userNotes: userNotes
-    )
-  }
-
-  func generateRecap(
-    type: AIRecapType,
-    tasks: [TaskEntity],
-    journalEntries: [JournalEntryEntity],
-    projects: [ProjectEntity]
-  ) async throws -> AIRecapEntity {
-    let repositories = try await requireRepositories()
-    let settings = try repositories.settings.fetch() ?? .defaultValue
-    let selection = try chooseCredential(settings: settings)
-    let now = Date()
-
-    let days = type == .weekly ? 7 : 30
-    let periodStart = Calendar.current.date(byAdding: .day, value: -days, to: now) ?? now
-    let completedTasks = tasks.filter(\.completed).count
-
-    let recap = AIRecapEntity(
-      id: UUID().uuidString,
-      provider: providerForCredential(selection.credential.provider),
-      type: type,
-      title: "\(type == .weekly ? "Weekly" : "Monthly") recap",
-      summary: "Completed \(completedTasks) task(s), captured \(journalEntries.count) journal entr\(journalEntries.count == 1 ? "y" : "ies"), and tracked \(projects.count) project(s).",
-      highlights: [
-        "Task completion this period: \(completedTasks)",
-        "Journal consistency: \(journalEntries.count) entries",
-      ],
-      challenges: tasks.filter { !$0.completed }.isEmpty ? ["No major blockers detected"] : ["\(tasks.filter { !$0.completed }.count) incomplete task(s) remain"],
-      recommendations: [
-        "Schedule focused work blocks for top-priority tasks",
-        "Review project backlog at the start of each week",
-      ],
-      period: AIRecapPeriod(start: periodStart, end: now),
-      metadataJSON: #"{"generated":"deterministic"}"#,
-      createdAt: now,
-      updatedAt: now,
-      viewed: false,
-      favorited: false,
-      exported: false
-    )
-
-    // Written from templates, not by a model, so there is no usage to log.
-    try repositories.recaps.save(recap)
-
-    return recap
-  }
-
   // MARK: - Stand-up
 
   /// The one model call a stand-up makes, and only after the board has been
@@ -1245,101 +1062,6 @@ actor AIWorkflowService {
 
   func deleteStandup(id: String) async throws {
     try await requireRepositories().standups.delete(id: id)
-  }
-
-  func updateRecapInteraction(id: String, viewed: Bool?, favorited: Bool?, exported: Bool?) async throws {
-    let repositories = try await requireRepositories()
-    try repositories.recaps.updateInteraction(id: id, viewed: viewed, favorited: favorited, exported: exported)
-  }
-
-  func generateSummary(
-    type: SummaryType,
-    tasks: [TaskEntity],
-    journalEntries: [JournalEntryEntity],
-    startDate: Date? = nil,
-    endDate: Date? = nil
-  ) async throws -> SummaryEntity {
-    let repositories = try await requireRepositories()
-    let settings = try repositories.settings.fetch() ?? .defaultValue
-    let selection = try chooseCredential(settings: settings)
-    let now = Date()
-    let periodStart = startDate ?? Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
-    let periodEnd = endDate ?? now
-
-    let taskLines = tasks.prefix(8).map { task in
-      "- [\((task.completed ? "x" : " "))] \(task.title)"
-    }
-
-    let journalLines = journalEntries.prefix(4).map { entry in
-      "- \(entry.title ?? "Entry"): \(entry.content.prefix(120))"
-    }
-
-    let content: String
-    switch type {
-    case .tasks:
-      content = (["Task Summary", ""] + taskLines).joined(separator: "\n")
-    case .journal:
-      content = (["Journal Summary", ""] + journalLines).joined(separator: "\n")
-    case .combined:
-      content = (["Combined Summary", "", "Tasks:"] + taskLines + ["", "Journal:"] + journalLines).joined(separator: "\n")
-    }
-
-    let summary = SummaryEntity(
-      id: UUID().uuidString,
-      title: "\(type.rawValue.capitalized) Summary",
-      content: content,
-      summaryType: type,
-      startDate: periodStart,
-      endDate: periodEnd,
-      generatedAt: now,
-      wordCount: content.split(separator: " ").count,
-      metadataJSON: #"{"generated":"deterministic"}"#,
-      provider: providerForCredential(selection.credential.provider),
-      promptTokens: 0,
-      completionTokens: 0,
-      totalTokens: 0,
-      createdAt: now,
-      updatedAt: now
-    )
-
-    // Written from templates, not by a model, so there is no usage to log.
-    try repositories.summaries.save(summary)
-
-    return summary
-  }
-
-  func deleteSummary(id: String) async throws {
-    let repositories = try await requireRepositories()
-    try repositories.summaries.delete(id: id)
-  }
-
-  func exportSummary(id: String) async throws -> String {
-    let repositories = try await requireRepositories()
-    guard let summary = try repositories.summaries.fetchByID(id) else {
-      throw AIWorkflowError.summaryNotFound(id)
-    }
-
-    let applicationSupportDirectory = try FileManager.default.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true
-    )
-    let exportsDirectory = applicationSupportDirectory
-      .appendingPathComponent("Serenity", isDirectory: true)
-      .appendingPathComponent("exports", isDirectory: true)
-    try FileManager.default.createDirectory(at: exportsDirectory, withIntermediateDirectories: true)
-
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(secondsFromGMT: 0)
-    formatter.dateFormat = "yyyyMMdd-HHmmss"
-
-    let filename = "summary-\(summary.id)-\(formatter.string(from: Date())).md"
-    let fileURL = exportsDirectory.appendingPathComponent(filename)
-    let markdown = "# \(summary.title)\n\n\(summary.content)\n"
-    try markdown.data(using: .utf8)?.write(to: fileURL, options: .atomic)
-    return fileURL.path
   }
 
   private struct RawSlackDecisions: Decodable {

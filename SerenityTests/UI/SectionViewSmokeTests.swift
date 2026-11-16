@@ -15,16 +15,6 @@ final class SectionViewSmokeTests: XCTestCase {
     XCTAssertNotNil(view)
   }
 
-  func testInsightsSectionViewCanBeConstructed() {
-    let state = AppState(
-      serenityCloudAdapter: nil,
-      externalPostgresAdapter: nil
-    )
-
-    let view = InsightsSectionView().environmentObject(state)
-    XCTAssertNotNil(view)
-  }
-
   func testTaskInspectorIsHostedOutsideActionHubScrollContent() throws {
     let source = try appSceneSource()
     let sectionView = try XCTUnwrap(source.slice(from: "private struct SectionView", to: "private struct HomeSectionView"))

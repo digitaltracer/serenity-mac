@@ -209,9 +209,6 @@ final class AppState: ObservableObject {
   @Published var aiModelCatalog: [AICredentialProvider: [String]] = [:]
   @Published var aiCredentials: [AICredentialEntity] = []
   @Published var aiSettings: AISettingsEntity = .defaultValue
-  @Published var aiInsights: [AIInsightEntity] = []
-  @Published var aiRecaps: [AIRecapEntity] = []
-  @Published var aiSummaries: [SummaryEntity] = []
   @Published var standups: [StandupEntity] = []
   @Published var standupBoard: StandupBoard?
   @Published var standupScript: StandupScript?
@@ -230,7 +227,6 @@ final class AppState: ObservableObject {
   @Published var aiModelRates: [AIModelRateEntity] = []
   @Published var aiStatusMessage = "AI features require a configured provider key."
   @Published var pendingAIQuickCapturePreview: AIQuickCapturePreview?
-  @Published var lastSummaryExportPath: String?
   @Published var iCloudSyncState: ICloudSyncState = .idle
 
   private let sqliteBackendAdapter: SQLiteBackendAdapter
@@ -1685,7 +1681,7 @@ final class AppState: ObservableObject {
           drafts: fallbackDrafts(for: sources, context: command.context, now: now),
           draftedByModel: false
         )
-        showToast("Drafted from \(labels) without a model — add an AI key in Insights for more detail")
+        showToast("Drafted from \(labels) without a model — add an AI key in Settings › AI Provider for more detail")
         return true
       }
 
@@ -2120,9 +2116,6 @@ final class AppState: ObservableObject {
       let snapshot = try await aiWorkflowService.fetchSnapshot(limit: 200)
       aiCredentials = snapshot.credentials
       aiSettings = snapshot.settings
-      aiInsights = snapshot.insights
-      aiRecaps = snapshot.recaps
-      aiSummaries = snapshot.summaries
       aiUsageEntries = snapshot.usage
       aiModelRates = snapshot.modelRates
       standups = snapshot.standups
@@ -2324,86 +2317,6 @@ final class AppState: ObservableObject {
       await refreshAIWorkflows()
     } catch {
       showError(title: "Failed to update preferred model", message: error.localizedDescription)
-    }
-  }
-
-  func setAIDataTypes(includeTasks: Bool, includeJournal: Bool, includeProjects: Bool) async {
-    var updated = aiSettings
-    updated.dataTypes = AISettingsDataTypes(
-      includeTasks: includeTasks,
-      includeJournal: includeJournal,
-      includeProjects: includeProjects
-    )
-
-    do {
-      try await aiWorkflowService.saveSettings(updated)
-      await refreshAIWorkflows()
-    } catch {
-      showError(title: "Failed to save AI data settings", message: error.localizedDescription)
-    }
-  }
-
-  func setAIAutoAnalyze(_ enabled: Bool) async {
-    var updated = aiSettings
-    updated.autoAnalyze = enabled
-
-    do {
-      try await aiWorkflowService.saveSettings(updated)
-      await refreshAIWorkflows()
-    } catch {
-      showError(title: "Failed to save auto-analyze setting", message: error.localizedDescription)
-    }
-  }
-
-  func setAIAnalysisFrequency(_ frequency: AIAnalysisFrequency) async {
-    var updated = aiSettings
-    updated.analysisFrequency = frequency
-
-    do {
-      try await aiWorkflowService.saveSettings(updated)
-      await refreshAIWorkflows()
-    } catch {
-      showError(title: "Failed to save analysis frequency", message: error.localizedDescription)
-    }
-  }
-
-  func runAIAnalysis() async {
-    do {
-      _ = try await aiWorkflowService.generateInsights(
-        tasks: aiSettings.dataTypes.includeTasks ? tasks : [],
-        journalEntries: aiSettings.dataTypes.includeJournal ? journalEntries : [],
-        projects: aiSettings.dataTypes.includeProjects ? projects : [],
-        goals: goals
-      )
-      triggerICloudSync()
-      showToast("Insights generated")
-      await refreshAIWorkflows()
-    } catch {
-      aiStatusMessage = error.localizedDescription
-      showError(title: "Insight generation failed", message: error.localizedDescription)
-      await refreshAIWorkflows()
-    }
-  }
-
-  func updateAIInsightFeedback(
-    id: String,
-    userRating: Int?,
-    dismissed: Bool?,
-    markedHelpful: Bool?,
-    userNotes: String?
-  ) async {
-    do {
-      try await aiWorkflowService.updateInsightFeedback(
-        id: id,
-        userRating: userRating,
-        dismissed: dismissed,
-        markedHelpful: markedHelpful,
-        userNotes: userNotes
-      )
-      triggerICloudSync()
-      await refreshAIWorkflows()
-    } catch {
-      showError(title: "Failed to update insight feedback", message: error.localizedDescription)
     }
   }
 
@@ -2665,84 +2578,6 @@ final class AppState: ObservableObject {
     standupScriptInstruction = nil
     standupWrittenByModel = false
     pendingStandupDraft = nil
-  }
-
-  func generateAIRecap(type: AIRecapType) async {
-    do {
-      _ = try await aiWorkflowService.generateRecap(
-        type: type,
-        tasks: tasks,
-        journalEntries: journalEntries,
-        projects: projects
-      )
-      triggerICloudSync()
-      showToast("\(type == .weekly ? "Weekly" : "Monthly") recap generated")
-      await refreshAIWorkflows()
-    } catch {
-      aiStatusMessage = error.localizedDescription
-      showError(title: "Recap generation failed", message: error.localizedDescription)
-      await refreshAIWorkflows()
-    }
-  }
-
-  func markRecapViewed(id: String) async {
-    do {
-      try await aiWorkflowService.updateRecapInteraction(id: id, viewed: true, favorited: nil, exported: nil)
-      triggerICloudSync()
-      await refreshAIWorkflows()
-    } catch {
-      showError(title: "Failed to update recap", message: error.localizedDescription)
-    }
-  }
-
-  func toggleRecapFavorite(id: String) async {
-    guard let recap = aiRecaps.first(where: { $0.id == id }) else { return }
-
-    do {
-      try await aiWorkflowService.updateRecapInteraction(id: id, viewed: nil, favorited: !recap.favorited, exported: nil)
-      triggerICloudSync()
-      await refreshAIWorkflows()
-    } catch {
-      showError(title: "Failed to update recap favorite", message: error.localizedDescription)
-    }
-  }
-
-  func generateAISummary(type: SummaryType, startDate: Date? = nil, endDate: Date? = nil) async {
-    let selectedTasks: [TaskEntity]
-    let selectedJournalEntries: [JournalEntryEntity]
-    if let startDate, let endDate {
-      let calendar = Calendar.current
-      let rangeStart = calendar.startOfDay(for: startDate)
-      let rangeEnd = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: endDate)) ?? endDate
-      selectedTasks = tasks.filter { task in
-        let taskDate = task.completedAt ?? task.dueDate ?? task.updatedAt
-        return taskDate >= rangeStart && taskDate < rangeEnd
-      }
-      selectedJournalEntries = journalEntries.filter { entry in
-        let entryDate = calendar.startOfDay(for: entry.date)
-        return entryDate >= rangeStart && entryDate < rangeEnd
-      }
-    } else {
-      selectedTasks = tasks
-      selectedJournalEntries = journalEntries
-    }
-
-    do {
-      _ = try await aiWorkflowService.generateSummary(
-        type: type,
-        tasks: selectedTasks,
-        journalEntries: selectedJournalEntries,
-        startDate: startDate,
-        endDate: endDate
-      )
-      triggerICloudSync()
-      showToast("\(type.rawValue.capitalized) summary generated")
-      await refreshAIWorkflows()
-    } catch {
-      aiStatusMessage = error.localizedDescription
-      showError(title: "Summary generation failed", message: error.localizedDescription)
-      await refreshAIWorkflows()
-    }
   }
 
   @discardableResult
@@ -3036,27 +2871,6 @@ final class AppState: ObservableObject {
       normalized.append(trimmed)
     }
     return normalized
-  }
-
-  func deleteAISummary(id: String) async {
-    do {
-      try await aiWorkflowService.deleteSummary(id: id)
-      triggerICloudSync()
-      showToast("Summary deleted")
-      await refreshAIWorkflows()
-    } catch {
-      showError(title: "Failed to delete summary", message: error.localizedDescription)
-    }
-  }
-
-  func exportAISummary(id: String) async {
-    do {
-      lastSummaryExportPath = try await aiWorkflowService.exportSummary(id: id)
-      showToast("Summary exported")
-      await refreshAIWorkflows()
-    } catch {
-      showError(title: "Failed to export summary", message: error.localizedDescription)
-    }
   }
 
   func refreshCoreWorkflowData() async {
