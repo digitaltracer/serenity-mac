@@ -75,10 +75,6 @@ struct SerenityAppScene: View {
       ShutdownSheet()
         .environmentObject(appState)
     }
-    .sheet(isPresented: $appState.isWeeklyReviewPresented) {
-      WeeklyReviewSheet()
-        .environmentObject(appState)
-    }
     .sheet(isPresented: $appState.isVoiceCapturePresented) {
       VoiceCaptureView {
         appState.isVoiceCapturePresented = false
@@ -247,13 +243,13 @@ private extension AppThemePreference {
   }
 }
 
-private enum SerenityCursor {
+enum SerenityCursor {
   case arrow
   case iBeam
   case pointingHand
 }
 
-private struct HoverCursorModifier: ViewModifier {
+struct HoverCursorModifier: ViewModifier {
   let cursor: SerenityCursor
 
   func body(content: Content) -> some View {
@@ -284,14 +280,14 @@ private struct HoverCursorModifier: ViewModifier {
   }
 }
 
-private extension View {
+extension View {
   func hoverCursor(_ cursor: SerenityCursor) -> some View {
     modifier(HoverCursorModifier(cursor: cursor))
   }
 }
 
 #if os(macOS)
-private extension SerenityCursor {
+extension SerenityCursor {
   var nativeCursor: NSCursor {
     switch self {
     case .arrow:
@@ -555,7 +551,7 @@ private struct SerenityPhoneTabShell: View {
 private struct MorePhoneList: View {
   @EnvironmentObject private var appState: AppState
 
-  private let sections: [AppSection] = [.routines, .standup, .integrations, .settings]
+  private let sections: [AppSection] = [.routines, .review, .standup, .integrations, .settings]
 
   var body: some View {
     SerenityThemedScrollView {
@@ -687,7 +683,7 @@ private struct SerenitySidebar: View {
   @Binding var selectedSection: AppSection?
   @State private var hoveredSection: AppSection?
 
-  private let primarySections: [AppSection] = [.home, .actionHub, .standup, .journal, .goals, .routines]
+  private let primarySections: [AppSection] = [.home, .actionHub, .standup, .journal, .goals, .routines, .review]
   private let systemSections: [AppSection] = [.integrations, .settings]
 
   var body: some View {
@@ -810,6 +806,8 @@ private extension AppSection {
       return "Track progress against measurable targets"
     case .routines:
       return "Tick off today's habits. A day stays open until 3 AM"
+    case .review:
+      return "Last week against your usual one, with the evidence behind every finding"
     case .projects:
       return "Organize work across active initiatives"
     case .integrations:
@@ -1025,7 +1023,7 @@ private struct SectionView: View {
           }
         }
 
-        if [.home, .actionHub, .standup, .journal, .goals, .routines, .projects, .integrations, .settings].contains(section) {
+        if [.home, .actionHub, .standup, .journal, .goals, .routines, .review, .projects, .integrations, .settings].contains(section) {
           Task {
             await appState.refreshCoreWorkflowData()
           }
@@ -1060,6 +1058,8 @@ private struct SectionView: View {
               GoalsSectionView()
             case .routines:
               RoutinesSectionView()
+            case .review:
+              WeeklyReviewSectionView()
             case .projects:
               ProjectsSectionView()
             case .integrations:
@@ -1107,7 +1107,7 @@ private struct SectionView: View {
       await appState.refreshAIWorkflows()
     }
 
-    if [.home, .actionHub, .standup, .journal, .goals, .projects, .integrations, .settings].contains(section) {
+    if [.home, .actionHub, .standup, .journal, .goals, .review, .projects, .integrations, .settings].contains(section) {
       await appState.refreshCoreWorkflowData()
     }
   }
@@ -6005,7 +6005,7 @@ private struct GoalsSectionView: View {
           .lineLimit(1)
         Spacer(minLength: 8)
         Button("Weekly review") {
-          appState.isWeeklyReviewPresented = true
+          appState.setSection(.review)
         }
         .buttonStyle(SerenitySecondaryButtonStyle())
         .hoverCursor(.pointingHand)
@@ -12019,6 +12019,13 @@ private struct HelpCenterSheet: View {
       section: .integrations
     ),
     HelpCenterArticle(
+      title: "Review last week",
+      summary: "Each Monday: last week against your usual one, findings with their evidence, and up to three changes for this week.",
+      keywords: ["weekly", "review", "recap", "findings", "insights"],
+      shortcut: nil,
+      section: .review
+    ),
+    HelpCenterArticle(
       title: "Monitor AI cost center",
       summary: "Review token usage, estimated spend, model rates, and recent AI calls.",
       keywords: ["cost", "tokens", "usage", "ai", "billing", "pricing"],
@@ -15138,7 +15145,7 @@ private struct TodayNeedsYouPanel: View {
       pendingProposals: appState.slackProposals.filter { $0.status == .pending }.count,
       standupPending: standupPending,
       shutdownDue: TodayBriefing.shutdownDue(lastShutdownDay: appState.lastShutdownDay),
-      weeklyReviewDue: WeeklyReview.isDue(lastReviewedWeek: appState.lastWeeklyReviewWeek)
+      weeklyReviewDue: appState.isWeeklyReviewDue
     )
 
     VStack(alignment: .leading, spacing: 14) {
@@ -15232,7 +15239,7 @@ private struct TodayNeedsYouPanel: View {
     case .shutdown:
       appState.isShutdownPresented = true
     case .weeklyReview:
-      appState.isWeeklyReviewPresented = true
+      appState.setSection(.review)
     case .overdue, .slackProposals:
       appState.setSection(.actionHub)
     case .goal(let id):
@@ -16541,129 +16548,6 @@ private struct ShutdownSheet: View {
       Text("\(number) · \(title)")
         .font(SerenityType.bodyMedium)
         .foregroundStyle(SerenityPalette.textPrimary)
-      content()
-    }
-  }
-}
-
-private struct WeeklyReviewSheet: View {
-  @EnvironmentObject private var appState: AppState
-  @Environment(\.dismiss) private var dismiss
-
-  @State private var answers = WeeklyReview.Answers()
-  @State private var saving = false
-
-  var body: some View {
-    let summary = appState.weeklyReviewSummary()
-
-    ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Weekly review")
-            .font(SerenityType.sectionTitle)
-          Text("Week of \(summary.weekStart.formatted(.dateTime.day().month(.wide)))")
-            .font(SerenityType.body)
-            .foregroundStyle(SerenityPalette.textSecondary)
-        }
-
-        section("Wins") {
-          VStack(alignment: .leading, spacing: 4) {
-            Text("\(summary.completedTasks.count) tasks finished\(summary.focusHours > 0 ? " · \(GoalReport.format((summary.focusHours * 10).rounded() / 10)) h of focus" : "")")
-              .font(SerenityType.body)
-            ForEach(summary.routines.filter { $0.done > 0 }, id: \.title) { routine in
-              Text("\(routine.title): \(routine.done) day\(routine.done == 1 ? "" : "s")")
-                .font(SerenityType.body)
-                .foregroundStyle(SerenityPalette.textSecondary)
-            }
-            ForEach(summary.completedTasks.prefix(6)) { task in
-              Text("Done: \(task.title)")
-                .font(SerenityType.caption)
-                .foregroundStyle(SerenityPalette.textSecondary)
-                .lineLimit(1)
-            }
-          }
-        }
-
-        section("What moved?") {
-          TextField("The sync fixes landed; ran three times", text: $answers.moved, axis: .vertical)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-        }
-
-        section("What stalled, and why?") {
-          TextField("Blocked on a second test device", text: $answers.stalled, axis: .vertical)
-            .textFieldStyle(.plain)
-            .serenityInputField()
-        }
-
-        if !summary.goals.isEmpty {
-          section("Goals") {
-            VStack(alignment: .leading, spacing: 10) {
-              ForEach(summary.goals) { report in
-                VStack(alignment: .leading, spacing: 6) {
-                  HStack(alignment: .firstTextBaseline) {
-                    Text(report.goal.title)
-                      .font(SerenityType.bodyMedium)
-                    Spacer()
-                    Text(report.statusLabel)
-                      .font(SerenityType.caption)
-                      .foregroundStyle(report.statusTint)
-                  }
-                  TextField("Note (optional)", text: Binding(
-                    get: { answers.goalNotes[report.id] ?? "" },
-                    set: { answers.goalNotes[report.id] = $0 }
-                  ))
-                  .textFieldStyle(.plain)
-                  .serenityInputField()
-                }
-              }
-            }
-          }
-        }
-
-        section("Three things for next week") {
-          VStack(spacing: 8) {
-            ForEach(answers.nextWeek.indices, id: \.self) { index in
-              TextField("Thing \(index + 1)", text: $answers.nextWeek[index])
-                .textFieldStyle(.plain)
-                .serenityInputField()
-            }
-            Text("These become tasks due \(WeeklyReview.nextMonday(after: Date()).formatted(.dateTime.weekday(.wide).day().month(.abbreviated))).")
-              .font(SerenityType.caption)
-              .foregroundStyle(SerenityPalette.textSecondary)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
-        }
-
-        HStack {
-          Spacer()
-          Button("Not now") { dismiss() }
-            .buttonStyle(SerenitySecondaryButtonStyle())
-            .hoverCursor(.pointingHand)
-          Button("Save review") {
-            saving = true
-            let review = answers
-            Task {
-              await appState.completeWeeklyReview(review, summary: summary)
-              saving = false
-              dismiss()
-            }
-          }
-          .buttonStyle(SerenityPrimaryButtonStyle())
-          .hoverCursor(.pointingHand)
-          .disabled(saving)
-          .keyboardShortcut(.defaultAction)
-        }
-      }
-      .padding(20)
-    }
-    .frame(minWidth: 560, minHeight: 560)
-  }
-
-  private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text(title)
-        .font(SerenityType.bodyMedium)
       content()
     }
   }

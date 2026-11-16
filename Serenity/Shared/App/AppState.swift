@@ -118,7 +118,6 @@ enum OAuthConfigurationValidationError: Error, LocalizedError {
 final class AppState: ObservableObject {
   static let themePreferenceDefaultsKey = "serenity.ui.themePreference"
   static let lastShutdownDayKey = "serenity.daily.lastShutdownDay"
-  static let lastWeeklyReviewWeekKey = "serenity.daily.lastWeeklyReviewWeek"
   static let reviewUsesJournalKey = "serenity.review.useJournal"
   static let lastSectionDefaultsKey = "serenity.ui.lastSection"
   static let notificationsEnabledDefaultsKey = "serenity.notifications.enabled"
@@ -176,9 +175,7 @@ final class AppState: ObservableObject {
   @Published private(set) var undoToast: UndoToast?
   @Published var isInboxTriagePresented = false
   @Published var isShutdownPresented = false
-  @Published var isWeeklyReviewPresented = false
   @Published private(set) var lastShutdownDay: String? = UserDefaults.standard.string(forKey: AppState.lastShutdownDayKey)
-  @Published private(set) var lastWeeklyReviewWeek: String? = UserDefaults.standard.string(forKey: AppState.lastWeeklyReviewWeekKey)
   @Published var taskFilter = TaskWorkflowFilter()
   @Published var selectedTaskIDs: Set<String> = []
   @Published var journalDateRangeEnabled = false
@@ -2933,7 +2930,7 @@ final class AppState: ObservableObject {
     let occurrences = TaskNotificationPlan.occurrences(
       for: tasks,
       leadMinutes: notificationLeadMinutes
-    )
+    ) + WeeklyReview.reminderOccurrences(reviews: weeklyReviews, routines: routines, tasks: tasks, now: Date())
     Task { [notificationScheduler] in
       await notificationScheduler.reconcile(occurrences)
     }
@@ -3923,32 +3920,234 @@ final class AppState: ObservableObject {
     lastShutdownDay = key
   }
 
+  // MARK: Weekly review
+
   var isWeeklyReviewDone: Bool {
-    lastWeeklyReviewWeek == WeeklyReview.weekKey(for: Date())
+    weeklyReview(forWeek: WeeklyReview.weekKey(for: Date()))?.completedAt != nil
   }
 
-  /// Saves the review as a journal entry and next week's picks as tasks due on Monday.
-  func completeWeeklyReview(_ review: WeeklyReview.Answers, summary: WeeklyReview.Summary, now: Date = Date()) async {
-    let body = WeeklyReview.journalText(summary: summary, answers: review)
-    _ = await createJournalEntry(title: "Weekly review · week of \(summary.weekStart.formatted(.dateTime.day().month(.wide)))", content: body, mood: nil, tags: ["weekly-review"])
-    let monday = WeeklyReview.nextMonday(after: now)
-    for item in review.nextWeek.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !item.isEmpty {
-      _ = await createTask(title: item, priority: .medium, dueDate: monday, tags: ["weekly-review"], subtaskTitles: [])
-    }
-    let key = WeeklyReview.weekKey(for: now)
-    UserDefaults.standard.set(key, forKey: Self.lastWeeklyReviewWeekKey)
-    lastWeeklyReviewWeek = key
+  /// Anything finished, focused on or ticked off in the week, so a new install isn't asked to review nothing.
+  func hadActivity(inWeekStarting start: Date) -> Bool {
+    let end = WeeklyReview.calendar.date(byAdding: .day, value: 7, to: start) ?? start
+    let inWeek: (Date) -> Bool = { $0 >= start && $0 < end }
+    return tasks.contains { $0.completed && ($0.completedAt.map(inWeek) ?? false) }
+      || focusBlocks.contains { $0.status == .done && inWeek($0.start) }
+      || routineChecks.contains { GoalReports.date(fromDayKey: $0.day).map(inWeek) ?? false }
   }
 
-  func weeklyReviewSummary(now: Date = Date()) -> WeeklyReview.Summary {
-    WeeklyReview.summary(
-      tasks: tasks,
-      focusBlocks: focusBlocks,
-      routineSummaries: routineSummaries(now: now),
-      routineChecks: routineChecks,
-      goalReports: goalReports(now: now).filter { $0.goal.status == .active },
-      now: now
+  var isWeeklyReviewDue: Bool {
+    WeeklyReview.isDue(
+      completedWeeks: Set(weeklyReviews.filter { $0.completedAt != nil }.map(\.weekKey)),
+      hadActivity: hadActivity(inWeekStarting: WeeklyReview.reviewedWeekStart(for: Date()))
     )
+  }
+
+  /// The week's review record, with its findings worked out once and kept, so reopening it doesn't
+  /// ask the AI provider again or reshuffle what was shown.
+  @discardableResult
+  func prepareWeeklyReview(weekStart: Date? = nil, now: Date = Date()) async -> WeeklyReviewEntity {
+    let start = weekStart ?? WeeklyReview.reviewedWeekStart(for: now)
+    let key = WeeklyReview.weekKey(forWeekStart: start)
+    let existing = weeklyReview(forWeek: key) ?? WeeklyReviewEntity(weekKey: key, weekStart: start, createdAt: now, updatedAt: now)
+    guard existing.payload.preparedAt == nil, existing.completedAt == nil else { return existing }
+
+    let recap = weeklyRecap(weekStart: start, now: now)
+    let enriched = await enrichWeeklyFindings(recap, now: now)
+    var review = weeklyReview(forWeek: key) ?? existing
+    guard review.payload.preparedAt == nil else { return review }
+    review.payload.findings = enriched.findings
+    review.payload.writtenByModel = enriched.writtenByModel
+    review.payload.preparedAt = now
+    review.payload.keptLines = (recap.moved + recap.stalled).map(\.id)
+    await saveWeeklyReview(review, now: now)
+    return review
+  }
+
+  func updateWeeklyReview(weekKey: String, now: Date = Date(), _ change: (inout WeeklyReviewPayload) -> Void) async {
+    guard var review = weeklyReview(forWeek: weekKey) else { return }
+    change(&review.payload)
+    await saveWeeklyReview(review, now: now)
+  }
+
+  /// Does what the finding offers and records how to take it back.
+  func acceptFinding(_ findingId: String, weekKey: String, now: Date = Date()) async {
+    guard let review = weeklyReview(forWeek: weekKey),
+          let finding = review.payload.findings.first(where: { $0.id == findingId }),
+          let action = finding.action,
+          !review.payload.liveActions.contains(where: { $0.findingId == findingId })
+    else { return }
+    guard let accepted = await perform(action, id: findingId, findingId: findingId, kind: finding.kind, title: finding.actionTitle ?? finding.title, now: now) else { return }
+    await updateWeeklyReview(weekKey: weekKey, now: now) { payload in
+      payload.actions.removeAll { $0.id == accepted.id }
+      payload.actions.append(accepted)
+    }
+    syncTaskNotifications()
+  }
+
+  private func perform(
+    _ action: WeeklyAction,
+    id: String,
+    findingId: String?,
+    kind: WeeklyFinding.Kind?,
+    title: String,
+    now: Date
+  ) async -> WeeklyAcceptedAction? {
+    var accepted = WeeklyAcceptedAction(id: id, findingId: findingId, kind: kind, action: action, title: title, acceptedAt: now)
+    switch action {
+    case .bookFocus(let blockTitle, let goalId, let slots):
+      for slot in slots {
+        let blockID = UUID().uuidString
+        await planFocusBlock(title: blockTitle, start: slot.start, minutes: Int(slot.duration / 60), goalId: goalId, id: blockID)
+        if focusBlocks.contains(where: { $0.id == blockID }) { accepted.focusBlockIds.append(blockID) }
+      }
+      guard !accepted.focusBlockIds.isEmpty else { return nil }
+    case .firstOnToday(let taskId):
+      guard let task = tasks.first(where: { $0.id == taskId }) else { return nil }
+      accepted.previousDueDate = task.dueDate
+      accepted.previousTags = task.tags
+      let today = Calendar.current.startOfDay(for: now)
+      let tag = Self.topThreeTag(for: now)
+      await adjustTask(id: taskId) { task in
+        if !task.tags.contains(tag) { task.tags.append(tag) }
+        task.tags.removeAll { $0 == Self.somedayTag }
+        // Date-only, so an all-day task doesn't quietly become a timed one.
+        if task.dueDate.map({ !Calendar.current.isDate($0, inSameDayAs: today) }) ?? true {
+          task.dueDate = today
+        }
+      }
+    case .scheduleTask(let taskId, let day):
+      guard let task = tasks.first(where: { $0.id == taskId }) else { return nil }
+      accepted.previousDueDate = task.dueDate
+      accepted.previousTags = task.tags
+      await scheduleTask(id: taskId, on: day)
+    case .pauseGoal(let goalId):
+      guard let goal = goals.first(where: { $0.id == goalId }) else { return nil }
+      accepted.previousPausedUntil = goal.config.pausedUntil
+      await pauseGoalForWeek(id: goalId, now: now)
+    case .lateEveningReminder:
+      break
+    }
+    return accepted
+  }
+
+  /// Takes an accepted action back: deletes what it booked, or puts the task or goal as it was.
+  func undoReviewAction(_ actionId: String, weekKey: String, now: Date = Date()) async {
+    guard let review = weeklyReview(forWeek: weekKey),
+          let accepted = review.payload.actions.first(where: { $0.id == actionId && $0.undoneAt == nil })
+    else { return }
+    switch accepted.action {
+    case .bookFocus:
+      await removeFocusBlocks(ids: accepted.focusBlockIds)
+    case .firstOnToday(let taskId):
+      let tag = Self.topThreeTag(for: accepted.acceptedAt)
+      await adjustTask(id: taskId) { task in
+        task.dueDate = accepted.previousDueDate
+        task.tags.removeAll { $0 == tag }
+        if accepted.previousTags?.contains(Self.somedayTag) == true, !task.tags.contains(Self.somedayTag) {
+          task.tags.append(Self.somedayTag)
+        }
+      }
+    case .scheduleTask(let taskId, _):
+      await adjustTask(id: taskId) { task in
+        task.dueDate = accepted.previousDueDate
+        if accepted.previousTags?.contains(Self.somedayTag) == true, !task.tags.contains(Self.somedayTag) {
+          task.tags.append(Self.somedayTag)
+        }
+      }
+    case .pauseGoal(let goalId):
+      await setGoalPause(id: goalId, until: accepted.previousPausedUntil)
+    case .lateEveningReminder:
+      break
+    }
+    await updateWeeklyReview(weekKey: weekKey, now: now) { payload in
+      if let index = payload.actions.firstIndex(where: { $0.id == actionId }) {
+        payload.actions[index].undoneAt = now
+      }
+    }
+    syncTaskNotifications()
+  }
+
+  func markFindingNotUseful(_ findingId: String, reason: WeeklyFindingFeedback.Reason, weekKey: String, now: Date = Date()) async {
+    guard let review = weeklyReview(forWeek: weekKey), let finding = review.payload.findings.first(where: { $0.id == findingId }) else { return }
+    await updateWeeklyReview(weekKey: weekKey, now: now) { payload in
+      payload.feedback.removeAll { $0.findingId == findingId }
+      payload.feedback.append(WeeklyFindingFeedback(findingId: findingId, kind: finding.kind, reason: reason, weekStart: review.weekStart))
+    }
+  }
+
+  func undoNotUseful(_ findingId: String, weekKey: String, now: Date = Date()) async {
+    await updateWeeklyReview(weekKey: weekKey, now: now) { payload in
+      payload.feedback.removeAll { $0.findingId == findingId }
+    }
+  }
+
+  /// Applies the open-item decisions, pauses and picks, writes the journal entry, and marks the week done.
+  func completeWeeklyReview(weekKey: String, now: Date = Date()) async {
+    guard let draft = weeklyReview(forWeek: weekKey), draft.completedAt == nil else { return }
+    let recap = weeklyRecap(weekStart: draft.weekStart, now: now)
+
+    for (taskId, choice) in draft.payload.carry.sorted(by: { $0.key < $1.key }) {
+      guard tasks.contains(where: { $0.id == taskId && !$0.completed }) else { continue }
+      switch choice {
+      case .monday, .thisWeek:
+        await scheduleTask(id: taskId, on: WeeklyReview.carryDueDate(choice, now: now))
+      case .someday:
+        await keepTaskForSomeday(id: taskId)
+      case .drop:
+        await deleteTask(id: taskId)
+      }
+    }
+    for goalId in draft.payload.pausedGoalIds {
+      guard let goal = goals.first(where: { $0.id == goalId }), !(goal.config.pausedUntil.map { $0 > now } ?? false) else { continue }
+      await pauseGoalForWeek(id: goalId, now: now)
+    }
+    for pick in draft.payload.picks {
+      if let findingId = pick.findingId { await acceptFinding(findingId, weekKey: weekKey, now: now) }
+    }
+
+    guard var review = weeklyReview(forWeek: weekKey) else { return }
+    let today = Calendar.current.startOfDay(for: now)
+    let topTag = Self.topThreeTag(for: now)
+    for index in review.payload.picks.indices where review.payload.picks[index].findingId == nil {
+      let pick = review.payload.picks[index]
+      if let taskId = pick.taskId, tasks.contains(where: { $0.id == taskId }) {
+        await adjustTask(id: taskId) { task in
+          if !task.tags.contains(topTag) { task.tags.append(topTag) }
+          task.tags.removeAll { $0 == Self.somedayTag }
+          if task.dueDate.map({ $0 < today }) ?? true { task.dueDate = today }
+        }
+      } else if pick.taskId == nil {
+        let taskID = UUID().uuidString
+        if await createTask(title: pick.title, priority: .medium, dueDate: today, tags: [WeeklyReview.tag, topTag], subtaskTitles: [], id: taskID) {
+          review.payload.picks[index].taskId = taskID
+        }
+      }
+    }
+
+    let format = RecapFormat(calendar: WeeklyReview.calendar, locale: .current)
+    let entryID = UUID().uuidString
+    let text = WeeklyReview.journalText(recap: recap, payload: review.payload, accepted: review.payload.liveActions)
+    if await createJournalEntry(title: WeeklyReview.journalTitle(weekStart: review.weekStart, format: format), content: text, mood: nil, tags: [WeeklyReview.tag], id: entryID) {
+      review.payload.journalEntryId = entryID
+    }
+    review.payload.snapshot = WeeklyReview.snapshot(of: recap)
+    review.completedAt = now
+    await saveWeeklyReview(review, now: now)
+  }
+
+  private func setGoalPause(id: String, until date: Date?) async {
+    guard var goal = goals.first(where: { $0.id == id }) else { return }
+    goal.config.pausedUntil = date
+    goal.updatedAt = Date()
+    await persistGoal(goal, failureTitle: "Failed to update goal")
+  }
+
+  private func removeFocusBlocks(ids: [String]) async {
+    let present = ids.filter { id in focusBlocks.contains { $0.id == id } }
+    guard !present.isEmpty else { return }
+    await mutateLocalData(failureTitle: "Failed to remove focus blocks") { repositories in
+      for id in present { try repositories.focusBlocks.delete(id: id) }
+    }
   }
 
   // MARK: - Voice capture
@@ -4055,10 +4254,10 @@ final class AppState: ObservableObject {
       .min { $0.start < $1.start }
   }
 
-  func planFocusBlock(title: String, start: Date, minutes: Int, goalId: String?) async {
+  func planFocusBlock(title: String, start: Date, minutes: Int, goalId: String?, id: String = UUID().uuidString) async {
     let now = Date()
     let block = FocusBlockEntity(
-      id: UUID().uuidString,
+      id: id,
       title: Self.focusTitle(title),
       start: start,
       end: start.addingTimeInterval(Double(min(max(minutes, Self.focusLengthRange.lowerBound), Self.focusLengthRange.upperBound)) * 60),
@@ -4442,6 +4641,10 @@ final class AppState: ObservableObject {
   func saveWeeklyReview(_ review: WeeklyReviewEntity, now: Date = Date()) async -> Bool {
     var review = review
     review.updatedAt = now
+    guard settings.backendProfile == .sqliteLocal else {
+      showError(title: "Couldn't save the weekly review", message: Self.routinesNeedLocalStorageMessage)
+      return false
+    }
     do {
       let repositories = try await requireSQLiteCoreRepositories()
       try repositories.weeklyReviews.save(review)

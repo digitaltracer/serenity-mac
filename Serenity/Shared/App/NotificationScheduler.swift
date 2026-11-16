@@ -137,7 +137,7 @@ struct SystemNotificationCenter: NotificationCenterAdapter {
     return Set(
       requests
         .map(\.identifier)
-        .filter { $0.hasPrefix(TaskNotificationPlan.identifierPrefix) }
+        .filter { $0.hasPrefix(TaskNotificationPlan.identifierPrefix) || $0.hasPrefix(WeeklyReview.reminderPrefix) }
     )
   }
 

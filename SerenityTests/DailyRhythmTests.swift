@@ -14,21 +14,22 @@ final class DailyRhythmTests: XCTestCase {
     calendar.date(from: DateComponents(year: 2026, month: 11, day: day, hour: hour))!
   }
 
-  func testWeeklyReviewIsDueFromFridayAfternoonThroughMonday() {
-    XCTAssertFalse(WeeklyReview.isDue(now: date(12), lastReviewedWeek: nil, calendar: calendar), "Thursday")
-    XCTAssertFalse(WeeklyReview.isDue(now: date(13, 10), lastReviewedWeek: nil, calendar: calendar), "Friday morning")
-    XCTAssertTrue(WeeklyReview.isDue(now: date(13, 16), lastReviewedWeek: nil, calendar: calendar))
-    XCTAssertTrue(WeeklyReview.isDue(now: date(15), lastReviewedWeek: nil, calendar: calendar), "Sunday")
-    XCTAssertTrue(WeeklyReview.isDue(now: date(16), lastReviewedWeek: nil, calendar: calendar), "Monday")
-    XCTAssertFalse(WeeklyReview.isDue(now: date(16), lastReviewedWeek: "2026-W46", calendar: calendar), "already reviewed")
+  func testWeeklyReviewIsDueFromMondayUntilLastWeekIsReviewed() {
+    XCTAssertTrue(WeeklyReview.isDue(now: date(16, 7), completedWeeks: [], hadActivity: true, calendar: calendar), "Monday morning")
+    XCTAssertTrue(WeeklyReview.isDue(now: date(19), completedWeeks: [], hadActivity: true, calendar: calendar), "still waiting on Thursday")
+    XCTAssertFalse(WeeklyReview.isDue(now: date(16), completedWeeks: ["2026-W46"], hadActivity: true, calendar: calendar), "already reviewed")
+    XCTAssertTrue(WeeklyReview.isDue(now: date(23), completedWeeks: ["2026-W46"], hadActivity: true, calendar: calendar), "the next Monday asks again")
+    XCTAssertFalse(WeeklyReview.isDue(now: date(16), completedWeeks: [], hadActivity: false, calendar: calendar), "nothing to look back at")
   }
 
-  func testMondayReviewsTheWeekJustFinished() {
-    XCTAssertEqual(WeeklyReview.weekKey(for: date(15), calendar: calendar), "2026-W46")
+  func testTheReviewAlwaysLooksBackAtLastWeek() {
     XCTAssertEqual(WeeklyReview.weekKey(for: date(16), calendar: calendar), "2026-W46")
+    XCTAssertEqual(WeeklyReview.weekKey(for: date(22), calendar: calendar), "2026-W46")
+    XCTAssertEqual(WeeklyReview.weekKey(for: date(15), calendar: calendar), "2026-W45")
     XCTAssertEqual(WeeklyReview.reviewedWeekStart(for: date(16), calendar: calendar), calendar.date(from: DateComponents(year: 2026, month: 11, day: 9)))
     XCTAssertEqual(WeeklyReview.nextMonday(after: date(16), calendar: calendar), calendar.date(from: DateComponents(year: 2026, month: 11, day: 16)))
     XCTAssertEqual(WeeklyReview.nextMonday(after: date(13), calendar: calendar), calendar.date(from: DateComponents(year: 2026, month: 11, day: 16)))
+    XCTAssertEqual(WeeklyReview.nextWeekday(after: date(13), calendar: calendar), calendar.date(from: DateComponents(year: 2026, month: 11, day: 16)))
   }
 
   func testShutdownIsOfferedInTheEveningUntilDone() {
@@ -36,29 +37,6 @@ final class DailyRhythmTests: XCTestCase {
     XCTAssertTrue(TodayBriefing.shutdownDue(now: date(11, 18), lastShutdownDay: nil, calendar: calendar))
     XCTAssertTrue(TodayBriefing.shutdownDue(now: date(12, 1), lastShutdownDay: "2026-11-10", calendar: calendar), "after midnight still belongs to the evening")
     XCTAssertFalse(TodayBriefing.shutdownDue(now: date(11, 18), lastShutdownDay: "2026-11-11", calendar: calendar))
-  }
-
-  func testReviewJournalCarriesWinsAnswersAndNextWeek() {
-    let summary = WeeklyReview.Summary(
-      weekStart: date(9),
-      weekEnd: date(16),
-      completedTasks: [],
-      focusHours: 6.5,
-      routines: [.init(title: "Walk", done: 4), .init(title: "Read", done: 0)],
-      goals: []
-    )
-    var answers = WeeklyReview.Answers()
-    answers.moved = "Sync fixes landed"
-    answers.nextWeek = ["Ship 1.0 beta", "", "Book physio"]
-
-    let text = WeeklyReview.journalText(summary: summary, answers: answers)
-
-    XCTAssertTrue(text.contains("- 6.5 h of focus"))
-    XCTAssertTrue(text.contains("- Walk: 4 days"))
-    XCTAssertFalse(text.contains("Read:"))
-    XCTAssertTrue(text.contains("## What moved\nSync fixes landed"))
-    XCTAssertTrue(text.hasSuffix("## Next week\n- Ship 1.0 beta\n- Book physio"))
-    XCTAssertFalse(text.contains("What stalled"))
   }
 }
 

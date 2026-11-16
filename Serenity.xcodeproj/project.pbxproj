@@ -116,7 +116,11 @@
 		A00000000000000000000140 /* TodayBriefing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000013F /* TodayBriefing.swift */; };
 		A00000000000000000000141 /* TodayBriefing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000013F /* TodayBriefing.swift */; };
 		A0000000000000000000013D /* GoalPace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000013C /* GoalPace.swift */; };
+		A00000000000000000000175 /* WeeklyReviewViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000174 /* WeeklyReviewViews.swift */; };
+		A00000000000000000000172 /* WeeklyReviewFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000171 /* WeeklyReviewFlow.swift */; };
 		A0000000000000000000013E /* GoalPace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000013C /* GoalPace.swift */; };
+		A00000000000000000000176 /* WeeklyReviewViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000174 /* WeeklyReviewViews.swift */; };
+		A00000000000000000000173 /* WeeklyReviewFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000171 /* WeeklyReviewFlow.swift */; };
 		A0000000000000000000016C /* WeeklyReviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000016B /* WeeklyReviewStore.swift */; };
 		A0000000000000000000016D /* WeeklyReviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000016B /* WeeklyReviewStore.swift */; };
 		A00000000000000000000169 /* WeeklyRecap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000168 /* WeeklyRecap.swift */; };
@@ -226,6 +230,8 @@
 		A00000000000000000000117 /* StandupPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandupPlanner.swift; sourceTree = "<group>"; };
 		A0000000000000000000013F /* TodayBriefing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayBriefing.swift; sourceTree = "<group>"; };
 		A0000000000000000000013C /* GoalPace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalPace.swift; sourceTree = "<group>"; };
+		A00000000000000000000174 /* WeeklyReviewViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyReviewViews.swift; sourceTree = "<group>"; };
+		A00000000000000000000171 /* WeeklyReviewFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyReviewFlow.swift; sourceTree = "<group>"; };
 		A0000000000000000000016B /* WeeklyReviewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyReviewStore.swift; sourceTree = "<group>"; };
 		A00000000000000000000168 /* WeeklyRecap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyRecap.swift; sourceTree = "<group>"; };
 		A00000000000000000000139 /* RoutineStreaks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineStreaks.swift; sourceTree = "<group>"; };
@@ -326,6 +332,8 @@
 				A000000000000000000000FF /* RecurrenceEngine.swift */,
 				A00000000000000000000139 /* RoutineStreaks.swift */,
 				A0000000000000000000013C /* GoalPace.swift */,
+				A00000000000000000000174 /* WeeklyReviewViews.swift */,
+				A00000000000000000000171 /* WeeklyReviewFlow.swift */,
 				A00000000000000000000168 /* WeeklyRecap.swift */,
 				A0000000000000000000013F /* TodayBriefing.swift */,
 				A00000000000000000000024 /* SerenityAppScene.swift */,
@@ -663,6 +671,8 @@
 				A00000000000000000000127 /* StandupPlanner.swift in Sources */,
 				A0000000000000000000013A /* RoutineStreaks.swift in Sources */,
 				A0000000000000000000013D /* GoalPace.swift in Sources */,
+				A00000000000000000000175 /* WeeklyReviewViews.swift in Sources */,
+				A00000000000000000000172 /* WeeklyReviewFlow.swift in Sources */,
 				A0000000000000000000016C /* WeeklyReviewStore.swift in Sources */,
 				A00000000000000000000169 /* WeeklyRecap.swift in Sources */,
 				A00000000000000000000140 /* TodayBriefing.swift in Sources */,
@@ -728,6 +738,8 @@
 				A00000000000000000000137 /* StandupPlanner.swift in Sources */,
 				A0000000000000000000013B /* RoutineStreaks.swift in Sources */,
 				A0000000000000000000013E /* GoalPace.swift in Sources */,
+				A00000000000000000000176 /* WeeklyReviewViews.swift in Sources */,
+				A00000000000000000000173 /* WeeklyReviewFlow.swift in Sources */,
 				A0000000000000000000016D /* WeeklyReviewStore.swift in Sources */,
 				A0000000000000000000016A /* WeeklyRecap.swift in Sources */,
 				A00000000000000000000141 /* TodayBriefing.swift in Sources */,

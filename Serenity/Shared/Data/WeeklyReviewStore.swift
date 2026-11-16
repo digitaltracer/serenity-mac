@@ -83,6 +83,8 @@ struct WeeklyReviewPayload: Codable, Equatable {
   var journalEntryId: String?
   /// Set when the findings' sentences came from the AI provider rather than Serenity's own text.
   var writtenByModel = false
+  /// When the findings were worked out; zero findings is a valid result, so emptiness can't say this.
+  var preparedAt: Date?
 
   init() {}
 
@@ -100,6 +102,7 @@ struct WeeklyReviewPayload: Codable, Equatable {
     snapshot = try container.decodeIfPresent(Snapshot.self, forKey: .snapshot) ?? Snapshot()
     journalEntryId = try container.decodeIfPresent(String.self, forKey: .journalEntryId)
     writtenByModel = try container.decodeIfPresent(Bool.self, forKey: .writtenByModel) ?? false
+    preparedAt = try container.decodeIfPresent(Date.self, forKey: .preparedAt)
   }
 
   /// The accepted actions still in force.

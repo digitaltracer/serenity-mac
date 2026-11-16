@@ -137,15 +137,21 @@ final class ClaudeBridgeRouter {
     )
   }
 
+  /// This week so far; on a Monday, the week just finished.
   private func week() -> ClaudeWeekResult {
-    let summary = appState.weeklyReviewSummary(now: now())
+    let now = now()
+    let calendar = WeeklyReview.calendar
+    let start = calendar.component(.weekday, from: now) == 2
+      ? WeeklyReview.reviewedWeekStart(for: now, calendar: calendar)
+      : calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? calendar.startOfDay(for: now)
+    let recap = appState.weeklyRecap(weekStart: start, now: now)
     return ClaudeWeekResult(
-      weekStart: ClaudeBridgeDates.day(summary.weekStart),
-      weekEnd: ClaudeBridgeDates.day(summary.weekEnd),
-      completedTasks: summary.completedTasks.map(\.title),
-      focusHours: (summary.focusHours * 10).rounded() / 10,
-      routines: summary.routines.map { .init(title: $0.title, done: $0.done) },
-      goals: summary.goals.map(goalSnapshot)
+      weekStart: ClaudeBridgeDates.day(recap.weekStart),
+      weekEnd: ClaudeBridgeDates.day(recap.weekEnd),
+      completedTasks: recap.days.flatMap(\.done).reversed().map(\.title),
+      focusHours: (recap.focus.hours * 10).rounded() / 10,
+      routines: recap.routines.map { .init(title: $0.title, done: $0.done) },
+      goals: appState.goalReports(now: now).filter { $0.goal.status == .active && $0.kind != .area }.map(goalSnapshot)
     )
   }
 
