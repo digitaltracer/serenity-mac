@@ -119,6 +119,7 @@ final class AppState: ObservableObject {
   static let themePreferenceDefaultsKey = "serenity.ui.themePreference"
   static let lastShutdownDayKey = "serenity.daily.lastShutdownDay"
   static let lastWeeklyReviewWeekKey = "serenity.daily.lastWeeklyReviewWeek"
+  static let reviewUsesJournalKey = "serenity.review.useJournal"
   static let lastSectionDefaultsKey = "serenity.ui.lastSection"
   static let notificationsEnabledDefaultsKey = "serenity.notifications.enabled"
   static let slackSyncEnabledDefaultsKey = "serenity.slack.syncEnabled"
@@ -163,6 +164,10 @@ final class AppState: ObservableObject {
   @Published var focusBlocks: [FocusBlockEntity] = []
   /// Newest week first.
   @Published var weeklyReviews: [WeeklyReviewEntity] = []
+  /// Per device, like Claude's journal switch: off keeps every part of the journal out of reviews.
+  @Published var reviewUsesJournal = UserDefaults.standard.bool(forKey: AppState.reviewUsesJournalKey) {
+    didSet { UserDefaults.standard.set(reviewUsesJournal, forKey: Self.reviewUsesJournalKey) }
+  }
   /// Set when another screen opens Goals on one goal; Goals expands it and clears this.
   @Published var focusedGoalID: String?
   /// Shows the voice capture sheet. The Mac also opens it as a floating panel from the global shortcut.
@@ -4377,6 +4382,55 @@ final class AppState: ObservableObject {
   private func fetchWeeklyReviews() async throws -> [WeeklyReviewEntity] {
     guard settings.backendProfile == .sqliteLocal else { return [] }
     return try await requireSQLiteCoreRepositories().weeklyReviews.fetchAll()
+  }
+
+  func weeklyRecapInputs() -> WeeklyRecapInputs {
+    WeeklyRecapInputs(
+      tasks: tasks,
+      projects: projects,
+      focusBlocks: focusBlocks,
+      routines: routines,
+      routineChecks: routineChecks,
+      goals: goals,
+      journalEntries: reviewUsesJournal ? journalEntries : [],
+      useJournal: reviewUsesJournal,
+      feedback: weeklyReviews.flatMap(\.payload.feedback)
+    )
+  }
+
+  func weeklyRecap(weekStart: Date, now: Date = Date()) -> WeeklyRecap {
+    WeeklyRecap.build(inputs: weeklyRecapInputs(), weekStart: weekStart, now: now)
+  }
+
+  /// Serenity's findings, rewritten and added to by the AI provider when one is set. Anything the
+  /// reply cites that wasn't sent, or any failure, leaves Serenity's own text.
+  func enrichWeeklyFindings(_ recap: WeeklyRecap, now: Date = Date()) async -> (findings: [WeeklyFinding], writtenByModel: Bool) {
+    let inputs = weeklyRecapInputs()
+    let input = WeeklyReviewWriter.input(recap: recap, inputs: inputs, now: now)
+    do {
+      let prompt = try WeeklyReviewWriter.userPrompt(input)
+      guard let reply = try await aiWorkflowService.writeWeeklyReview(userPrompt: prompt) else {
+        return (recap.findings, false)
+      }
+      let result = try WeeklyReviewWriter.merge(
+        responseText: reply,
+        input: input,
+        userPrompt: prompt,
+        deterministic: recap.findings,
+        feedback: inputs.feedback,
+        hasHistory: recap.hasPatterns,
+        weekStart: recap.weekStart,
+        nextWeekday: WeeklyReview.nextWeekday(after: now)
+      )
+      for reason in result.rejected {
+        AppLogger.info("Weekly review: dropped model output, \(reason)")
+      }
+      await refreshAIWorkflows()
+      return (result.findings, result.rewritten + result.added > 0)
+    } catch {
+      AppLogger.error("Weekly review: kept Serenity's findings, the model call failed: \(error.localizedDescription)")
+      return (recap.findings, false)
+    }
   }
 
   func weeklyReview(forWeek weekKey: String) -> WeeklyReviewEntity? {

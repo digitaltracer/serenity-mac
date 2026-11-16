@@ -9721,6 +9721,7 @@ private struct SettingsSectionView: View {
       VStack(alignment: .leading, spacing: 18) {
         aiProviderPanel
         voiceTranscriptionPanel
+        weeklyReviewPanel
       }
     case .costCenter:
       CostCenterSectionView()
@@ -9878,6 +9879,24 @@ private struct SettingsSectionView: View {
             .frame(maxWidth: 460)
         }
         Text("Recordings are sent to OpenAI to be transcribed and deleted from this device straight after. Splitting the transcript into items uses your active AI provider.")
+          .font(SerenityType.caption)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+  }
+
+  private var weeklyReviewPanel: some View {
+    settingsPanel(
+      title: "Weekly review",
+      subtitle: appState.reviewUsesJournal ? "Uses your journal" : "Leaves your journal out",
+      systemImage: "calendar.badge.checkmark",
+      tint: SerenityPalette.accent
+    ) {
+      VStack(alignment: .leading, spacing: 7) {
+        Toggle("Use journal in weekly reviews", isOn: $appState.reviewUsesJournal)
+          .toggleStyle(.switch)
+        Text("Off by default, and set on each device. When on, mood, tags, titles and text from your journal can shape and be quoted in findings, and go to your AI provider with the rest of the week.")
           .font(SerenityType.caption)
           .foregroundStyle(SerenityPalette.textSecondary)
           .fixedSize(horizontal: false, vertical: true)

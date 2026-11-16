@@ -72,6 +72,8 @@ struct WeeklyFinding: Codable, Equatable, Identifiable {
     case deepWorkBelowBaseline
     case quietArea
     case moodAfterBusyDays
+    /// Found by the AI provider from the records it was given.
+    case observation
 
     var tag: String {
       switch self {
@@ -80,6 +82,7 @@ struct WeeklyFinding: Codable, Equatable, Identifiable {
       case .stuckTask: return "Stuck"
       case .deepWorkBelowBaseline: return "Below your usual"
       case .quietArea: return "Quiet"
+      case .observation: return "Noticed"
       }
     }
 
@@ -87,7 +90,7 @@ struct WeeklyFinding: Codable, Equatable, Identifiable {
     var needsHistory: Bool {
       switch self {
       case .routineAfterLateEvening, .deepWorkBelowBaseline, .moodAfterBusyDays: return true
-      case .goalAtRisk, .stuckTask, .quietArea: return false
+      case .goalAtRisk, .stuckTask, .quietArea, .observation: return false
       }
     }
   }
@@ -1168,11 +1171,7 @@ private struct Builder {
   }
 
   func nextWeekday(after date: Date) -> Date {
-    var day = calendar.startOfDay(for: calendar.date(byAdding: .day, value: 1, to: date) ?? date)
-    while [1, 7].contains(calendar.component(.weekday, from: day)) {
-      day = calendar.date(byAdding: .day, value: 1, to: day) ?? day
-    }
-    return day
+    WeeklyReview.nextWeekday(after: date, calendar: calendar)
   }
 }
 

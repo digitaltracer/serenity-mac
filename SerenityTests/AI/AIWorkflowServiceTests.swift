@@ -43,6 +43,34 @@ final class AIWorkflowServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.usage.first?.provider, .gemini)
   }
 
+  func testWeeklyReviewSkipsTheModelWithoutAKey() async throws {
+    let (service, _, _) = try makeService { _, _, _, _, _, _ in
+      XCTFail("No key, so no call")
+      return AIProviderTextGenerationResponse(text: "{}", promptTokens: 0, completionTokens: 0)
+    }
+
+    let reply = try await service.writeWeeklyReview(userPrompt: "{}")
+    XCTAssertNil(reply)
+  }
+
+  func testWeeklyReviewLogsUsageAsAWeeklyReview() async throws {
+    let systemPrompt = ModelBox()
+    let (service, _, _) = try makeService { _, _, _, system, _, _ in
+      systemPrompt.value = system
+      return AIProviderTextGenerationResponse(text: #"{"findings":[]}"#, promptTokens: 120, completionTokens: 30)
+    }
+    _ = try await service.addCredential(provider: .openai, name: "OpenAI", apiKey: "sk", modelPreference: "gpt-5.5")
+
+    let reply = try await service.writeWeeklyReview(userPrompt: "{}")
+
+    XCTAssertEqual(reply, #"{"findings":[]}"#)
+    XCTAssertTrue(systemPrompt.value?.contains("Every number you write must appear in the records") ?? false)
+    let usage = try await service.fetchSnapshot(limit: 5).usage
+    XCTAssertEqual(usage.first?.operation, .recap)
+    XCTAssertEqual(usage.first?.totalTokens, 150)
+    XCTAssertEqual(usage.first?.operation.label, "Weekly review")
+  }
+
   func testClassifyQuickCaptureSplitsMultipleTasksAndKeepsNewProject() async throws {
     let (service, _, _) = try makeService { _, _, _, _, _, _ in
       AIProviderTextGenerationResponse(

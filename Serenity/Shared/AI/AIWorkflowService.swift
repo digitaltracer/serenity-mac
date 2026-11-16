@@ -920,6 +920,36 @@ actor AIWorkflowService {
     )
   }
 
+  /// Asks the active provider to rewrite and add to the week's findings. Nil without a key, so the
+  /// review keeps Serenity's own text; the caller validates whatever comes back.
+  func writeWeeklyReview(userPrompt: String) async throws -> String? {
+    let repositories = try await requireRepositories()
+    let settings = try repositories.settings.fetch() ?? .defaultValue
+    guard let selection = try? chooseCredential(settings: settings) else { return nil }
+
+    do {
+      let response = try await quickCaptureGenerator(
+        endpoint(for: selection.credential),
+        selection.apiKey,
+        selection.model,
+        WeeklyReviewWriter.systemPrompt(),
+        userPrompt,
+        WeeklyReviewWriter.schema()
+      )
+      try recordUsage(
+        repositories: repositories,
+        selection: selection,
+        operation: .recap,
+        promptTokens: response.promptTokens,
+        completionTokens: response.completionTokens
+      )
+      return response.text
+    } catch {
+      recordFailure(error, repositories: repositories, selection: selection)
+      throw error
+    }
+  }
+
   /// Rewrites the stand-up that was just written, from the same confirmed
   /// facts plus what the person asked to change. No fallback: without a
   /// provider there is nobody to ask, and silently returning the unchanged

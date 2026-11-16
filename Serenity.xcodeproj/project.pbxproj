@@ -126,8 +126,10 @@
 		A00000000000000000000143 /* VoiceCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000142 /* VoiceCapture.swift */; };
 		A00000000000000000000144 /* VoiceCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000142 /* VoiceCapture.swift */; };
 		A00000000000000000000128 /* StandupWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000118 /* StandupWriter.swift */; };
+		A0000000000000000000016F /* WeeklyReviewWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000016E /* WeeklyReviewWriter.swift */; };
 		A00000000000000000000137 /* StandupPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000117 /* StandupPlanner.swift */; };
 		A00000000000000000000138 /* StandupWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000118 /* StandupWriter.swift */; };
+		A00000000000000000000170 /* WeeklyReviewWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000016E /* WeeklyReviewWriter.swift */; };
 		A00000000000000000000153 /* SerenityBridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000152 /* SerenityBridgeClient.swift */; };
 		A00000000000000000000155 /* SerenityTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000154 /* SerenityTools.swift */; };
 		A00000000000000000000157 /* SerenityMCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000156 /* SerenityMCPServer.swift */; };
@@ -229,6 +231,7 @@
 		A00000000000000000000139 /* RoutineStreaks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineStreaks.swift; sourceTree = "<group>"; };
 		A00000000000000000000142 /* VoiceCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCapture.swift; sourceTree = "<group>"; };
 		A00000000000000000000118 /* StandupWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandupWriter.swift; sourceTree = "<group>"; };
+		A0000000000000000000016E /* WeeklyReviewWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyReviewWriter.swift; sourceTree = "<group>"; };
 		A00000000000000000000152 /* SerenityBridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityBridgeClient.swift; sourceTree = "<group>"; };
 		A00000000000000000000154 /* SerenityTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityTools.swift; sourceTree = "<group>"; };
 		A00000000000000000000156 /* SerenityMCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerenityMCPServer.swift; sourceTree = "<group>"; };
@@ -338,6 +341,7 @@
 				A000000000000000000000F0 /* AIProviderAPIClient.swift */,
 				A00000000000000000000116 /* CaptureCommandDrafter.swift */,
 				A00000000000000000000118 /* StandupWriter.swift */,
+				A0000000000000000000016E /* WeeklyReviewWriter.swift */,
 				A00000000000000000000142 /* VoiceCapture.swift */,
 				A00000000000000000000113 /* SlackProposalService.swift */,
 			);
@@ -667,6 +671,7 @@
 				A0000000000000000000014E /* ClaudeBridgeServer.swift in Sources */,
 				A00000000000000000000167 /* ClaudeDesktopInstaller.swift in Sources */,
 				A00000000000000000000128 /* StandupWriter.swift in Sources */,
+				A0000000000000000000016F /* WeeklyReviewWriter.swift in Sources */,
 				A00000000000000000000143 /* VoiceCapture.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -729,6 +734,7 @@
 				A00000000000000000000149 /* ClaudeBridgeProtocol.swift in Sources */,
 				A0000000000000000000014C /* ClaudeBridgeRouter.swift in Sources */,
 				A00000000000000000000138 /* StandupWriter.swift in Sources */,
+				A00000000000000000000170 /* WeeklyReviewWriter.swift in Sources */,
 				A00000000000000000000144 /* VoiceCapture.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

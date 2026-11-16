@@ -354,6 +354,15 @@ enum WeeklyReview {
     return inWindow && lastReviewedWeek != weekKey(for: now, calendar: calendar)
   }
 
+  /// The next Monday-to-Friday day after `date`.
+  static func nextWeekday(after date: Date, calendar: Calendar = WeeklyReview.calendar) -> Date {
+    var day = calendar.startOfDay(for: calendar.date(byAdding: .day, value: 1, to: date) ?? date)
+    while [1, 7].contains(calendar.component(.weekday, from: day)) {
+      day = calendar.date(byAdding: .day, value: 1, to: day) ?? day
+    }
+    return day
+  }
+
   /// The Monday next week's picks are due: today when reviewing on a Monday.
   static func nextMonday(after now: Date, calendar: Calendar = WeeklyReview.calendar) -> Date {
     let today = calendar.startOfDay(for: now)
