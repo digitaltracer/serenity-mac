@@ -158,6 +158,12 @@ private struct WeeklyRecapView: View {
 
     VStack(alignment: .leading, spacing: 18) {
       header
+      if let line = loopLine {
+        Label(line, systemImage: "arrow.triangle.2.circlepath")
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
       metrics
       dayChart
       findingsSection(findings)
@@ -174,6 +180,14 @@ private struct WeeklyRecapView: View {
       let today = WeeklyReview.calendar.component(.weekday, from: Date())
       selectedDay = recap.days.lastIndex { $0.focusHours > 0 || !$0.done.isEmpty } ?? (today == 2 ? 6 : 0)
     }
+  }
+
+  /// How the changes from the review before went.
+  private var loopLine: String? {
+    guard let start = WeeklyReview.calendar.date(byAdding: .day, value: -7, to: recap.weekStart),
+          let previous = appState.weeklyReview(forWeek: WeeklyReview.weekKey(forWeekStart: start))
+    else { return nil }
+    return WeeklyReview.loopLine(for: previous)
   }
 
   private var header: some View {
@@ -1281,6 +1295,153 @@ private struct WeeklyReviewHistoryDetail: View {
           }
         }
         .reviewPanel()
+      }
+    }
+  }
+}
+
+// MARK: - On Today (5b)
+
+/// The change picked in the review for today, with why it is here.
+struct TodayReviewHighlightCard: View {
+  @EnvironmentObject private var appState: AppState
+  @State private var whyOpen = false
+
+  var body: some View {
+    let insight = appState.todayReviewInsight()
+    if let highlight = insight.highlight {
+      let running = appState.activeFocusBlock?.taskId == highlight.taskId
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(spacing: 8) {
+          ReviewPill(text: "From your weekly review", tint: SerenityPalette.accent)
+          Spacer()
+        }
+        Text(highlight.title)
+          .font(SerenityType.bodyLarge.weight(.semibold))
+          .fixedSize(horizontal: false, vertical: true)
+        Text(highlight.body)
+          .font(SerenityType.body)
+          .foregroundStyle(SerenityPalette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+        SerenityFlowLayout(spacing: 8) {
+          if !running {
+            Button("Start 10 minutes") {
+              let title = appState.tasks.first { $0.id == highlight.taskId }?.title ?? "Focus"
+              Task { await appState.startFocus(title: title, minutes: 10, goalId: nil, taskId: highlight.taskId) }
+            }
+            .buttonStyle(SerenityPrimaryButtonStyle())
+            .hoverCursor(.pointingHand)
+          }
+          Button("Mark done") {
+            Task { await appState.toggleTaskCompletion(id: highlight.taskId) }
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+          Button(whyOpen ? "Hide why" : "Why this?") {
+            withAnimation(.easeOut(duration: 0.15)) { whyOpen.toggle() }
+          }
+          .buttonStyle(SerenitySecondaryButtonStyle())
+          .hoverCursor(.pointingHand)
+        }
+        if whyOpen {
+          VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(highlight.evidence.enumerated()), id: \.offset) { _, row in
+              HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(row.when).font(SerenityType.caption.weight(.semibold)).foregroundStyle(SerenityPalette.textSecondary).frame(width: 92, alignment: .leading)
+                Text(row.what).font(SerenityType.caption).fixedSize(horizontal: false, vertical: true)
+              }
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+              Text("Shown now").font(SerenityType.caption.weight(.semibold)).foregroundStyle(SerenityPalette.textSecondary).frame(width: 92, alignment: .leading)
+              Text("You chose “first on Today” in the review").font(SerenityType.caption)
+            }
+          }
+          .padding(10)
+          .background(SerenityPalette.innerCardBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+      }
+      .reviewPanel()
+    }
+  }
+}
+
+/// From Wednesday: how the changes made in Monday's review are going.
+struct TodayReviewCheckInCard: View {
+  @EnvironmentObject private var appState: AppState
+
+  var body: some View {
+    let insight = appState.todayReviewInsight()
+    if !insight.checkIn.isEmpty {
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(alignment: .firstTextBaseline) {
+          Text("Mid-week check on Monday's \(insight.checkIn.count == 1 ? "change" : "\(insight.checkIn.count) changes")")
+            .font(SerenityType.scaledSystem(size: 17, weight: .semibold))
+          Spacer()
+          Button("Last week's review") { appState.setSection(.review) }
+            .buttonStyle(.plain)
+            .font(SerenityType.bodyMedium)
+            .foregroundStyle(SerenityPalette.accent)
+            .hoverCursor(.pointingHand)
+        }
+        ForEach(insight.checkIn) { line in
+          HStack(alignment: .top, spacing: 10) {
+            ReviewPill(text: label(line.status), tint: tint(line.status))
+            VStack(alignment: .leading, spacing: 2) {
+              Text(line.title).font(SerenityType.bodyMedium)
+              Text(line.text).font(SerenityType.caption).foregroundStyle(SerenityPalette.textSecondary)
+            }
+          }
+          .accessibilityElement(children: .combine)
+        }
+        Button("Got it") {
+          Task { await appState.dismissReviewCheckIn(weekKey: insight.weekKey) }
+        }
+        .buttonStyle(SerenitySecondaryButtonStyle())
+        .hoverCursor(.pointingHand)
+      }
+      .reviewPanel()
+    }
+  }
+
+  private func label(_ status: WeeklyAcceptedAction.Outcome?) -> String {
+    switch status {
+    case .held: return "Held"
+    case .partly: return "Partly"
+    case .missed: return "Didn't hold"
+    case nil: return "So far"
+    }
+  }
+
+  private func tint(_ status: WeeklyAcceptedAction.Outcome?) -> Color {
+    switch status {
+    case .held: return SerenityPalette.routineAccent
+    case .partly, .missed: return SerenityPalette.attention
+    case nil: return SerenityPalette.textSecondary
+    }
+  }
+}
+
+/// A line under a routine or goal on Today, from the review.
+struct TodayReviewHint: View {
+  @EnvironmentObject private var appState: AppState
+  let text: String
+  var offerFindingId: String?
+  var weekKey: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(text)
+        .font(SerenityType.caption)
+        .foregroundStyle(SerenityPalette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+      if let offerFindingId, let weekKey {
+        Button("Remind at 8:30 after late evenings") {
+          Task { await appState.acceptFinding(offerFindingId, weekKey: weekKey) }
+        }
+        .buttonStyle(.plain)
+        .font(SerenityType.caption.weight(.semibold))
+        .foregroundStyle(SerenityPalette.accent)
+        .hoverCursor(.pointingHand)
       }
     }
   }

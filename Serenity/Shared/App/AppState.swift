@@ -3951,6 +3951,7 @@ final class AppState: ObservableObject {
     let existing = weeklyReview(forWeek: key) ?? WeeklyReviewEntity(weekKey: key, weekStart: start, createdAt: now, updatedAt: now)
     guard existing.payload.preparedAt == nil, existing.completedAt == nil else { return existing }
 
+    await settleOutcomes(beforeWeek: start, now: now)
     let recap = weeklyRecap(weekStart: start, now: now)
     let enriched = await enrichWeeklyFindings(recap, now: now)
     var review = weeklyReview(forWeek: key) ?? existing
@@ -3961,6 +3962,38 @@ final class AppState: ObservableObject {
     review.payload.keptLines = (recap.moved + recap.stalled).map(\.id)
     await saveWeeklyReview(review, now: now)
     return review
+  }
+
+  /// Writes down how the previous review's changes went, for the line at the top of this one.
+  private func settleOutcomes(beforeWeek start: Date, now: Date) async {
+    guard let previousStart = WeeklyReview.calendar.date(byAdding: .day, value: -7, to: start),
+          let previous = weeklyReview(forWeek: WeeklyReview.weekKey(forWeekStart: previousStart)),
+          previous.payload.liveActions.contains(where: { $0.outcomeText == nil })
+    else { return }
+    let format = RecapFormat(calendar: WeeklyReview.calendar, locale: .current)
+    await updateWeeklyReview(weekKey: previous.weekKey, now: now) { payload in
+      for index in payload.actions.indices where payload.actions[index].undoneAt == nil && payload.actions[index].outcomeText == nil {
+        let result = WeeklyReview.outcome(of: payload.actions[index], tasks: tasks, focusBlocks: focusBlocks, routines: routines, routineChecks: routineChecks, now: now, format: format)
+        payload.actions[index].outcome = result.status
+        payload.actions[index].outcomeText = result.text
+      }
+    }
+  }
+
+  func todayReviewInsight(now: Date = Date()) -> WeeklyReview.TodayInsight {
+    WeeklyReview.todayInsight(
+      reviews: weeklyReviews,
+      tasks: tasks,
+      focusBlocks: focusBlocks,
+      routines: routines,
+      routineChecks: routineChecks,
+      now: now,
+      format: RecapFormat(calendar: WeeklyReview.calendar, locale: .current)
+    )
+  }
+
+  func dismissReviewCheckIn(weekKey: String, now: Date = Date()) async {
+    await updateWeeklyReview(weekKey: weekKey, now: now) { $0.checkInSeenAt = now }
   }
 
   func updateWeeklyReview(weekKey: String, now: Date = Date(), _ change: (inout WeeklyReviewPayload) -> Void) async {

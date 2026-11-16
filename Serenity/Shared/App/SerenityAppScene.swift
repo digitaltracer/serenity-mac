@@ -1599,6 +1599,8 @@ private struct HomeSectionView: View {
         aiQuickCapturePreview(preview)
       }
       TodayNeedsYouPanel(standupPending: standupPending)
+      TodayReviewHighlightCard()
+      TodayReviewCheckInCard()
       if density == .regular || density == .compact {
         HStack(alignment: .top, spacing: 18) {
           TodayPlanPanel()
@@ -15567,6 +15569,7 @@ private struct TodayGoalsCard: View {
   @EnvironmentObject private var appState: AppState
 
   var body: some View {
+    let reviewInsight = appState.todayReviewInsight()
     let reports = appState.goalReports()
       .filter { $0.kind != .area && $0.goal.status == .active }
       .sorted { lhs, rhs in
@@ -15614,6 +15617,9 @@ private struct TodayGoalsCard: View {
                   .font(SerenityType.caption)
                   .foregroundStyle(SerenityPalette.textSecondary)
                   .lineLimit(2)
+                if let hint = reviewInsight.goalHints[report.id] {
+                  TodayReviewHint(text: hint)
+                }
               }
               .contentShape(Rectangle())
             }
@@ -15689,6 +15695,7 @@ private struct TodayRoutinesCard: View {
 
   var body: some View {
     let summaries = appState.routineSummaries().filter(\.isScheduledToday)
+    let reviewInsight = appState.todayReviewInsight()
 
     VStack(alignment: .leading, spacing: 10) {
       HStack(alignment: .firstTextBaseline) {
@@ -15728,6 +15735,10 @@ private struct TodayRoutinesCard: View {
               .foregroundStyle(summary.streak == 0 && summary.wasReset ? SerenityPalette.attention : SerenityPalette.textSecondary)
           }
           .frame(minHeight: 32)
+          if let hint = reviewInsight.routineHints[summary.routine.id] {
+            TodayReviewHint(text: hint.text, offerFindingId: hint.offerFindingId, weekKey: reviewInsight.weekKey)
+              .padding(.leading, 30)
+          }
         }
       }
     }

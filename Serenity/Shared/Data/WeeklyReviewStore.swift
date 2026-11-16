@@ -85,6 +85,8 @@ struct WeeklyReviewPayload: Codable, Equatable {
   var writtenByModel = false
   /// When the findings were worked out; zero findings is a valid result, so emptiness can't say this.
   var preparedAt: Date?
+  /// Set when the mid-week check-in on Today was dismissed.
+  var checkInSeenAt: Date?
 
   init() {}
 
@@ -103,6 +105,7 @@ struct WeeklyReviewPayload: Codable, Equatable {
     journalEntryId = try container.decodeIfPresent(String.self, forKey: .journalEntryId)
     writtenByModel = try container.decodeIfPresent(Bool.self, forKey: .writtenByModel) ?? false
     preparedAt = try container.decodeIfPresent(Date.self, forKey: .preparedAt)
+    checkInSeenAt = try container.decodeIfPresent(Date.self, forKey: .checkInSeenAt)
   }
 
   /// The accepted actions still in force.
